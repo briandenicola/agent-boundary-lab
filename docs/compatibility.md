@@ -488,7 +488,21 @@ So what stage 1 established is narrower than it first appears:
 2. `properties.type` is set to `UserManaged` on both policies, matching the `SystemManaged`
    value the built-in policies report. Added at the same time as `basePolicyName`;
    **not independently confirmed as required.**
-3. Stage 1 must be re-run after fixing the base policy before any conclusion is drawn.
+3. `properties.contentFilters` is also mandatory — the create fails with
+   `Content filters cannot be null` if it is absent, even when a base policy is named. A
+   custom policy does not inherit the base's filters implicitly.
+
+   The probe supplies the 19 filters read verbatim from `Microsoft.DefaultV2`, shared by
+   both policies through one Terraform local. Content filtering is not the variable under
+   test, so holding it identical by construction keeps any difference in outcome
+   attributable to `egressPolicy.mode` alone.
+4. `properties.mode` (content safety) is set to `Blocking` in both policies, matching the
+   value the system policies report on this account and API version. `Default` appears in
+   the documented enum but was not exercised; `Blocking` is known-good here.
+5. A direct `GET` on a system-managed policy returns **404**, even though the same policy
+   is present in the `raiPolicies` collection. The collection is the only way to read a
+   base policy's contents.
+6. Stage 1 must be re-run after these fixes before any conclusion is drawn.
 
 #### What stage 1 can never establish
 

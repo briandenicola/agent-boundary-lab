@@ -26,6 +26,161 @@
 #############################################
 
 locals {
+  # Copied VERBATIM from the Microsoft.DefaultV2 system policy on this account, read with
+  # `task spike:show-base` on 2026-10-07.
+  #
+  # Content filtering is NOT the variable under test. A custom policy is required to
+  # supply its own contentFilters - the create fails with "Content filters cannot be null"
+  # otherwise - so the safest filters to supply are the platform's own defaults,
+  # unmodified. Shared by both policies through this one local, so Audit and Enforced are
+  # identical by construction rather than by review, and no difference in content
+  # filtering can be mistaken for a difference in egress behaviour.
+  #
+  # Do not hand-edit. Re-read it from the account if the base policy changes.
+  content_filters = [
+    {
+      name              = "Hate"
+      source            = "Prompt"
+      severityThreshold = "Medium"
+      blocking          = true
+      enabled           = true
+      action            = "NONE"
+    },
+    {
+      name              = "Hate"
+      source            = "Completion"
+      severityThreshold = "Medium"
+      blocking          = true
+      enabled           = true
+      action            = "NONE"
+    },
+    {
+      name              = "Sexual"
+      source            = "Prompt"
+      severityThreshold = "Medium"
+      blocking          = true
+      enabled           = true
+      action            = "NONE"
+    },
+    {
+      name              = "Sexual"
+      source            = "Completion"
+      severityThreshold = "Medium"
+      blocking          = true
+      enabled           = true
+      action            = "NONE"
+    },
+    {
+      name              = "Violence"
+      source            = "Prompt"
+      severityThreshold = "Medium"
+      blocking          = true
+      enabled           = true
+      action            = "NONE"
+    },
+    {
+      name              = "Violence"
+      source            = "Completion"
+      severityThreshold = "Medium"
+      blocking          = true
+      enabled           = true
+      action            = "NONE"
+    },
+    {
+      name              = "Selfharm"
+      source            = "Prompt"
+      severityThreshold = "Medium"
+      blocking          = true
+      enabled           = true
+      action            = "NONE"
+    },
+    {
+      name              = "Selfharm"
+      source            = "Completion"
+      severityThreshold = "Medium"
+      blocking          = true
+      enabled           = true
+      action            = "NONE"
+    },
+    {
+      name     = "Jailbreak"
+      source   = "Prompt"
+      blocking = true
+      enabled  = true
+      action   = "NONE"
+    },
+    {
+      name     = "Protected Material Text"
+      source   = "Completion"
+      blocking = true
+      enabled  = true
+      action   = "NONE"
+    },
+    {
+      name     = "Protected Material Code"
+      source   = "Completion"
+      blocking = false
+      enabled  = true
+      action   = "NONE"
+    },
+    {
+      name     = "DefenderForAI"
+      source   = "Prompt"
+      blocking = true
+      enabled  = true
+      action   = "NONE"
+    },
+    {
+      name     = "DefenderForAI"
+      source   = "Completion"
+      blocking = true
+      enabled  = true
+      action   = "NONE"
+    },
+    {
+      name     = "DefenderForAI"
+      source   = "PostRun"
+      blocking = true
+      enabled  = true
+      action   = "NONE"
+    },
+    {
+      name     = "DefenderForAI"
+      source   = "PostToolCall"
+      blocking = true
+      enabled  = true
+      action   = "NONE"
+    },
+    {
+      name     = "DefenderForAI"
+      source   = "PreRun"
+      blocking = true
+      enabled  = true
+      action   = "NONE"
+    },
+    {
+      name     = "DefenderForAI"
+      source   = "PreToolCall"
+      blocking = true
+      enabled  = true
+      action   = "NONE"
+    },
+    {
+      name     = "Indirect Attack"
+      source   = "Prompt"
+      blocking = false
+      enabled  = true
+      action   = "NONE"
+    },
+    {
+      name     = "Indirect Attack"
+      source   = "PostToolCall"
+      blocking = false
+      enabled  = true
+      action   = "NONE"
+    },
+  ]
+
   # Shared by both policies so they cannot drift apart. If the allow rule differed
   # between Audit and Enforced, a difference in outcome would no longer be attributable
   # to the mode.
@@ -57,8 +212,13 @@ resource "azapi_resource" "rai_policy_audit" {
       basePolicyName = var.rai_base_policy_name
       type           = "UserManaged"
 
-      # Content safety behaviour. Held constant; not the variable under test.
-      mode = "Default"
+      # CONTENT SAFETY behaviour, not network behaviour. Held constant across both
+      # policies precisely so it cannot be mistaken for the variable under test.
+      # "Blocking" is the value the system policies report on this account and API
+      # version, so it is known-good rather than guessed.
+      mode = "Blocking"
+
+      contentFilters = local.content_filters
 
       egressPolicy = {
         # Network behaviour. Audit observes and records without blocking, which gives us
@@ -84,7 +244,9 @@ resource "azapi_resource" "rai_policy_enforced" {
       basePolicyName = var.rai_base_policy_name
       type           = "UserManaged"
 
-      mode = "Default"
+      mode = "Blocking"
+
+      contentFilters = local.content_filters
 
       egressPolicy = {
         mode          = "Enforced"
