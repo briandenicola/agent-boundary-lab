@@ -53,6 +53,29 @@ tasks:
           --query "value[].{name:name, type:properties.type, basePolicy:properties.basePolicyName, mode:properties.mode, egress:properties.egressPolicy}" \
           -o json
 
+  show-base:
+    desc: Dump a base RAI policy in full, to copy its contentFilters verbatim
+    cmds:
+      # A read. A custom policy must supply contentFilters, and they must be IDENTICAL
+      # across our two policies - content filtering is not the variable under test, so
+      # any difference there would confound the egress result. Copying the base policy's
+      # own filters is the most defensible way to hold them constant.
+      - |
+        set -eu
+        ACCOUNT_ID=$(az resource list \
+          --tag Application="{{.SPIKE_TITLE}}" \
+          --query "[?type=='Microsoft.CognitiveServices/accounts'] | [0].id" -o tsv)
+        if [ -z "$ACCOUNT_ID" ]; then
+          echo "No Foundry account found with tag Application='{{.SPIKE_TITLE}}'."
+          exit 1
+        fi
+        echo "=== {{.BASE}} in full ==="
+        az rest --method get \
+          --url "https://management.azure.com${ACCOUNT_ID}/raiPolicies/{{.BASE}}?api-version=2026-05-15-preview" \
+          -o json
+    vars:
+      BASE: '{{default "Microsoft.DefaultV2" .CLI_ARGS}}'
+
   plan:
     desc: Show what the spike would create (creates nothing)
     cmds:
