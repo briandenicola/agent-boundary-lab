@@ -1,0 +1,72 @@
+version: '3'
+
+# Stage 1 composability probe.
+#
+# This creates billable Azure resources. It is cheap and short-lived, but it is real, so
+# nothing here runs without being asked for explicitly. There is no task that applies as
+# a side effect of planning or showing output.
+#
+# Tear it down the same day with `task spike:down`. It uses its own Application tag, so
+# teardown cannot reach the main demo environment.
+
+env:
+  SPIKE_DIR: infra/spike
+
+tasks:
+  default:
+    desc: Show available spike tasks
+    cmds:
+      - task --list
+
+  whoami:
+    desc: Show which subscription and tenant an apply would target
+    cmds:
+      - az account show --query "{subscription:name, id:id, tenant:tenantId, user:user.name}" -o table
+
+  init:
+    desc: Initialise terraform for the spike
+    cmds:
+      - terraform -chdir=./{{.SPIKE_DIR}} init -upgrade
+
+  plan:
+    desc: Show what the spike would create (creates nothing)
+    cmds:
+      - task: init
+      - terraform -chdir=./{{.SPIKE_DIR}} plan -compact-warnings -var "region={{.REGION}}"
+    vars:
+      REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
+
+  up:
+    desc: CREATES BILLABLE RESOURCES. Apply the stage 1 probe, then show the result
+    prompt: This creates a Foundry account and two RAI policies in Azure. Continue?
+    cmds:
+      - task: init
+      - terraform -chdir=./{{.SPIKE_DIR}} apply -auto-approve -compact-warnings -var "region={{.REGION}}"
+      - task: result
+    vars:
+      REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
+
+  result:
+    desc: Show what ARM actually stored, which is the point of the probe
+    cmds:
+      - |
+        echo "=== did ARM keep the managed VNet configuration? ==="
+        terraform -chdir=./{{.SPIKE_DIR}} output -json stored_network_injections
+        echo
+        echo "=== did ARM keep the Audit egress policy? ==="
+        terraform -chdir=./{{.SPIKE_DIR}} output -json stored_egress_policy_audit
+        echo
+        echo "=== did ARM keep the Enforced egress policy? ==="
+        terraform -chdir=./{{.SPIKE_DIR}} output -json stored_egress_policy_enforced
+        echo
+        terraform -chdir=./{{.SPIKE_DIR}} output -raw finding
+        echo
+
+  down:
+    desc: Delete everything the spike created and remove local state
+    dir: '{{.SPIKE_DIR}}'
+    cmds:
+      # Deleted by tag rather than by terraform destroy, so a partial or failed apply
+      # still cleans up. The tag is the spike's own, never the main demo's.
+      - az group list --tag Application="{{.SPIKE_TITLE}}" --query "[].name" -o tsv | xargs --no-run-if-empty -ot -n 1 az group delete -y --no-wait -n || true
+      - rm -rf terraform.tfstate.d .terraform.lock.hcl .terraform terraform.tfstate terraform.tfstate.backup .terraform.tfstate.lock.info terraform.tfstate.* || true

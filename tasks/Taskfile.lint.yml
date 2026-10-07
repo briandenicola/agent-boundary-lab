@@ -1,0 +1,59 @@
+version: '3'
+
+# Everything here is local and free. No Azure access, no network, no billable resources.
+
+tasks:
+  default:
+    desc: Show available lint tasks
+    cmds:
+      - task --list
+
+  all:
+    desc: Run every local check
+    cmds:
+      - task: format
+      - task: ruff
+      - task: types
+      - task: test
+      - task: terraform
+
+  format:
+    desc: Check formatting
+    cmds:
+      - .venv/bin/python -m ruff format --check src services tests
+
+  fix:
+    desc: Apply formatting and safe lint fixes
+    cmds:
+      - .venv/bin/python -m ruff format src services tests
+      - .venv/bin/python -m ruff check --fix src services tests
+
+  ruff:
+    desc: Lint
+    cmds:
+      - .venv/bin/python -m ruff check src services tests
+
+  types:
+    desc: Type-check
+    cmds:
+      - .venv/bin/python -m mypy src services
+
+  test:
+    desc: Run the unit suite. Needs no credentials, no network, no Azure
+    cmds:
+      - .venv/bin/python -m pytest tests/unit -q
+
+  terraform:
+    desc: Validate and format-check the terraform
+    cmds:
+      - terraform fmt -check -recursive infra
+      - terraform -chdir=./infra/spike init -backend=false -upgrade >/dev/null
+      - terraform -chdir=./infra/spike validate
+
+  venv:
+    desc: Create the virtualenv and install dependencies
+    cmds:
+      # uv, not pip: google-adk and azure-ai-agentserver-core have incompatible
+      # opentelemetry pins and pip cannot resolve them. See pyproject.toml.
+      - uv venv --python 3.12 .venv
+      - VIRTUAL_ENV=.venv uv pip install -e ".[dev,services]"

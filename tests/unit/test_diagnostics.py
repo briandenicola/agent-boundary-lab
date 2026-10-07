@@ -110,7 +110,7 @@ class TestNoArbitraryDestination:
     @respx.mock
     def test_unknown_tool_name_is_rejected(self, settings: Settings) -> None:
         policy = respx.get(POLICY_URL).mock(return_value=httpx.Response(200, json={}))
-        status, body = call(make_request(query="tool=https://evil.example.com"), settings)
+        status, _ = call(make_request(query="tool=https://evil.example.com"), settings)
         assert status == 400
         assert not policy.called, "an unknown tool name must not fall through to a real call"
 

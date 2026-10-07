@@ -14,7 +14,6 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-
 from services.policy_api import main as policy_api
 from services.test_receiver import main as test_receiver
 
@@ -78,9 +77,7 @@ class TestReceiverNeverRejects:
         ids=["empty", "malformed", "json", "large"],
     )
     def test_everything_is_accepted(self, receiver: TestClient, payload: bytes) -> None:
-        response = receiver.post(
-            "/ingest", content=payload, headers={"X-Demo-Run-Id": RUN_ID}
-        )
+        response = receiver.post("/ingest", content=payload, headers={"X-Demo-Run-Id": RUN_ID})
         assert response.status_code == 202, (
             "the receiver rejected a request on its own judgement; that is "
             "indistinguishable from a platform denial and invalidates the evidence"

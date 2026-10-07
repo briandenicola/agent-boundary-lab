@@ -31,6 +31,12 @@ services = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
 ]
+# Only needed to export traces from a LOCAL run. The hosted container does not use it:
+# the agent server host owns telemetry configuration there, so shipping this in the
+# agent image would add weight for no benefit.
+telemetry = [
+    "azure-monitor-opentelemetry>=1.6",
+]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
@@ -91,3 +97,4 @@ packages = ["containment_demo"]
 mypy_path = "src"
 strict = true
 warn_unused_ignores = true
+

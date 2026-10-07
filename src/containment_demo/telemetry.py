@@ -18,6 +18,7 @@ outside the hosted runtime and is a no-op if a provider is already registered.
 
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 from typing import Any
@@ -110,9 +111,21 @@ def configure_local_telemetry(settings: Settings) -> bool:
         logger.info("no Application Insights connection string; traces stay local")
         return False
 
-    from azure.monitor.opentelemetry import configure_azure_monitor
+    try:
+        # Resolved at runtime rather than imported at module scope: this is an optional
+        # extra, and a static import would make the type checker depend on a package the
+        # hosted image deliberately does not ship.
+        monitor = importlib.import_module("azure.monitor.opentelemetry")
+    except ImportError:
+        # A local run without it still works; it simply keeps its traces local, which is
+        # honest rather than silently broken.
+        logger.warning(
+            "azure-monitor-opentelemetry is not installed; traces stay local. "
+            "Install with: uv pip install -e '.[telemetry]'"
+        )
+        return False
 
-    configure_azure_monitor(
+    monitor.configure_azure_monitor(
         connection_string=connection_string,
         resource_attributes=run_attributes(settings),
     )

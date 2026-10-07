@@ -119,9 +119,7 @@ class TestCaBundle:
         monkeypatch.setenv("SSL_CERT_FILE", "/run/b.pem")
         assert ca_bundle_path() == "/run/b.pem"
 
-    def test_is_read_fresh_every_call_not_cached(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_is_read_fresh_every_call_not_cached(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Rotation means a cached path goes stale and TLS starts failing."""
         monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/run/first.pem")
         assert ca_bundle_path() == "/run/first.pem"

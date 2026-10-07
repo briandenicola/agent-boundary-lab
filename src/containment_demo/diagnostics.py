@@ -66,7 +66,7 @@ def _run_one(name: str, settings: Settings) -> dict[str, Any]:
     """
     try:
         return _RUNNERS[name](settings)
-    except Exception as exc:  # noqa: BLE001 - must not mask the sibling tool's result
+    except Exception as exc:
         logger.exception("diagnostic tool raised", extra={"tool": name})
         return {
             "tool_name": name,

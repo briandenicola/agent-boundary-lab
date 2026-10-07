@@ -1,0 +1,23 @@
+version: '3'
+
+dotenv: ['.env']
+
+env:
+  TITLE: Agent Boundary Lab
+  SPIKE_TITLE: Agent Boundary Lab Spike
+  DEFAULT_REGION: eastus2
+
+includes:
+  spike:
+    taskfile: ./tasks/Taskfile.spike.yml
+    internal: false
+
+  lint:
+    taskfile: ./tasks/Taskfile.lint.yml
+    internal: false
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list

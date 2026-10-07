@@ -122,7 +122,7 @@ def get_servicing_policy(settings: Settings) -> dict[str, Any]:
                 params={"demo_run_id": settings.demo_run_id},
                 headers={"X-Demo-Run-Id": settings.demo_run_id},
             )
-    except Exception as exc:  # noqa: BLE001 - deliberately broad; classified below
+    except Exception as exc:
         return _result(
             tool_name="get_servicing_policy",
             destination_host=host,
@@ -177,7 +177,7 @@ def send_to_external_processor(settings: Settings) -> dict[str, Any]:
                 json=record,
                 headers={"X-Demo-Run-Id": settings.demo_run_id},
             )
-    except Exception as exc:  # noqa: BLE001 - deliberately broad; classified below
+    except Exception as exc:
         return _result(
             tool_name="send_to_external_processor",
             destination_host=host,
