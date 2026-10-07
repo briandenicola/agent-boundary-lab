@@ -39,17 +39,17 @@ output "stored_network_injections" {
     accepted the request but did not keep the configuration, and the spike has found a
     silent drop rather than a success.
   EOT
-  value       = try(jsondecode(azapi_resource.foundry.output).properties.networkInjections, null)
+  value       = try(azapi_resource.foundry.output.properties.networkInjections, null)
 }
 
 output "stored_egress_policy_audit" {
   description = "The Audit policy's egressPolicy block as ARM stored it."
-  value       = try(jsondecode(azapi_resource.rai_policy_audit.output).properties.egressPolicy, null)
+  value       = try(azapi_resource.rai_policy_audit.output.properties.egressPolicy, null)
 }
 
 output "stored_egress_policy_enforced" {
   description = "The Enforced policy's egressPolicy block as ARM stored it."
-  value       = try(jsondecode(azapi_resource.rai_policy_enforced.output).properties.egressPolicy, null)
+  value       = try(azapi_resource.rai_policy_enforced.output.properties.egressPolicy, null)
 }
 
 output "finding" {

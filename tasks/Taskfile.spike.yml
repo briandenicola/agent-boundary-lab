@@ -101,18 +101,44 @@ tasks:
   result:
     desc: Show what ARM actually stored, which is the point of the probe
     cmds:
+      # Read straight back from ARM rather than from terraform state. State records what
+      # terraform believes it wrote; this records what the platform actually kept, which
+      # is the only version worth drawing a conclusion from on a preview API.
       - |
+        set -eu
+        ACCOUNT_ID=$(az resource list \
+          --tag Application="{{.SPIKE_TITLE}}" \
+          --query "[?type=='Microsoft.CognitiveServices/accounts'] | [0].id" -o tsv)
+        if [ -z "$ACCOUNT_ID" ]; then
+          echo "No Foundry account found with tag Application='{{.SPIKE_TITLE}}'."
+          exit 1
+        fi
+
         echo "=== did ARM keep the managed VNet configuration? ==="
-        terraform -chdir=./{{.SPIKE_DIR}} output -json stored_network_injections
+        echo "(null or empty here means ARM accepted the request but dropped the config)"
+        az rest --method get \
+          --url "https://management.azure.com${ACCOUNT_ID}?api-version=2025-10-01-preview" \
+          --query "{networkInjections:properties.networkInjections, publicNetworkAccess:properties.publicNetworkAccess}" \
+          -o json
+
         echo
-        echo "=== did ARM keep the Audit egress policy? ==="
-        terraform -chdir=./{{.SPIKE_DIR}} output -json stored_egress_policy_audit
+        echo "=== did ARM keep the egress policies? ==="
+        echo "(contentFilters omitted for readability; egressPolicy is the point)"
+        az rest --method get \
+          --url "https://management.azure.com${ACCOUNT_ID}/raiPolicies?api-version=2026-05-15-preview" \
+          --query "value[?properties.type=='UserManaged'].{name:name, contentSafetyMode:properties.mode, basePolicy:properties.basePolicyName, egress:properties.egressPolicy}" \
+          -o json
+
         echo
-        echo "=== did ARM keep the Enforced egress policy? ==="
-        terraform -chdir=./{{.SPIKE_DIR}} output -json stored_egress_policy_enforced
-        echo
-        terraform -chdir=./{{.SPIKE_DIR}} output -raw finding
-        echo
+        echo "NOTE: a result here means ARM ACCEPTED and STORED the configuration."
+        echo "It does NOT mean the egress policy is enforced, that it takes precedence"
+        echo "over the managed network, or that a denied request would be attributable"
+        echo "to it. Control-plane acceptance is not data-plane enforcement."
+
+  result-state:
+    desc: Show the same thing from terraform state, for comparison
+    cmds:
+      - terraform -chdir=./{{.SPIKE_DIR}} output -json
 
   down:
     desc: Delete everything the spike created and remove local state
