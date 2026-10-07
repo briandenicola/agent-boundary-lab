@@ -25,7 +25,7 @@ Target region: **East US 2**. Target subscription: from the ambient `az login` c
 | Model access | Google ADK `LiteLlm` wrapper → Azure model deployment, authenticated with `azure_ad_token_provider` | Only documented non-Gemini path for ADK; the token-provider callback preserves refresh under managed identity. |
 | Egress policy resource | `Microsoft.CognitiveServices/accounts/raiPolicies@2026-05-15-preview` | Confirmed in the ARM template reference. Not a new resource type — egress is a nested property on the existing RAI policy. |
 | Evidence source | Application Insights `traces`, `message == "Network egress decision"` | The only documented location. |
-| Account networking | **OPEN — see [Blocker 1](#blocker-1-managed-vnet--egress-policy-composability-is-undocumented)** | Blocking decision; do not write account networking Terraform until resolved. |
+| Account networking | **Stage 1 PASSED 2026-10-07 — see [Blocker 1](#blocker-1-managed-vnet--egress-policy-composability-is-undocumented)** | Managed VNet + egress policies coexist and store intact. Enforcement attribution still unproven. |
 
 ---
 
@@ -439,39 +439,71 @@ double-registered. Revisit when ADK relaxes its pin.
 
 ### Blocker 1 — managed VNet + egress policy composability is undocumented
 
-**Status: partially answered empirically on 2026-10-07. Still open on the question that matters.**
+**Status: stage 1 PASSED on 2026-10-07. The architecture decision is unblocked. The
+enforcement question remains open and is stage 2's job.**
 
 #### Stage 1 result — what was actually observed
 
 A probe (`infra/spike`) applied a Foundry account carrying
 `properties.networkInjections` with `useMicrosoftManagedNetwork = true`, alongside two
-`raiPolicies` carrying `egressPolicy`.
+`raiPolicies` carrying `egressPolicy`. Verified by reading the configuration **back from
+ARM**, not from Terraform state, so what is recorded here is what the platform kept
+rather than what Terraform believed it wrote.
 
 | Observation | Result |
 | --- | --- |
-| Foundry account with `networkInjections` + `publicNetworkAccess: Disabled` | **Created successfully** |
-| `raiPolicies` with `egressPolicy` | **Failed — but for an unrelated reason** (see below) |
+| Foundry account with `networkInjections` + `publicNetworkAccess: Disabled` | **Created, and stored verbatim** |
+| `raiPolicies` with `egressPolicy`, Audit and Enforced | **Created, and stored verbatim** |
+| Any property silently dropped or defaulted | **None** |
 
-The RAI policy create returned `400 Resource has invalid base policy`. This is **not**
-evidence of a composability conflict. It is the generic error ARM returns when a custom RAI
-policy omits `properties.basePolicyName`, which the probe did. The request never got far
-enough to be evaluated against the account's network configuration.
+Read back from ARM (`eastus2`, account API `2025-10-01-preview`, policy API
+`2026-05-15-preview`):
 
-So what stage 1 established is narrower than it first appears:
+```jsonc
+// account
+"networkInjections": [
+  { "scenario": "agent", "subnetArmId": "", "useMicrosoftManagedNetwork": true }
+],
+"publicNetworkAccess": "Disabled"
 
-* ARM **does** accept a managed VNet on a Foundry account that we then attempt to attach
-  egress policies to. The account creation did not reject the combination up front.
-* Whether the two **compose** is still unknown, because the policy create failed before
-  reaching that question.
+// both policies, differing only in egressPolicy.mode
+"egressPolicy": {
+  "defaultAction": "Deny",
+  "mode": "Audit",           // and "Enforced" on the sibling policy
+  "rules": [
+    { "name": "allow-policy-api", "ruleType": "Fqdn",
+      "match": { "host": "..." }, "action": { "actionType": "Allow" } }
+  ]
+}
+```
 
-#### Consequences
+So: **a managed VNet and network egress policies can coexist on one Foundry account.**
+The undocumented combination is accepted and persisted intact. Option 2 below is viable
+and option 1 is no longer forced.
 
-1. `basePolicyName` is mandatory on a custom RAI policy. The valid values are account- and
-   API-version-specific, so they must be read from the account
-   (`task spike:base-policies`) rather than assumed.
+#### What stage 1 does NOT establish
+
+This is control-plane acceptance. It says nothing about:
+
+* whether the egress policy is actually enforced at the data plane;
+* which layer wins when both the managed network and the egress policy apply;
+* whether a denied request is attributable to the egress policy rather than to the
+  managed network's own routing.
+
+That last point is the one that matters for the demo's central claim, and it is exactly
+what a passing stage 1 cannot answer. **Stage 2 — a real agent making real calls under
+each policy — is the test.** Until then, no document may describe containment as proven.
+
+#### API requirements discovered empirically
+
+None of these are in the egress-controls documentation. All were found by failed applies.
+
+1. `basePolicyName` is mandatory on a custom RAI policy; omitting it returns
+   `400 Resource has invalid base policy`. Valid values are account- and
+   API-version-specific, so read them from the account (`task spike:base-policies`).
 
    **Confirmed by listing, 2026-10-07**, on an `AIServices` account in `eastus2` at API
-   version `2026-05-15-preview`. Three system-managed base policies exist:
+   version `2026-05-15-preview`:
 
    | Name | `properties.type` | `properties.mode` | `egressPolicy` |
    | --- | --- | --- | --- |
@@ -479,48 +511,39 @@ So what stage 1 established is narrower than it first appears:
    | `Microsoft.DefaultV2` | `SystemManaged` | `Blocking` | `null` |
    | `Microsoft.MAIDefault` | `SystemManaged` | `Blocking` | `null` |
 
-   Two things worth noting. None of the system policies carries an `egressPolicy`, so
-   egress is something a custom policy adds rather than overrides. And all three are
-   `Blocking` for **content safety**, which is the unrelated `properties.mode` — it is
-   not the network mode and must not be read as one.
-
-   `Microsoft.DefaultV2` is the probe's default and is now confirmed to exist.
-2. `properties.type` is set to `UserManaged` on both policies, matching the `SystemManaged`
-   value the built-in policies report. Added at the same time as `basePolicyName`;
-   **not independently confirmed as required.**
+   No system policy carries an `egressPolicy`, so egress is something a custom policy
+   **adds**, never something it overrides.
+2. `properties.type` is set to `UserManaged` on both policies. Added at the same time as
+   `basePolicyName`; **not independently confirmed as required.**
 3. `properties.contentFilters` is also mandatory — the create fails with
-   `Content filters cannot be null` if it is absent, even when a base policy is named. A
-   custom policy does not inherit the base's filters implicitly.
+   `Content filters cannot be null` even when a base policy is named. A custom policy
+   does **not** inherit the base's filters implicitly.
 
    The probe supplies the 19 filters read verbatim from `Microsoft.DefaultV2`, shared by
    both policies through one Terraform local. Content filtering is not the variable under
    test, so holding it identical by construction keeps any difference in outcome
    attributable to `egressPolicy.mode` alone.
 4. `properties.mode` (content safety) is set to `Blocking` in both policies, matching the
-   value the system policies report on this account and API version. `Default` appears in
-   the documented enum but was not exercised; `Blocking` is known-good here.
+   value the system policies report. `Default` appears in the documented enum but was not
+   exercised; `Blocking` is known-good here.
 5. A direct `GET` on a system-managed policy returns **404**, even though the same policy
    is present in the `raiPolicies` collection. The collection is the only way to read a
    base policy's contents.
-6. Stage 1 must be re-run after these fixes before any conclusion is drawn.
-
-#### What stage 1 can never establish
-
-Even a fully successful stage 1 proves only that **ARM accepted the configuration**. It says
-nothing about which layer enforces when both apply, or whether a denied request is
-attributable to the egress policy rather than the managed network. That requires stage 2: a
-real agent making real calls. Control-plane acceptance is not data-plane enforcement, and
-the distinction must survive into the final report.
+6. `azapi` v2 exposes `output` as a decoded object, not a JSON string. `jsondecode()` on
+   it errors, and a wrapping `try()` will swallow that into a silently missing output.
 
 #### Options, in order of preference
 
 1. **No managed VNet on the Foundry account for this demo.** Private endpoints still protect
    the backing resources (ACR, Key Vault, Log Analytics, storage). The experiment stays clean.
-2. **Managed VNet, but prove composability empirically first** — confirm ARM even accepts
-   `networkInjections` + an attached egress policy, then confirm the Audit/Enforced difference
-   is still observable. Costs 30+ minutes per apply and may end in option 1 anyway.
-   *(Currently in progress; stage 1 blocked on the base policy fix above.)*
+2. **Managed VNet, but prove composability empirically first.**
+   *Stage 1 passed: the configuration is accepted and stored intact. Composability at the
+   control plane is established; enforcement attribution is not.*
 3. Build both and compare. Most expensive; most complete evidence.
+
+**Still true regardless:** if the demo runs with a managed VNet, the report must show that
+a denial is attributable to the egress policy and not to managed-network routing. A
+single-variable claim needs single-variable evidence, and stage 1 does not supply it.
 
 
 ### Blocker 2 — preview with no SLA
