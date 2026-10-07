@@ -40,8 +40,7 @@ tasks:
         set -eu
         ACCOUNT_ID=$(az resource list \
           --tag Application="{{.SPIKE_TITLE}}" \
-          --resource-type Microsoft.CognitiveServices/accounts \
-          --query "[0].id" -o tsv)
+          --query "[?type=='Microsoft.CognitiveServices/accounts'] | [0].id" -o tsv)
         if [ -z "$ACCOUNT_ID" ]; then
           echo "No Foundry account found with tag Application='{{.SPIKE_TITLE}}'."
           exit 1
