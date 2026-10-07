@@ -1,0 +1,39 @@
+# Build context exclusions.
+#
+# No rule here ends in a slash. `az acr build` only strips trailing slashes from `!`
+# negation rules, so a rule written as `foo/` silently never matches and the directory
+# ships anyway. Write `foo`, not `foo/`.
+
+.git
+.github
+.venv
+venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+*.egg-info
+**/*.egg-info
+
+# Never ship local state, credentials or terraform state into an image.
+.env
+*.tfstate
+*.tfstate.*
+.terraform
+infra
+tasks
+
+# Tests and tooling are not needed at runtime.
+tests
+scripts
+.vscode
+.specify
+.squad
+.copilot
+
+Taskfile.yml
+*.md
+!docs/README.md
