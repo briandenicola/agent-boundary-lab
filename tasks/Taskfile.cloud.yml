@@ -1,0 +1,170 @@
+version: '3'
+
+# The full demo environment.
+#
+# This creates real, billable Azure resources including an AKS cluster and a PostgreSQL
+# Flexible Server. It is considerably more expensive than the spike, so nothing here
+# applies as a side effect of planning or reading output, and `cloud:up` always prompts.
+#
+# Tear it down with `task cloud:down` when you are finished.
+
+env:
+  CLOUD_DIR: infra/cloud
+  # Confirm the real value for your account with `task cloud:base-policies` before
+  # applying. A custom RAI policy must derive from a base policy that actually exists.
+  RAI_BASE_POLICY: '{{default "Microsoft.DefaultV2" .RAI_BASE_POLICY}}'
+
+tasks:
+  default:
+    desc: Show available cloud tasks
+    cmds:
+      - task --list
+
+  whoami:
+    desc: Show which subscription and tenant an apply would target
+    cmds:
+      - az account show --query "{subscription:name, id:id, tenant:tenantId, user:user.name}" -o table
+
+  init:
+    desc: Initialise terraform for the demo environment
+    cmds:
+      - terraform -chdir=./{{.CLOUD_DIR}} init -upgrade
+
+  fmt:
+    desc: Format the terraform
+    cmds:
+      - terraform -chdir=./{{.CLOUD_DIR}} fmt -recursive
+
+  validate:
+    desc: Validate the terraform without contacting Azure
+    cmds:
+      - terraform -chdir=./{{.CLOUD_DIR}} init -backend=false -input=false
+      - terraform -chdir=./{{.CLOUD_DIR}} validate
+
+  plan:
+    desc: Show what would be created (creates nothing)
+    cmds:
+      - task: init
+      - terraform -chdir=./{{.CLOUD_DIR}} plan -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name={{.RAI_BASE_POLICY}}"
+    vars:
+      REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
+
+  up:
+    desc: CREATES BILLABLE RESOURCES including AKS and PostgreSQL. Apply the environment
+    prompt: This creates a Foundry account, AKS cluster, PostgreSQL server, ACR, Container Apps and two RAI policies. These bill by the hour. Continue?
+    cmds:
+      - task: init
+      - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name={{.RAI_BASE_POLICY}}"
+      - task: endpoints
+    vars:
+      REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
+
+  base-policies:
+    desc: List the RAI base policies that exist on the demo's Foundry account
+    cmds:
+      - |
+        set -eu
+        ACCOUNT_ID=$(az resource list \
+          --tag Application="{{.TITLE}}" \
+          --query "[?type=='Microsoft.CognitiveServices/accounts'] | [0].id" -o tsv)
+        if [ -z "$ACCOUNT_ID" ]; then
+          echo "No Foundry account found with tag Application='{{.TITLE}}'."
+          exit 1
+        fi
+        az rest --method get \
+          --url "https://management.azure.com${ACCOUNT_ID}/raiPolicies?api-version=2026-05-15-preview" \
+          --query "value[].{name:name, type:properties.type, basePolicy:properties.basePolicyName, mode:properties.mode, egress:properties.egressPolicy}" \
+          -o json
+
+  show-base:
+    desc: Dump a base RAI policy in full, to copy its contentFilters verbatim
+    cmds:
+      # Fetched from the collection rather than by direct GET: a direct GET on a
+      # system-managed policy returns 404 even though it appears in the list.
+      - |
+        set -eu
+        ACCOUNT_ID=$(az resource list \
+          --tag Application="{{.TITLE}}" \
+          --query "[?type=='Microsoft.CognitiveServices/accounts'] | [0].id" -o tsv)
+        if [ -z "$ACCOUNT_ID" ]; then
+          echo "No Foundry account found with tag Application='{{.TITLE}}'."
+          exit 1
+        fi
+        az rest --method get \
+          --url "https://management.azure.com${ACCOUNT_ID}/raiPolicies?api-version=2026-05-15-preview" \
+          --query "value[?name=='{{.BASE}}'] | [0]" \
+          -o json
+    vars:
+      BASE: '{{default "Microsoft.DefaultV2" .CLI_ARGS}}'
+
+  endpoints:
+    desc: Show the agent's two destinations and which one is allowlisted
+    cmds:
+      - |
+        set -eu
+        echo "ALLOWLISTED   (expected: success)"
+        echo "  $(terraform -chdir=./{{.CLOUD_DIR}} output -raw policy_api_url)"
+        echo
+        echo "NOT ALLOWLISTED (expected: platform denial)"
+        echo "  $(terraform -chdir=./{{.CLOUD_DIR}} output -raw test_receiver_url)"
+        echo
+        echo "The only difference between these two is whether the egress policy names"
+        echo "them. No application code knows which is which."
+
+  policies:
+    desc: Prove the two RAI policies differ in EXACTLY one field
+    cmds:
+      # The single-variable claim is checkable, so check it rather than asserting it.
+      # Read from ARM, not from state: state is what terraform believes it wrote.
+      - |
+        set -eu
+        ACCOUNT_ID=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw foundry_account_id)
+
+        az rest --method get \
+          --url "https://management.azure.com${ACCOUNT_ID}/raiPolicies?api-version=2026-05-15-preview" \
+          --query "value[?properties.type=='UserManaged'].{name:name, contentSafetyMode:properties.mode, basePolicy:properties.basePolicyName, egressMode:properties.egressPolicy.mode, defaultAction:properties.egressPolicy.defaultAction, rules:properties.egressPolicy.rules}" \
+          -o json > /tmp/abl-policies.json
+        cat /tmp/abl-policies.json
+
+        echo
+        echo "=== difference between the two policies, ignoring the name ==="
+        AUDIT=$(jq -S 'map(select(.name=="egress-audit"))[0] | del(.name, .egressMode)' /tmp/abl-policies.json)
+        ENFORCED=$(jq -S 'map(select(.name=="egress-enforced"))[0] | del(.name, .egressMode)' /tmp/abl-policies.json)
+        if [ "$AUDIT" = "$ENFORCED" ]; then
+          echo "IDENTICAL apart from egressPolicy.mode. The single-variable design holds."
+        else
+          echo "THE TWO POLICIES DIFFER IN MORE THAN THE EGRESS MODE."
+          echo "Any result from this environment is UNATTRIBUTABLE until this is fixed."
+          diff <(echo "$AUDIT") <(echo "$ENFORCED") || true
+          exit 1
+        fi
+
+  output:
+    desc: Show all terraform outputs
+    cmds:
+      - terraform -chdir=./{{.CLOUD_DIR}} output
+
+  caveats:
+    desc: Print what this environment does and does not establish
+    cmds:
+      - terraform -chdir=./{{.CLOUD_DIR}} output -raw what_this_environment_does_not_prove
+      - echo
+
+  kubeconfig:
+    desc: Fetch AKS credentials for the workflow app
+    cmds:
+      - |
+        set -eu
+        RG=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw resource_group_name)
+        AKS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw aks_cluster_name)
+        az aks get-credentials --resource-group "$RG" --name "$AKS" --overwrite-existing
+
+  down:
+    desc: DELETES EVERYTHING this module created, and removes local state
+    prompt: This deletes the entire demo environment including the AKS cluster and the PostgreSQL server. Continue?
+    dir: '{{.CLOUD_DIR}}'
+    cmds:
+      # Deleted by tag rather than by terraform destroy, so a partial or failed apply
+      # still cleans up. The tag is the demo's own, never the spike's.
+      - az group list --tag Application="{{.TITLE}}" --query "[].name" -o tsv | xargs --no-run-if-empty -ot -n 1 az group delete -y --no-wait -n || true
+      - rm -rf terraform.tfstate.d .terraform.lock.hcl .terraform terraform.tfstate terraform.tfstate.backup .terraform.tfstate.lock.info terraform.tfstate.* || true

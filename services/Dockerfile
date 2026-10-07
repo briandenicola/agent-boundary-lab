@@ -17,6 +17,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# A missing or misspelled SERVICE would otherwise produce an image that builds fine and
+# then crashes at startup - which during a demo run looks exactly like the endpoint being
+# unreachable, the one failure mode that must never be ambiguous here.
+RUN test -n "${SERVICE}" || (echo "SERVICE build-arg is required (policy_api or test_receiver)" >&2; exit 1)
+
 RUN pip install --no-cache-dir "fastapi>=0.115" "uvicorn[standard]>=0.32"
 
 COPY services ./services

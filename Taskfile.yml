@@ -8,6 +8,14 @@ env:
   DEFAULT_REGION: eastus2
 
 includes:
+  cloud:
+    taskfile: ./tasks/Taskfile.cloud.yml
+    internal: false
+
+  build:
+    taskfile: ./tasks/Taskfile.build.yml
+    internal: false
+
   spike:
     taskfile: ./tasks/Taskfile.spike.yml
     internal: false

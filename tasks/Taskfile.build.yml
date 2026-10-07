@@ -1,0 +1,134 @@
+version: '3'
+
+# Image builds and endpoint deployment.
+#
+# Every build happens in ACR rather than on the operator's machine, so the image that
+# runs is the image ACR built, and nothing depends on a local Docker daemon.
+#
+# THE AGENT IMAGE DIGEST IS THE EXPERIMENT'S CONTROL. Both agent versions must run the
+# SAME digest, or the Audit and Enforced runs differ in more than the policy and the
+# result proves nothing. Tags are mutable and must never be used to publish a version -
+# use `task build:agent-digest` and pin what it prints.
+
+env:
+  CLOUD_DIR: infra/cloud
+  IMAGE_TAG: '{{default "latest" .IMAGE_TAG}}'
+
+tasks:
+  default:
+    desc: Show available build tasks
+    cmds:
+      - task --list
+
+  _acr:
+    internal: true
+    cmds:
+      - terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name
+
+  agent:
+    desc: BUILDS IN AZURE. Build and push the agent image to ACR
+    prompt: This runs a build in your Azure Container Registry. Continue?
+    cmds:
+      - |
+        set -eu
+        ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)
+        echo "building agent image in $ACR"
+        az acr build \
+          --registry "$ACR" \
+          --image "containment-demo-agent:{{.IMAGE_TAG}}" \
+          --file Dockerfile \
+          .
+      - task: agent-digest
+
+  services:
+    desc: BUILDS IN AZURE. Build and push both controlled-endpoint images to ACR
+    prompt: This runs builds in your Azure Container Registry. Continue?
+    cmds:
+      # TWO images from ONE Dockerfile. services/Dockerfile resolves the app at build
+      # time, so a running container cannot be repointed at the other service; building
+      # both from the same file keeps them from drifting apart in base layer or
+      # dependency version, which is what makes the policy API's success a usable control
+      # for the receiver's silence.
+      - |
+        set -eu
+        ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)
+        for SVC in policy_api test_receiver; do
+          IMG=$(echo "$SVC" | tr '_' '-')
+          echo "building $SVC in $ACR"
+          az acr build \
+            --registry "$ACR" \
+            --image "containment-demo-${IMG}:{{.IMAGE_TAG}}" \
+            --build-arg "SERVICE=${SVC}" \
+            --file services/Dockerfile \
+            .
+        done
+
+  all:
+    desc: BUILDS IN AZURE. Build both images
+    cmds:
+      - task: agent
+      - task: services
+
+  agent-digest:
+    desc: Print the agent image digest. This is what both agent versions must pin.
+    cmds:
+      - |
+        set -eu
+        ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)
+        SERVER=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_login_server)
+        DIGEST=$(az acr repository show \
+          --name "$ACR" \
+          --image "containment-demo-agent:{{.IMAGE_TAG}}" \
+          --query digest -o tsv)
+        echo
+        echo "=== pin THIS in both agent versions ==="
+        echo "${SERVER}/containment-demo-agent@${DIGEST}"
+        echo
+        echo "Deploying a tag instead would let the two versions run different code,"
+        echo "which makes the egress policy no longer the only variable between them."
+
+  deploy-endpoints:
+    desc: CHANGES AZURE. Point both Container Apps at their built images
+    prompt: This updates both controlled endpoints in Azure. Continue?
+    cmds:
+      # Terraform created these with a placeholder image and ignores later image changes,
+      # because the real image does not exist at plan time. This is the step that puts
+      # the real code behind them.
+      - |
+        set -eu
+        RG=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw resource_group_name)
+        NAME=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw resource_name)
+        SERVER=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_login_server)
+
+        for APP in policy-api test-receiver; do
+          IMAGE="${SERVER}/containment-demo-${APP}:{{.IMAGE_TAG}}"
+          echo "updating ${NAME}-${APP} -> ${IMAGE}"
+          az containerapp update \
+            --name "${NAME}-${APP}" \
+            --resource-group "$RG" \
+            --image "$IMAGE" \
+            --output none
+        done
+      - task: check-endpoints
+
+  check-endpoints:
+    desc: Confirm both endpoints are live before trusting any run that uses them
+    cmds:
+      # Run this BEFORE a demo run, never after a failure. An endpoint that was already
+      # down makes a failed call unattributable: the agent would have failed to reach it
+      # whether or not any policy existed.
+      - |
+        set -eu
+        POLICY=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw policy_api_url)
+        RECEIVER=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw test_receiver_url)
+
+        for URL in "$POLICY" "$RECEIVER"; do
+          printf '%s -> ' "$URL/healthz"
+          curl --silent --show-error --fail --max-time 15 "$URL/healthz" || echo "UNREACHABLE"
+          echo
+        done
+
+        echo
+        echo "Both must answer. The receiver being reachable from here is what makes it"
+        echo "meaningful when the AGENT cannot reach it: the difference is then the"
+        echo "egress policy, not a dead endpoint."

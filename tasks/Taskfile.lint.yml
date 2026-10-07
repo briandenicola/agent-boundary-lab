@@ -49,6 +49,8 @@ tasks:
       - terraform fmt -check -recursive infra
       - terraform -chdir=./infra/spike init -backend=false -upgrade >/dev/null
       - terraform -chdir=./infra/spike validate
+      - terraform -chdir=./infra/cloud init -backend=false -upgrade >/dev/null
+      - terraform -chdir=./infra/cloud validate
 
   venv:
     desc: Create the virtualenv and install dependencies
