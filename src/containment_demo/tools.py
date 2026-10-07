@@ -1,0 +1,220 @@
+"""The two business tools. Both are registered in every mode, without exception.
+
+Design constraints that are the entire point of this module:
+
+* Neither tool accepts a URL, host, or any other destination argument. Destinations come
+  from validated startup configuration only.
+* Neither tool knows which policy mode it is running under, and neither contains a
+  hostname check. There is no code path here that can refuse a destination.
+* TLS verification is always on. Redirects are disabled, so a 3xx cannot quietly move a
+  request to an un-allowlisted host. Timeouts are explicit and bounded.
+* Failures are classified as HTTP / TLS / DNS / timeout and never as "denied". The
+  application cannot observe a platform decision; claiming otherwise would turn this
+  demo into the application-level check it exists to avoid.
+* Each tool returns its own independent result, so a failure in one cannot suppress the
+  other's outcome.
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Any
+
+import httpx
+
+from containment_demo.settings import ErrorCategory, Settings, ca_bundle_path
+
+
+def _build_client(settings: Settings) -> httpx.Client:
+    """Construct the one HTTP client configuration used by both tools.
+
+    ``verify`` is either the injected proxy CA bundle or ``True`` for the system trust
+    store. It is never ``False``.
+    """
+    bundle = ca_bundle_path()
+    return httpx.Client(
+        timeout=httpx.Timeout(settings.http_timeout_seconds),
+        follow_redirects=False,
+        verify=bundle if bundle else True,
+    )
+
+
+def _classify(exc: Exception) -> ErrorCategory:
+    """Map a transport exception to an error category.
+
+    Ordering matters: ``ConnectError`` is the parent of several more specific failures,
+    so DNS and TLS are checked first. A generic connection failure is reported as such
+    rather than being flattened into something more confident than the evidence supports.
+    """
+    if isinstance(exc, httpx.TimeoutException):
+        return ErrorCategory.TIMEOUT
+    if isinstance(exc, httpx.ConnectError):
+        message = str(exc).lower()
+        if "certificate" in message or "ssl" in message or "tls" in message:
+            return ErrorCategory.TLS_ERROR
+        if "name or service not known" in message or "nodename nor servname" in message:
+            return ErrorCategory.DNS_ERROR
+        if "getaddrinfo" in message or "temporary failure in name resolution" in message:
+            return ErrorCategory.DNS_ERROR
+        return ErrorCategory.CONNECTION_ERROR
+    if isinstance(exc, httpx.TransportError):
+        return ErrorCategory.CONNECTION_ERROR
+    return ErrorCategory.UNEXPECTED
+
+
+def _result(
+    *,
+    tool_name: str,
+    destination_host: str,
+    settings: Settings,
+    started: float,
+    http_status: int | None = None,
+    error_category: ErrorCategory = ErrorCategory.NONE,
+    error_detail: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the bounded, structured result record emitted by both tools.
+
+    This is our application evidence schema, not a platform schema. It deliberately
+    carries no request or response body, no headers, and no credentials.
+    """
+    return {
+        "tool_name": tool_name,
+        "destination_host": destination_host,
+        "demo_run_id": settings.demo_run_id,
+        "policy_mode": str(settings.policy_mode),
+        "agent_name": settings.agent_name,
+        "agent_version": settings.agent_version,
+        "duration_ms": round((time.monotonic() - started) * 1000, 2),
+        "http_status": http_status,
+        "succeeded": error_category is ErrorCategory.NONE,
+        "error_category": str(error_category),
+        "error_detail": error_detail,
+        "result": payload,
+    }
+
+
+def _sanitize(exc: Exception) -> str:
+    """Reduce an exception to its type and a short message.
+
+    Full exception text can embed URLs, headers, or response fragments. We keep enough
+    to debug a transport failure and nothing that could leak a payload or a credential.
+    """
+    return f"{type(exc).__name__}: {str(exc)[:200]}"
+
+
+def get_servicing_policy(settings: Settings) -> dict[str, Any]:
+    """Retrieve the synthetic servicing policy from the allowlisted API.
+
+    Expected to succeed in every mode, including Enforced. If this call fails under
+    Enforced, the egress policy is over-broad and the demo is misconfigured — that is a
+    failure of the setup, not a successful containment result.
+    """
+    started = time.monotonic()
+    host = settings.policy_api_host
+    try:
+        with _build_client(settings) as client:
+            response = client.get(
+                str(settings.policy_api_url),
+                params={"demo_run_id": settings.demo_run_id},
+                headers={"X-Demo-Run-Id": settings.demo_run_id},
+            )
+    except Exception as exc:  # noqa: BLE001 - deliberately broad; classified below
+        return _result(
+            tool_name="get_servicing_policy",
+            destination_host=host,
+            settings=settings,
+            started=started,
+            error_category=_classify(exc),
+            error_detail=_sanitize(exc),
+        )
+
+    if response.status_code >= 400:
+        return _result(
+            tool_name="get_servicing_policy",
+            destination_host=host,
+            settings=settings,
+            started=started,
+            http_status=response.status_code,
+            error_category=ErrorCategory.HTTP_ERROR,
+            error_detail=f"HTTP {response.status_code}",
+        )
+
+    return _result(
+        tool_name="get_servicing_policy",
+        destination_host=host,
+        settings=settings,
+        started=started,
+        http_status=response.status_code,
+        payload=_bounded_json(response),
+    )
+
+
+def send_to_external_processor(settings: Settings) -> dict[str, Any]:
+    """Send a fixed synthetic record to the destination that is not allowlisted.
+
+    Under Enforced this is expected to fail. A bare failure here proves nothing on its
+    own: the HTTP 403 documented for the egress proxy is indistinguishable at this layer
+    from a 403 returned by the destination itself, and a DNS or TLS failure is not a
+    denial either. Attribution requires the platform's own decision record plus the
+    absence of a receipt at the destination. See docs/compatibility.md B5.
+    """
+    started = time.monotonic()
+    host = settings.test_receiver_host
+    record = {
+        "demo_run_id": settings.demo_run_id,
+        "record_type": "synthetic_servicing_case",
+        "case_reference": "SYNTHETIC-0001",
+        "note": "Synthetic demo record. Contains no customer data.",
+    }
+    try:
+        with _build_client(settings) as client:
+            response = client.post(
+                str(settings.test_receiver_url),
+                json=record,
+                headers={"X-Demo-Run-Id": settings.demo_run_id},
+            )
+    except Exception as exc:  # noqa: BLE001 - deliberately broad; classified below
+        return _result(
+            tool_name="send_to_external_processor",
+            destination_host=host,
+            settings=settings,
+            started=started,
+            error_category=_classify(exc),
+            error_detail=_sanitize(exc),
+        )
+
+    if response.status_code >= 400:
+        return _result(
+            tool_name="send_to_external_processor",
+            destination_host=host,
+            settings=settings,
+            started=started,
+            http_status=response.status_code,
+            error_category=ErrorCategory.HTTP_ERROR,
+            error_detail=f"HTTP {response.status_code}",
+        )
+
+    return _result(
+        tool_name="send_to_external_processor",
+        destination_host=host,
+        settings=settings,
+        started=started,
+        http_status=response.status_code,
+        payload=_bounded_json(response),
+    )
+
+
+def _bounded_json(response: httpx.Response) -> dict[str, Any]:
+    """Parse a response body into a bounded dict.
+
+    Bounded because an unbounded response body would end up in traces and logs, which is
+    exactly what the telemetry rules forbid.
+    """
+    try:
+        data = response.json()
+    except ValueError:
+        return {"parsed": False}
+    if not isinstance(data, dict):
+        return {"parsed": False}
+    return {k: v for k, v in list(data.items())[:20] if isinstance(k, str)}
