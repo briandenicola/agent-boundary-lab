@@ -19,8 +19,10 @@ Target region: **East US 2**. Target subscription: from the ambient `az login` c
 | Decision | Choice | Why |
 | --- | --- | --- |
 | Hosted-agent protocol | **Responses** (`POST /responses`) | Documented as the recommended starting point; platform manages conversation history. Invocations remains available as a fallback. |
-| Server package | `azure-ai-agentserver-responses` (on `azure-ai-agentserver-core`) | Named in the Learn hosted-agent contract. Version to be pinned at install time — no version is published in the docs. |
-| Model access | Google ADK `LiteLlm` wrapper → Azure model deployment | Only documented non-Gemini path for ADK. |
+| Server package | `azure-ai-agentserver-responses` **2.2.0** (on `azure-ai-agentserver-core` 2.2.0) | Named in the Learn hosted-agent contract; version resolved empirically on 2026-10-07. |
+| Python | **3.12** | `google-adk` README requires 3.11+; 3.12 sits safely inside every stated constraint. |
+| OpenTelemetry | **Pinned override to `>=1.43,<2`** | ADK and the agent server have mutually exclusive pins. See [Blocker 0](#blocker-0-resolved-opentelemetry-dependency-conflict-between-adk-and-the-agent-server). |
+| Model access | Google ADK `LiteLlm` wrapper → Azure model deployment, authenticated with `azure_ad_token_provider` | Only documented non-Gemini path for ADK; the token-provider callback preserves refresh under managed identity. |
 | Egress policy resource | `Microsoft.CognitiveServices/accounts/raiPolicies@2026-05-15-preview` | Confirmed in the ARM template reference. Not a new resource type — egress is a nested property on the existing RAI policy. |
 | Evidence source | Application Insights `traces`, `message == "Network egress decision"` | The only documented location. |
 | Account networking | **OPEN — see [Blocker 1](#blocker-1-managed-vnet--egress-policy-composability-is-undocumented)** | Blocking decision; do not write account networking Terraform until resolved. |
@@ -62,9 +64,24 @@ Concrete and confirmed (reference page updated 2026-09-28):
 | Requirement | Value |
 | --- | --- |
 | Listen port | **8088**, HTTP/1.1 **plain HTTP** — the platform terminates TLS |
-| Health probe | `GET /readiness` → `200 OK` |
+| Health probe | `GET /readiness` → `200 OK` — **provided by the server package**, we do not implement it |
 | Protocol endpoint | at least one of `POST /responses` or `POST /invocations` |
 | Shutdown | graceful on `SIGTERM` |
+
+**Verified empirically 2026-10-07.** Constructing `ResponsesAgentServerHost()` registers these
+routes automatically:
+
+```
+POST        /responses
+GET, HEAD   /responses/{response_id}
+DELETE      /responses/{response_id}
+POST        /responses/{response_id}/cancel
+GET, HEAD   /responses/{response_id}/input_items
+GET, HEAD   /readiness
+```
+
+Construction also emits `Tracing configured successfully via microsoft-opentelemetry distro`
+— the host sets up OpenTelemetry itself. This is the key ordering fact for E3 below.
 
 Platform-injected environment variables: `FOUNDRY_HOSTING_ENVIRONMENT`, `FOUNDRY_AGENT_NAME`,
 `FOUNDRY_AGENT_ID`, `FOUNDRY_AGENT_VERSION`, `FOUNDRY_PROJECT_ENDPOINT`,
@@ -88,8 +105,28 @@ Invocations takes arbitrary JSON and leaves session management entirely to us.
 it rather than as a third business tool.
 
 Server packages: `azure-ai-agentserver-responses` and `azure-ai-agentserver-invocations`, both
-on `azure-ai-agentserver-core`. **NOT FOUND:** any pinned or recommended version — the docs
-show an unversioned `pip install`. We pin whatever resolves at first install and record it here.
+on `azure-ai-agentserver-core`. The docs publish no version — `pip install` is unversioned.
+**Resolved empirically on 2026-10-07: 2.2.0** for both `-responses` and `-core`. Pinned
+exactly in `pyproject.toml`, because a preview package resolving to a different version later
+would silently change the contract this demo depends on.
+
+Verified API surface (2.2.0):
+
+```python
+from azure.ai.agentserver.responses import ResponsesAgentServerHost
+
+app = ResponsesAgentServerHost()
+
+@app.response_handler                      # handler MUST be async
+async def handle(request, context, cancellation_signal): ...
+
+app.run(port=None)                         # defaults to $PORT, else 8088
+app.add_route(path, route, methods=[...])  # used for our diagnostic route
+```
+
+`response_handler` rejects sync handlers and 2-argument signatures at decoration time with
+`TypeError`. Cancellation (`cancellation_signal`) and shutdown (`context.shutdown`) are
+**distinct** signals and must be inspected independently.
 
 - https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agents
 - https://pypi.org/project/azure-ai-agentserver-responses/
@@ -311,7 +348,7 @@ or conflict with the egress allowlist.
 
 ### E1. Package
 
-`google-adk` **2.11.0** on PyPI. PyPI metadata says `requires_python = ">=3.10"`; the GitHub
+`google-adk` **2.11.0** on PyPI (installed and verified 2026-10-07). PyPI metadata says `requires_python = ">=3.10"`; the GitHub
 README says **Python 3.11+** with constraints files for 3.11–3.14. The two primary sources
 disagree. We target **Python 3.12** to sit safely inside both.
 
@@ -333,12 +370,19 @@ LiteLLM's Azure docs: `AZURE_API_KEY`, `AZURE_API_BASE`, `AZURE_API_VERSION`, `A
 `AZURE_AD_TOKEN`, meaning we acquire it ourselves with `DefaultAzureCredential` / managed
 identity.
 
-**NOT FOUND:** whether LiteLLM accepts a rotating token-*provider* callback rather than a
-static token. This matters for a long-running hosted agent — a static token expires. Resolve
-before Phase 2, and record the mitigation (token refresh wrapper) if no callback exists.
+**NOT FOUND in documentation**, but **resolved empirically on 2026-10-07**: LiteLLM 1.104.0
+*does* support a rotating token-provider callback. `azure_ad_token_provider` is present in
+`litellm.types.utils.all_litellm_params` and is consumed by
+`litellm.llms.azure.common_utils.BaseAzureLLM`, whose own source comments that
+"`azure_ad_token_provider` directly preserves Azure AD token refresh".
+
+**Consequence:** we use `get_bearer_token_provider(DefaultAzureCredential(), scope)` and pass
+the callable, not a static `AZURE_AD_TOKEN`. A static token would expire during a long-running
+hosted agent session. No API key is used anywhere.
 
 - https://google.github.io/adk-docs/agents/models/litellm/
 - https://docs.litellm.ai/docs/providers/azure
+- `litellm/llms/azure/common_utils.py` (installed 1.104.0, read locally)
 
 ### E3. Avoiding duplicate tracer providers
 
@@ -346,9 +390,11 @@ Code-verified in `google/adk-python:src/google/adk/telemetry/setup.py`. The
 `maybe_set_otel_providers()` docstring: *"If a provider for a specific telemetry type was
 already globally set - this function will not override it or register more exporters."*
 
-**Therefore:** configure our own `TracerProvider` via `trace.set_tracer_provider(...)` — or let
-the Foundry runtime configure it — **before** ADK initialises. ADK then no-ops. This is the
-documented way to avoid duplicate export.
+**Therefore:** the Foundry host configures OpenTelemetry for us when
+`ResponsesAgentServerHost()` is constructed — observed directly, see A3. As long as the host is
+constructed **before** ADK initialises, ADK detects the existing global provider and no-ops, so
+there is no duplicate export and we do not configure a `TracerProvider` ourselves in the hosted
+path. Import/construction order is a correctness requirement here, not a style preference.
 
 ### E4. Google telemetry export is off by default
 
@@ -362,6 +408,34 @@ disable flag to set. We simply never opt in.
 ---
 
 ## Blockers
+
+### Blocker 0 (RESOLVED) — OpenTelemetry dependency conflict between ADK and the agent server
+
+Discovered on first install, not from documentation. The two packages this entire repository
+depends on **cannot be co-installed under their declared constraints**:
+
+```
+google-adk 2.11.0                 requires opentelemetry-api >=1.39, <=1.42.1
+azure-ai-agentserver-core 2.2.0   requires opentelemetry-api >=1.43.0, <2.0.0
+```
+
+This is not a stale-version problem. Checked across releases on 2026-10-07: **every**
+`google-adk` version from 2.8.0 through the latest 2.11.0 caps at `<=1.42.1`, and **every**
+`azure-ai-agentserver-core` release including `2.0.0b9`, `2.1.0` and `2.2.0` requires
+`>=1.43.0`. There is no compatible pair.
+
+**Resolution, tested:** ADK's upper bound is conservative rather than load-bearing. With a
+dependency override to `opentelemetry-api/sdk >=1.43,<2`, both packages install and function
+on **1.44.0**. Verified by smoke test: `ResponsesAgentServerHost` constructs, `LlmAgent` builds
+with a `LiteLlm` model and a registered `FunctionTool`, and `google.adk.telemetry.tracer`
+resolves.
+
+**Why this is recorded rather than quietly worked around:** the override is a deliberate,
+tested decision to run ADK outside its declared support window. If ADK begins using an
+OpenTelemetry API removed after 1.42.1, this breaks at runtime rather than at install time.
+The override lives in `pyproject.toml` under `[tool.uv]` with a pointer to this section, and
+the unit suite asserts that both libraries import and that the tracer provider is not
+double-registered. Revisit when ADK relaxes its pin.
 
 ### Blocker 1 — managed VNet + egress policy composability is undocumented
 
@@ -416,10 +490,22 @@ one-off spike, and each must be recorded here with its result before any claim d
    `publicNetworkAccess = "Disabled"` **and** an attached egress RAI policy at all (D1).
 7. Which layer governs when managed-VNet isolation mode and the egress policy are both
    configured (D2, D3).
-8. Whether LiteLLM supports a dynamic Entra ID token-provider callback (E2).
-9. Hosted-agent- and egress-specific region support for East US 2, as opposed to the general
+8. Hosted-agent- and egress-specific region support for East US 2, as opposed to the general
    Agents region table (A2, B1).
-10. Resolved versions of `azure-ai-agentserver-responses` / `-invocations` (A4).
+9. Whether ADK remains functional against `opentelemetry-api` 1.43+ at **runtime** under real
+   load, not just at import (Blocker 0). The smoke test covers import and agent construction
+   only.
+
+### Resolved since first draft
+
+| Item | Result | How |
+| --- | --- | --- |
+| `azure-ai-agentserver-*` version (A4) | **2.2.0** | Installed 2026-10-07 |
+| `google-adk` version (E1) | **2.11.0** | Installed 2026-10-07 |
+| Built-in `/readiness` route (A3) | Confirmed, provided by the package | Route table inspected |
+| Who configures OpenTelemetry (E3) | The Foundry host, on construction | Observed log line |
+| LiteLLM rotating Entra token (E2) | **Supported** via `azure_ad_token_provider` | Source of installed 1.104.0 |
+| ADK + agent server co-install (Blocker 0) | Conflict confirmed; override tested working on otel 1.44.0 | Install + smoke test |
 
 ---
 

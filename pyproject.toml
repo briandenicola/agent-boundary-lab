@@ -1,0 +1,93 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "containment-demo"
+version = "0.1.0"
+description = "Framework-neutral agent containment demo: Google ADK on Microsoft Foundry hosted agents with platform-enforced network egress"
+readme = "docs/README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12,<3.13"
+
+# Versions resolved and verified on 2026-10-07. See docs/compatibility.md.
+# google-adk's README requires Python 3.11+ even though its PyPI metadata says
+# >=3.10, so 3.12 is pinned to sit safely inside both claims.
+dependencies = [
+    "google-adk>=2.11.0,<3",
+    "litellm>=1.0",
+    "azure-ai-agentserver-responses==2.2.0",
+    "azure-ai-agentserver-core==2.2.0",
+    "azure-identity>=1.19",
+    "httpx>=0.27",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "opentelemetry-api>=1.27",
+    "opentelemetry-sdk>=1.27",
+]
+
+[project.optional-dependencies]
+services = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "starlette>=0.40",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/containment_demo", "services"]
+
+# DELIBERATE DEPENDENCY OVERRIDE — see docs/compatibility.md "Blocker 0".
+#
+# google-adk pins opentelemetry-api <=1.42.1; azure-ai-agentserver-core pins >=1.43.0.
+# No released pair of these two packages is co-installable, across every version of each
+# checked on 2026-10-07. ADK's upper bound is conservative rather than load-bearing: both
+# libraries were verified working together on opentelemetry 1.44.0.
+#
+# The risk this accepts: if ADK starts calling an OpenTelemetry API removed after 1.42.1,
+# it breaks at runtime instead of at install time. tests/unit/test_dependency_overrides.py
+# guards the import path. Remove this block once ADK relaxes its pin.
+[tool.uv]
+override-dependencies = [
+    "opentelemetry-api>=1.43,<2",
+    "opentelemetry-sdk>=1.43,<2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+asyncio_mode = "auto"
+# Integration and workflow tests are opt-in. The default `pytest` run must never
+# require Azure credentials, network access, or billable resources.
+addopts = "-m 'not integration and not hosted'"
+markers = [
+    "integration: requires the local controlled API services to be running",
+    "hosted: requires a deployed Foundry hosted agent and Azure credentials",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "services", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "RUF"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["containment_demo"]
+mypy_path = "src"
+strict = true
+warn_unused_ignores = true
