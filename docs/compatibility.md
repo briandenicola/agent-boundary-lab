@@ -468,10 +468,26 @@ So what stage 1 established is narrower than it first appears:
 
 1. `basePolicyName` is mandatory on a custom RAI policy. The valid values are account- and
    API-version-specific, so they must be read from the account
-   (`task spike:base-policies`) rather than assumed. `Microsoft.DefaultV2` is the probe's
-   default and is **unconfirmed** until that listing is checked.
-2. `properties.type` is set to `UserManaged` on both policies. Added at the same time as
-   `basePolicyName`; **not independently confirmed as required.**
+   (`task spike:base-policies`) rather than assumed.
+
+   **Confirmed by listing, 2026-10-07**, on an `AIServices` account in `eastus2` at API
+   version `2026-05-15-preview`. Three system-managed base policies exist:
+
+   | Name | `properties.type` | `properties.mode` | `egressPolicy` |
+   | --- | --- | --- | --- |
+   | `Microsoft.Default` | `SystemManaged` | `Blocking` | `null` |
+   | `Microsoft.DefaultV2` | `SystemManaged` | `Blocking` | `null` |
+   | `Microsoft.MAIDefault` | `SystemManaged` | `Blocking` | `null` |
+
+   Two things worth noting. None of the system policies carries an `egressPolicy`, so
+   egress is something a custom policy adds rather than overrides. And all three are
+   `Blocking` for **content safety**, which is the unrelated `properties.mode` — it is
+   not the network mode and must not be read as one.
+
+   `Microsoft.DefaultV2` is the probe's default and is now confirmed to exist.
+2. `properties.type` is set to `UserManaged` on both policies, matching the `SystemManaged`
+   value the built-in policies report. Added at the same time as `basePolicyName`;
+   **not independently confirmed as required.**
 3. Stage 1 must be re-run after fixing the base policy before any conclusion is drawn.
 
 #### What stage 1 can never establish
