@@ -35,3 +35,16 @@ variable "allowed_host" {
   type        = string
   default     = "policy-api.invalid.example.com"
 }
+
+variable "rai_base_policy_name" {
+  description = <<-EOT
+    The RAI policy this policy derives from.
+
+    A custom RAI policy must name a base policy; omitting it fails the create with
+    "Resource has invalid base policy". The valid names are account- and
+    API-version-specific, so confirm the real value for your account with
+    `task spike:base-policies` rather than trusting this default.
+  EOT
+  type        = string
+  default     = "Microsoft.DefaultV2"
+}

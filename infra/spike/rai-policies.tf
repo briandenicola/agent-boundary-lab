@@ -52,6 +52,11 @@ resource "azapi_resource" "rai_policy_audit" {
 
   body = {
     properties = {
+      # A custom RAI policy must derive from a base policy. Omitting this fails the
+      # create with "Resource has invalid base policy", which is how we found out.
+      basePolicyName = var.rai_base_policy_name
+      type           = "UserManaged"
+
       # Content safety behaviour. Held constant; not the variable under test.
       mode = "Default"
 
@@ -76,6 +81,9 @@ resource "azapi_resource" "rai_policy_enforced" {
 
   body = {
     properties = {
+      basePolicyName = var.rai_base_policy_name
+      type           = "UserManaged"
+
       mode = "Default"
 
       egressPolicy = {

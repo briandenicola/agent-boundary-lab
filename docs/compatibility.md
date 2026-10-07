@@ -439,22 +439,59 @@ double-registered. Revisit when ADK relaxes its pin.
 
 ### Blocker 1 — managed VNet + egress policy composability is undocumented
 
-**Status: blocking an architecture decision, not the whole build.**
+**Status: partially answered empirically on 2026-10-07. Still open on the question that matters.**
 
-The demo's entire claim rests on a **single experimental variable**: the same image digest
-deployed twice, differing only in `egressPolicy.mode`. If the account also runs a
-Microsoft-managed VNet, we cannot show from any primary source whether the egress policy is the
-thing enforcing containment, whether the managed VNet is, or whether both are. That is a
-two-variable experiment, and `PLAN.md` forbids presenting one control as another.
+#### Stage 1 result — what was actually observed
 
-Options, in order of preference:
+A probe (`infra/spike`) applied a Foundry account carrying
+`properties.networkInjections` with `useMicrosoftManagedNetwork = true`, alongside two
+`raiPolicies` carrying `egressPolicy`.
+
+| Observation | Result |
+| --- | --- |
+| Foundry account with `networkInjections` + `publicNetworkAccess: Disabled` | **Created successfully** |
+| `raiPolicies` with `egressPolicy` | **Failed — but for an unrelated reason** (see below) |
+
+The RAI policy create returned `400 Resource has invalid base policy`. This is **not**
+evidence of a composability conflict. It is the generic error ARM returns when a custom RAI
+policy omits `properties.basePolicyName`, which the probe did. The request never got far
+enough to be evaluated against the account's network configuration.
+
+So what stage 1 established is narrower than it first appears:
+
+* ARM **does** accept a managed VNet on a Foundry account that we then attempt to attach
+  egress policies to. The account creation did not reject the combination up front.
+* Whether the two **compose** is still unknown, because the policy create failed before
+  reaching that question.
+
+#### Consequences
+
+1. `basePolicyName` is mandatory on a custom RAI policy. The valid values are account- and
+   API-version-specific, so they must be read from the account
+   (`task spike:base-policies`) rather than assumed. `Microsoft.DefaultV2` is the probe's
+   default and is **unconfirmed** until that listing is checked.
+2. `properties.type` is set to `UserManaged` on both policies. Added at the same time as
+   `basePolicyName`; **not independently confirmed as required.**
+3. Stage 1 must be re-run after fixing the base policy before any conclusion is drawn.
+
+#### What stage 1 can never establish
+
+Even a fully successful stage 1 proves only that **ARM accepted the configuration**. It says
+nothing about which layer enforces when both apply, or whether a denied request is
+attributable to the egress policy rather than the managed network. That requires stage 2: a
+real agent making real calls. Control-plane acceptance is not data-plane enforcement, and
+the distinction must survive into the final report.
+
+#### Options, in order of preference
 
 1. **No managed VNet on the Foundry account for this demo.** Private endpoints still protect
    the backing resources (ACR, Key Vault, Log Analytics, storage). The experiment stays clean.
 2. **Managed VNet, but prove composability empirically first** — confirm ARM even accepts
    `networkInjections` + an attached egress policy, then confirm the Audit/Enforced difference
    is still observable. Costs 30+ minutes per apply and may end in option 1 anyway.
+   *(Currently in progress; stage 1 blocked on the base policy fix above.)*
 3. Build both and compare. Most expensive; most complete evidence.
+
 
 ### Blocker 2 — preview with no SLA
 

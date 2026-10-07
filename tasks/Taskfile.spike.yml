@@ -11,6 +11,9 @@ version: '3'
 
 env:
   SPIKE_DIR: infra/spike
+  # Confirm the real value for your account with `task spike:base-policies` before
+  # applying. A custom RAI policy must derive from a base policy that actually exists.
+  RAI_BASE_POLICY: '{{default "Microsoft.DefaultV2" .RAI_BASE_POLICY}}' 
 
 tasks:
   default:
@@ -28,11 +31,34 @@ tasks:
     cmds:
       - terraform -chdir=./{{.SPIKE_DIR}} init -upgrade
 
+  base-policies:
+    desc: List the RAI base policies that exist on the spike's Foundry account
+    cmds:
+      # A read, not a change. The account is found by tag rather than by terraform
+      # output, so this still works after a partially failed apply.
+      - |
+        set -eu
+        ACCOUNT_ID=$(az resource list \
+          --tag Application="{{.SPIKE_TITLE}}" \
+          --resource-type Microsoft.CognitiveServices/accounts \
+          --query "[0].id" -o tsv)
+        if [ -z "$ACCOUNT_ID" ]; then
+          echo "No Foundry account found with tag Application='{{.SPIKE_TITLE}}'."
+          exit 1
+        fi
+        echo "account: $ACCOUNT_ID"
+        echo
+        echo "=== existing RAI policies, and which are usable as a base ==="
+        az rest --method get \
+          --url "https://management.azure.com${ACCOUNT_ID}/raiPolicies?api-version=2026-05-15-preview" \
+          --query "value[].{name:name, type:properties.type, basePolicy:properties.basePolicyName, mode:properties.mode, egress:properties.egressPolicy}" \
+          -o json
+
   plan:
     desc: Show what the spike would create (creates nothing)
     cmds:
       - task: init
-      - terraform -chdir=./{{.SPIKE_DIR}} plan -compact-warnings -var "region={{.REGION}}"
+      - terraform -chdir=./{{.SPIKE_DIR}} plan -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name={{.RAI_BASE_POLICY}}"
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
 
@@ -41,7 +67,7 @@ tasks:
     prompt: This creates a Foundry account and two RAI policies in Azure. Continue?
     cmds:
       - task: init
-      - terraform -chdir=./{{.SPIKE_DIR}} apply -auto-approve -compact-warnings -var "region={{.REGION}}"
+      - terraform -chdir=./{{.SPIKE_DIR}} apply -auto-approve -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name={{.RAI_BASE_POLICY}}"
       - task: result
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
