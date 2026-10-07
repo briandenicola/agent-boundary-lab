@@ -70,8 +70,12 @@ tasks:
           exit 1
         fi
         echo "=== {{.BASE}} in full ==="
+        # Fetched from the collection rather than by direct GET: a direct GET on a
+        # system-managed policy returns 404 even though the same policy appears in the
+        # list, so the collection is the only way to read its contentFilters.
         az rest --method get \
-          --url "https://management.azure.com${ACCOUNT_ID}/raiPolicies/{{.BASE}}?api-version=2026-05-15-preview" \
+          --url "https://management.azure.com${ACCOUNT_ID}/raiPolicies?api-version=2026-05-15-preview" \
+          --query "value[?name=='{{.BASE}}'] | [0]" \
           -o json
     vars:
       BASE: '{{default "Microsoft.DefaultV2" .CLI_ARGS}}'
