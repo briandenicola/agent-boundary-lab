@@ -16,7 +16,7 @@ import uuid
 from enum import StrEnum
 from urllib.parse import urlparse
 
-from pydantic import Field, HttpUrl, field_validator, model_validator
+from pydantic import Field, HttpUrl, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -124,6 +124,11 @@ class Settings(BaseSettings):
         default=True,
         description="Exposes the authenticated deterministic diagnostic route.",
     )
+    diagnostics_token: SecretStr | None = Field(
+        default=None,
+        description="Shared secret required by the diagnostic route. Mandatory whenever "
+        "diagnostics are enabled; there is no unauthenticated mode.",
+    )
 
     @field_validator("policy_api_url", "test_receiver_url")
     @classmethod
@@ -145,6 +150,18 @@ class Settings(BaseSettings):
                 f"({policy_host!r}). The egress policy allowlists hostnames, so identical "
                 "hosts make allow and deny indistinguishable and the demo proves nothing."
             )
+        return self
+
+    @model_validator(mode="after")
+    def _diagnostics_require_a_token(self) -> Settings:
+        if self.diagnostics_enabled:
+            secret = self.diagnostics_token.get_secret_value() if self.diagnostics_token else ""
+            if len(secret) < 16:
+                raise ValueError(
+                    "diagnostics_token must be set to at least 16 characters when "
+                    "diagnostics_enabled is true. The diagnostic route triggers real "
+                    "outbound calls, so it is never exposed unauthenticated."
+                )
         return self
 
     @property

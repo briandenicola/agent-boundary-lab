@@ -23,6 +23,7 @@ from typing import Any
 import httpx
 
 from containment_demo.settings import ErrorCategory, Settings, ca_bundle_path
+from containment_demo.telemetry import emit_tool_evidence
 
 
 def _build_client(settings: Settings) -> httpx.Client:
@@ -78,7 +79,7 @@ def _result(
     This is our application evidence schema, not a platform schema. It deliberately
     carries no request or response body, no headers, and no credentials.
     """
-    return {
+    record = {
         "tool_name": tool_name,
         "destination_host": destination_host,
         "demo_run_id": settings.demo_run_id,
@@ -92,6 +93,8 @@ def _result(
         "error_detail": error_detail,
         "result": payload,
     }
+    emit_tool_evidence(settings, record)
+    return record
 
 
 def _sanitize(exc: Exception) -> str:

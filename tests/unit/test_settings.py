@@ -16,6 +16,7 @@ def make_settings(**overrides: object) -> Settings:
     defaults: dict[str, object] = {
         "policy_api_url": "https://policy.example.com/policy",
         "test_receiver_url": "https://receiver.example.net/ingest",
+        "diagnostics_token": "test-diagnostics-token-value",
     }
     defaults.update(overrides)
     return Settings(**defaults)  # type: ignore[arg-type]
@@ -56,7 +57,10 @@ def test_malformed_url_is_rejected() -> None:
 
 def test_missing_destination_is_rejected() -> None:
     with pytest.raises(ValidationError):
-        Settings(test_receiver_url="https://receiver.example.net/ingest")  # type: ignore[call-arg]
+        Settings(  # type: ignore[call-arg]
+            test_receiver_url="https://receiver.example.net/ingest",
+            diagnostics_token="test-diagnostics-token-value",
+        )
 
 
 @pytest.mark.parametrize("bad_timeout", [0, -1, 61])

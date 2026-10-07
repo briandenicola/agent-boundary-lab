@@ -26,6 +26,7 @@ def settings() -> Settings:
     return Settings(
         policy_api_url=POLICY_URL,  # type: ignore[arg-type]
         test_receiver_url=RECEIVER_URL,  # type: ignore[arg-type]
+        diagnostics_token="test-diagnostics-token-value",
         http_timeout_seconds=5.0,
     )
 
@@ -248,6 +249,7 @@ class TestNoEmbeddedPolicy:
             s = Settings(
                 policy_api_url=POLICY_URL,  # type: ignore[arg-type]
                 test_receiver_url=RECEIVER_URL,  # type: ignore[arg-type]
+        diagnostics_token="test-diagnostics-token-value",
                 policy_mode=mode,
             )
             result = tools.send_to_external_processor(s)
@@ -273,6 +275,7 @@ class TestNoEmbeddedPolicy:
         s = Settings(
             policy_api_url=POLICY_URL,  # type: ignore[arg-type]
             test_receiver_url=RECEIVER_URL,  # type: ignore[arg-type]
+        diagnostics_token="test-diagnostics-token-value",
             policy_mode=PolicyMode.ENFORCED,
         )
         tools.send_to_external_processor(s)
