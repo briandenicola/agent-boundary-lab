@@ -57,7 +57,7 @@ resource "azurerm_container_app_environment" "main" {
 #############################################
 
 resource "azurerm_container_app" "policy_api" {
-  name                         = "${local.resource_name}-policy-api"
+  name                         = local.policy_api_name
   resource_group_name          = azurerm_resource_group.this.name
   container_app_environment_id = azurerm_container_app_environment.main.id
   revision_mode                = "Single"
@@ -111,7 +111,7 @@ resource "azurerm_container_app" "policy_api" {
 #############################################
 
 resource "azurerm_container_app" "test_receiver" {
-  name                         = "${local.resource_name}-test-receiver"
+  name                         = local.test_receiver_name
   resource_group_name          = azurerm_resource_group.this.name
   container_app_environment_id = azurerm_container_app_environment.main.id
   revision_mode                = "Single"

@@ -32,12 +32,11 @@ resource "azurerm_user_assigned_identity" "workflow" {
 }
 
 resource "azurerm_federated_identity_credential" "workflow" {
-  name                = "${local.resource_name}-workflow-fic"
-  resource_group_name = azurerm_resource_group.this.name
-  parent_id           = azurerm_user_assigned_identity.workflow.id
-  audience            = ["api://AzureADTokenExchange"]
-  issuer              = azurerm_kubernetes_cluster.main.oidc_issuer_url
-  subject             = "system:serviceaccount:${var.kubernetes_namespace}:${var.workflow_service_account}"
+  name      = "${local.resource_name}-workflow-fic"
+  parent_id = azurerm_user_assigned_identity.workflow.id
+  audience  = ["api://AzureADTokenExchange"]
+  issuer    = azurerm_kubernetes_cluster.main.oidc_issuer_url
+  subject   = "system:serviceaccount:${var.kubernetes_namespace}:${var.workflow_service_account}"
 }
 
 # Lets the workflow activity call the hosted agent.

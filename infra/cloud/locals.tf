@@ -25,6 +25,15 @@ locals {
   keyvault_name = substr("${replace(local.resource_name, "-", "")}kv", 0, 24)
   acr_name      = substr("${replace(local.resource_name, "-", "")}acr", 0, 50)
 
+  # Container App names cap at 32 characters and reject a trailing hyphen or a doubled
+  # one. `random_pet` has no length guarantee, so a name built by plain interpolation
+  # fails on a long pet and passes on a short one -- the apply would be a coin toss.
+  # Reserve room for the longest suffix ("-test-receiver", 14) and trim any hyphen the
+  # truncation exposes, so every generated name is legal regardless of the pet drawn.
+  ca_name_prefix     = trimsuffix(substr(local.resource_name, 0, min(length(local.resource_name), 18)), "-")
+  policy_api_name    = "${local.ca_name_prefix}-policy-api"
+  test_receiver_name = "${local.ca_name_prefix}-test-receiver"
+
   # Addressing. A /16 drawn from a random point in 10/8, carved into /24s. Nothing is
   # hardcoded, so two environments in one subscription will not overlap.
   vnet_cidr                 = cidrsubnet("10.0.0.0/8", 8, random_integer.vnet_cidr.result)

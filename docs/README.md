@@ -24,10 +24,12 @@ Exactly two business tools remain registered and callable in ADK in every mode:
 ## Proposed architecture
 
 ```text
-Demo client
+ON-PREMISES: agentic harness (full agent runtime, its own model + tools)
     |
+    |  A2A (Agent2Agent) over JSONRPC, Microsoft Entra ID auth
+    |  POST .../agents/{agent}/endpoint/protocols/a2a
     v
-Foundry hosted-agent endpoint
+Foundry hosted-agent endpoint  (A2A + Responses protocols enabled)
     |
     v
 Python container: protocol adapter -> ADK runner -> two HTTP tools
@@ -37,9 +39,82 @@ Foundry-managed egress policy
     |-- permitted hostname -> synthetic policy API
     |-- unapproved hostname -> controlled test receiver
 
-Evidence: ADK/tool traces + platform egress decisions + endpoint receipt logs
+Evidence: harness trace + ADK/tool traces + platform egress decisions + endpoint receipt logs
 Telemetry destination: Application Insights; optional approved OTLP collector
 ```
+
+The caller is **not a thin test client**. It is a complete agentic harness that runs on
+premises, holds its own model and its own tools, and delegates one step of its work to a
+remote agent in Foundry. That is the realistic enterprise shape: the organization keeps
+its harness where its data and controls already are, and reaches into Foundry for a
+capability it does not want to run locally.
+
+**This changes who is being contained, and that distinction is the whole point.** The
+harness is not contained by anything in this demo — it runs on hardware we control,
+under whatever local policy applies, and Foundry has no visibility into it. Only the two
+tools that execute *inside the Foundry hosted-agent container* are subject to the egress
+policy. A reader who concludes "the platform contained the agent" without noticing that
+the on-premises half is uncontained has drawn the wrong lesson. Containment attaches to
+the runtime the code executes in, never to the logical agent, and never follows a tool
+back across the A2A boundary.
+
+### Why A2A and not MCP
+
+These two protocols point in opposite directions, and only one of them produces the
+architecture above.
+
+**A2A carries the harness's call INTO Foundry.** The harness is the client; the Foundry
+hosted agent is the server. The agent's tools still execute inside the Foundry container,
+so the egress policy still governs them. The containment claim survives intact.
+
+**MCP would reverse the arrow.** Foundry's MCP support makes the *agent* an MCP **client**
+that connects out to remote MCP servers; there is no documented way to expose a Foundry
+agent *as* an MCP server for an external harness to call. So "harness reaches Foundry over
+MCP" is not a supported topology as of the access date below.
+
+Worse, the MCP shape that *is* supported would actively damage this demo. If the harness
+published an on-premises MCP server and the Foundry agent consumed it, the agent would be
+making an **outbound call to an on-premises host** — which is precisely the egress path
+under test. That host would then need to be in the allowlist, the on-premises boundary
+would become a third variable, and a denied call would no longer be attributable to the
+policy alone. MCP is therefore excluded from the containment demo by design, not by
+oversight.
+
+Primary references, accessed **2026-10-08**:
+
+- Enable incoming A2A on a Foundry agent: https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint
+- Connect agents to MCP server endpoints: https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/tools/model-context-protocol
+
+### Verified A2A facts, and one unresolved blocker
+
+Confirmed from the primary reference on the access date above:
+
+| Fact | Value |
+| --- | --- |
+| Protocol versions | **1.0 GA**, 0.3 preview |
+| Transport | v1.0 is **JSONRPC only**. v0.3 also allows HTTP+JSON. gRPC unsupported in both |
+| Authentication | **Microsoft Entra ID only.** Key-based and anonymous access are not supported, including for the agent card |
+| Caller role | **Foundry Agent Consumer** (`eed3b665-ab3a-47b6-8f48-c9382fb1dad6`), scoped to the project or to a single agent |
+| Token scope | `https://ai.azure.com/.default` |
+| Enablement | `PATCH` the agent with an `agent_card` and `agent_endpoint.protocol_configuration.a2a`. Not available in the portal |
+| Endpoint | `…/agents/{agent}/endpoint/protocols/a2a`, card at `…/agentCard/v1.0` |
+| Retention | A2A tasks and contexts are kept 60 days from last write |
+
+**Version-negotiation trap.** A request that specifies no version gets **preview v0.3**,
+not GA v1.0. Pin the version explicitly — `A2A-Version: 1.0`, `?a2a-version=1.0`, or by
+resolving the v1.0 agent card — or the demo silently runs on a preview protocol. Supplying
+both selectors with *different* values returns HTTP 400 `version-ambiguous`.
+
+**UNRESOLVED — does incoming A2A work on a hosted container agent?** The documentation
+states that incoming A2A *requires the Responses protocol*, which our agent uses. But the
+only agent type it explicitly blesses is the **prompt agent**, and its prerequisites name
+"a deployed prompt agent". Whether a custom hosted-container agent can be exposed over A2A
+is **not confirmed by any primary source we have found**. Treat it as unverified until a
+spike proves it. If it turns out to be unsupported, the harness falls back to calling the
+agent over the Responses protocol directly — the containment claim is unaffected, because
+the protocol the harness uses to reach the agent has no bearing on what the agent's tools
+can reach. Do not write A2A support for hosted agents into any report as tested until it
+has been.
 
 Both APIs are reachable and healthy independently of the agent. Neither API deliberately denies the negative test. Therefore, an API authorization error cannot masquerade as successful network containment.
 
@@ -131,7 +206,7 @@ docs/
 # Dapr extension adds:
 src/workflow_app/
 src/workflow_api/
-samples/onprem_client/
+samples/onprem_harness/
 infra/aks/
 infra/dapr/
 tests/workflow/
@@ -167,16 +242,25 @@ docs/workflow-runbook.md
 Keep Google ADK and both business tools in Foundry hosted agents. Add a Python Dapr Workflow application on AKS, with a Dapr sidecar and a persistent, workflow-compatible state store. **Azure Durable Task Scheduler and its SDK are not dependencies of this design.** Dapr's own runtime infrastructure is distinct from the Azure managed Scheduler service.
 
 ```text
-On-premises agent / demo client
+ON-PREMISES: agentic harness
            |
-Authenticated, case-authorized workflow API
+           |--- A2A (or Responses) ------------> Foundry hosted agent
+           |                                     (containment demo path)
            |
-AKS: Python workflow application + Dapr sidecar
-           |-- Persistent workflow state store
-           |-- Activity -> Foundry-hosted ADK agent
-           |                 `-- Existing two-tool egress demonstration
-           `-- Approval event / deadline -> follow-up activity -> completion
+           '--- authenticated workflow API ----> AKS: Python workflow app + Dapr sidecar
+                                                   |-- Persistent workflow state store
+                                                   |-- Activity -> Foundry hosted ADK agent
+                                                   |                 `-- two-tool egress demo
+                                                   `-- Approval event / deadline
+                                                         -> follow-up activity -> completion
 ```
+
+The harness reaches Foundry two ways, and they are deliberately separate. The **direct
+path** is the containment demo: harness to hosted agent, nothing else in between, so a
+denied call has exactly one sufficient cause. The **workflow path** adds durability,
+approval gates and restart survival around that same unchanged agent. Keeping them
+separate means the workflow extension can never be blamed for, or credited with, a
+containment result.
 
 Use PostgreSQL as the candidate state store. Validate compatibility with the selected Dapr runtime/SDK, actor-state requirements, transactions, concurrency, and durability configuration before adoption. Demo storage must survive pod restart; an ephemeral database is not a recovery proof. Pin a mutually compatible runtime, Python Workflow SDK, AKS extension or Helm release, and state-store component. Pick one installation method; do not install overlapping Dapr control planes.
 
@@ -191,9 +275,17 @@ Proposed case flow:
 
 Approval changes workflow status, never network permission. Durability is at workflow/activity boundaries, not automatic checkpointing of all internal ADK reasoning or tools. Keep workflow logic deterministic and agent/HTTP calls in activities. Design for retried activities and idempotent side effects. Persist ADK context explicitly or make each activity self-contained.
 
-### On-premises participation without A2A
+### On-premises participation
 
-**Initial scope: authenticated API client.** An on-premises agent or companion service starts cases, queries status, and submits authorized events through an application-owned API in front of Dapr. The agent need not adopt Dapr or hand off to another agent. This API must enforce instance ownership, allowed operations, schema limits, and approval authority. Never expose raw Dapr sidecar or administrative ports publicly.
+**The on-premises side is a full agentic harness, not an API client.** It runs its own
+agent loop, its own model and its own local tools, and delegates selected steps outward.
+It reaches the Foundry hosted agent directly over A2A (see "Why A2A and not MCP"), and
+reaches the durable workflow through an application-owned API in front of Dapr. The
+harness does not adopt Dapr and does not run a Dapr sidecar.
+
+That workflow API must still enforce instance ownership, allowed operations, schema
+limits, and approval authority — a sophisticated caller is not a trusted caller. Never
+expose raw Dapr sidecar or administrative ports publicly.
 
 **Optional outbound-only bridge:** If AKS cannot call on-premises, publish a request to an approved broker. A local consumer executes the local agent and publishes a result. An AKS adapter validates the result and raises a workflow event. Implement correlation, deduplication, deadlines, late-result handling, and poison-message handling. This is an application messaging pattern, not automatic cross-cluster workflow routing; select the broker and transport only after approval.
 
@@ -219,7 +311,8 @@ Running Dapr Workflow and/or ADK on on-premises Kubernetes/OpenShift is a later 
 - [ ] The same case survives workflow pod restart during approval wait, with the state store intact.
 - [ ] Denial, duplicate approvals, timeout, and activity retries have explicit safe outcomes.
 - [ ] Agent context and workflow state have independent tested persistence strategies.
-- [ ] A separately running on-premises-style client starts/queries/signals a case without A2A.
+- [ ] A separately running on-premises agentic harness invokes the Foundry hosted agent over A2A — with the protocol version pinned to 1.0 and Entra ID authentication — and separately starts/queries/signals a workflow case through the authenticated API. If incoming A2A proves unsupported for hosted container agents, the harness uses the Responses protocol and that substitution is recorded, not hidden.
+- [ ] Evidence distinguishes what ran in the uncontained on-premises harness from what ran inside the contained Foundry container. A report that blurs the two is a failure, not a pass.
 - [ ] Raw sidecar management interfaces remain private; case-level authorization is tested.
 - [ ] State-store durability/backup, workflow retention, and trace linkage are documented.
 - [ ] Optional bridge and OpenShift/full-local deployment remain deferred unless separately approved.
