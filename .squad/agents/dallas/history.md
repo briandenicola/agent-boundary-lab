@@ -159,3 +159,49 @@ on Phase 4 completion. Sections B and C implementation is pending no agent versi
 - **`task verify:baseline` is pre-demo gate.** Run before any demo run, never after failure. Endpoint state is experiment variable; a dead endpoint makes denial unattributable.
 - Blocker 0 (guard against `google-adk` OpenTelemetry pin relaxation): `test_dependency_overrides.py` fails on purpose if pin relaxes. Operator must delete `[tool.uv]` override and update compatibility.md.
 - Sections B and C remain NOT IMPLEMENTED (exit 2, cannot return pass). B requires hosted agent version; C requires platform decision record path.
+
+### 2026-10-08 — Phase 7 docs: demo runbook and evidence template written
+
+`docs/demo-runbook.md` and `docs/evidence-template.md` now exist. Documentation only; no
+Azure, no applies. `task lint:all` green (164 passed, 1 skipped).
+
+- **The runbook leads with what is executable today**, because a runbook that reads as if
+  the hosted sections work is itself a false pass. Pre-flight and Section A run; Sections B
+  and C are stubs returning `not_implemented` and cannot return a pass; the hosted verdict
+  available right now is **inconclusive — not collected**.
+- **GATE 0 is honoured, not worked around.** The runbook forbids joining a platform egress
+  decision on `demo_run_id`, names no platform property key or table absent from
+  `docs/telemetry-map.md` (§2.1 is blank and stays blank), and carries the weaker sentence —
+  *"three consistent observations in one bounded window, not three rows joined on a shared
+  key"* — until Q6 is answered. The `joined == true` branch is written in advance so nobody
+  gets to decide the wording after seeing the number.
+- **The observation window is a stated constant, not an improvisation.** `W_start = T0`,
+  `W_end = T_end + 120 s`, explicit pair on every query, order by `received_at`. The 120 s
+  tail is ingestion headroom over the one lag we measured (≈1.5 s), not a search for late
+  good news. Changing it requires recording why. The window closes once; a longer look is a
+  new run id.
+- **Two pre-flight checks are gates on interpretation, not health pings**, and the runbook
+  says which: A4 (negative endpoint genuinely reachable from a control client) and A6
+  (receipt logging demonstrably working in the same window). Without A4 a denial proves
+  nothing; without A6 an absence proves nothing. A5 and P7 join them as hard gates — a
+  self-authorizing receiver or a missing App Insights connection makes a denial
+  unattributable before it happens.
+- **The serial-run rule is labelled procedural in the runbook text itself.** It is enforced
+  by the operator reading one sentence and by nothing else. Saying so is the point; a
+  procedural control presented as a technical one is the same error as a 403 presented as
+  enforcement.
+- **The evidence template's third state is NOT COLLECTED, and it is load-bearing.** Each of
+  the three signals is present / absent / NOT COLLECTED, and NOT COLLECTED forces
+  inconclusive. A signal nobody looked for is not a soft absent.
+- **"What this run did NOT prove" is mandatory with named rows**, not a free-text
+  afterthought: Blocker 3 (the positive leg may ride an undocumented implicit allow),
+  Blocker 1 stage 2 (managed-VNet attribution), server-side digest acceptance, authoring ≠
+  enforcement, the private endpoint being inbound-only, and preview status. A template with
+  §8 blank is not reviewable and gets sent back.
+- Task names were read from `task --list-all`, not recalled: `cloud:whoami`, `cloud:output`,
+  `cloud:endpoints`, `cloud:policies`, `cloud:app-insights-connection`, `cloud:caveats`,
+  `cloud:harness-status`, `cloud:harness-down`, `cloud:down`, `build:check-endpoints`,
+  `build:agent-digest`, `verify:baseline`, `verify:baseline-json`, `lint:all`.
+- The diagnostic route is the documented trigger (`POST /internal/diagnostics/run`, bearer
+  token, port 8088, optional `?tool=`), because a model declining to call a tool means
+  nothing was attempted and proves nothing about the network.
