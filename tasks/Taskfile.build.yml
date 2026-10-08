@@ -27,10 +27,13 @@ silent: true
 
 env:
   CLOUD_DIR: infra/cloud
-  IMAGE_TAG: '{{default "latest" .IMAGE_TAG}}'
+  # These are read from the environment at the point of use, not declared here.
+  # A top-level `env:` entry of the form `VAR: '{{default X .VAR}}'` cannot see a
+  # value the root Taskfile loaded from .env -- it resolves to the default and then
+  # EXPORTS that over the .env value, so setting the variable in .env silently did
+  # nothing. Shell expansion at the point of use reads the real environment.
   # Passed through to terraform on deploy-endpoints. Confirm the real value for your
   # account with `task cloud:base-policies`.
-  RAI_BASE_POLICY: '{{default "Microsoft.DefaultV2" .RAI_BASE_POLICY}}'
 
 tasks:
   default:
@@ -52,7 +55,7 @@ tasks:
         echo "building agent image in $ACR"
         az acr build \
           --registry "$ACR" \
-          --image "containment-demo-agent:{{.IMAGE_TAG}}" \
+          --image "containment-demo-agent:${IMAGE_TAG:-latest}" \
           --file Dockerfile \
           .
       - task: agent-digest
@@ -73,7 +76,7 @@ tasks:
           echo "building $SVC in $ACR"
           az acr build \
             --registry "$ACR" \
-            --image "containment-demo-${IMG}:{{.IMAGE_TAG}}" \
+            --image "containment-demo-${IMG}:${IMAGE_TAG:-latest}" \
             --build-arg "SERVICE=${SVC}" \
             --file services/Dockerfile \
             .
@@ -94,7 +97,7 @@ tasks:
         SERVER=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_login_server)
         DIGEST=$(az acr repository show \
           --name "$ACR" \
-          --image "containment-demo-agent:{{.IMAGE_TAG}}" \
+          --image "containment-demo-agent:${IMAGE_TAG:-latest}" \
           --query digest -o tsv)
         echo
         echo "=== pin THIS in both agent versions ==="
@@ -124,17 +127,17 @@ tasks:
       # module, not a corner of it.
       - |
         set -eu
-        echo "applying endpoint_image_tag={{.IMAGE_TAG}} to {{.CLOUD_DIR}}"
+        echo "applying endpoint_image_tag=${IMAGE_TAG:-latest} to {{.CLOUD_DIR}}"
         terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings \
           -var "region={{.REGION}}" \
-          -var "rai_base_policy_name={{.RAI_BASE_POLICY}}" \
-          -var "endpoint_image_tag={{.IMAGE_TAG}}"
+          -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" \
+          -var "endpoint_image_tag=${IMAGE_TAG:-latest}"
       - |
         echo
         echo "Put this in your .env so a later 'task cloud:up' does not roll the endpoints"
         echo "back to the placeholder image:"
         echo
-        echo "    ENDPOINT_IMAGE_TAG={{.IMAGE_TAG}}"
+        echo "    ENDPOINT_IMAGE_TAG=${IMAGE_TAG:-latest}"
       - task: check-endpoints
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'

@@ -22,15 +22,17 @@ env:
   # A tag will be rejected by a variable validation in infra/k8s. That is deliberate:
   # tags are mutable, and two agent versions running different code makes the egress
   # policy no longer the only variable between them.
-  AGENT_IMAGE_DIGEST: '{{default "sha256:0e4b5019cee0022d0892787bb09bb3f22465183e136a7b77e5866742161a4803" .AGENT_IMAGE_DIGEST}}'
+  # These are read from the environment at the point of use, not declared here.
+  # A top-level `env:` entry of the form `VAR: '{{default X .VAR}}'` cannot see a
+  # value the root Taskfile loaded from .env -- it resolves to the default and then
+  # EXPORTS that over the .env value, so setting the variable in .env silently did
+  # nothing. Shell expansion at the point of use reads the real environment.
   # Confirm the real value for your account with `task cloud:base-policies` before
   # applying. A custom RAI policy must derive from a base policy that actually exists.
-  RAI_BASE_POLICY: '{{default "Microsoft.DefaultV2" .RAI_BASE_POLICY}}'
   # Tag of the two controlled-endpoint images. EMPTY means "run the placeholder", which
   # is correct on a first apply because the images do not exist in ACR yet. After
   # `task build:deploy-endpoints`, set ENDPOINT_IMAGE_TAG=latest in your .env — the root
   # Taskfile loads it — or `cloud:up` will roll both endpoints back to the placeholder.
-  ENDPOINT_IMAGE_TAG: '{{default "" .ENDPOINT_IMAGE_TAG}}'
 
 tasks:
   default:
@@ -63,7 +65,7 @@ tasks:
     desc: Show what would be created (creates nothing)
     cmds:
       - task: init
-      - terraform -chdir=./{{.CLOUD_DIR}} plan -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name={{.RAI_BASE_POLICY}}" -var "endpoint_image_tag={{.ENDPOINT_IMAGE_TAG}}"
+      - terraform -chdir=./{{.CLOUD_DIR}} plan -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}"
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
 
@@ -71,7 +73,7 @@ tasks:
     desc: CREATES BILLABLE RESOURCES including an AKS cluster. Apply the environment
     cmds:
       - task: init
-      - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name={{.RAI_BASE_POLICY}}" -var "endpoint_image_tag={{.ENDPOINT_IMAGE_TAG}}"
+      - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}"
       - task: endpoints
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
@@ -281,7 +283,7 @@ tasks:
     cmds:
       - task: _require-kubelogin
       - task: harness-init
-      - terraform -chdir=./{{.K8S_DIR}} plan -compact-warnings -var "agent_image_digest={{.AGENT_IMAGE_DIGEST}}"
+      - terraform -chdir=./{{.K8S_DIR}} plan -compact-warnings -var "agent_image_digest=${AGENT_IMAGE_DIGEST:-sha256:0e4b5019cee0022d0892787bb09bb3f22465183e136a7b77e5866742161a4803}"
 
   harness-up:
     desc: CHANGES THE CLUSTER. Apply the client harness pod and its deploy init container
@@ -292,7 +294,7 @@ tasks:
       # policies exist but are attached to nothing and nothing is enforced.
       - task: _require-kubelogin
       - task: harness-init
-      - terraform -chdir=./{{.K8S_DIR}} apply -auto-approve -compact-warnings -var "agent_image_digest={{.AGENT_IMAGE_DIGEST}}"
+      - terraform -chdir=./{{.K8S_DIR}} apply -auto-approve -compact-warnings -var "agent_image_digest=${AGENT_IMAGE_DIGEST:-sha256:0e4b5019cee0022d0892787bb09bb3f22465183e136a7b77e5866742161a4803}"
       - task: harness-status
 
   harness-status:
@@ -317,7 +319,7 @@ tasks:
     prompt: This deletes the harness namespace. Agent versions already published stay published. Continue?
     cmds:
       - task: _require-kubelogin
-      - terraform -chdir=./{{.K8S_DIR}} destroy -auto-approve -var "agent_image_digest={{.AGENT_IMAGE_DIGEST}}"
+      - terraform -chdir=./{{.K8S_DIR}} destroy -auto-approve -var "agent_image_digest=${AGENT_IMAGE_DIGEST:-sha256:0e4b5019cee0022d0892787bb09bb3f22465183e136a7b77e5866742161a4803}"
 
   _require-kubelogin:
     internal: true

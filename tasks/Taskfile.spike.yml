@@ -18,7 +18,11 @@ env:
   SPIKE_DIR: infra/spike
   # Confirm the real value for your account with `task spike:base-policies` before
   # applying. A custom RAI policy must derive from a base policy that actually exists.
-  RAI_BASE_POLICY: '{{default "Microsoft.DefaultV2" .RAI_BASE_POLICY}}' 
+  # These are read from the environment at the point of use, not declared here.
+  # A top-level `env:` entry of the form `VAR: '{{default X .VAR}}'` cannot see a
+  # value the root Taskfile loaded from .env -- it resolves to the default and then
+  # EXPORTS that over the .env value, so setting the variable in .env silently did
+  # nothing. Shell expansion at the point of use reads the real environment.
 
 tasks:
   default:
@@ -89,7 +93,7 @@ tasks:
     desc: Show what the spike would create (creates nothing)
     cmds:
       - task: init
-      - terraform -chdir=./{{.SPIKE_DIR}} plan -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name={{.RAI_BASE_POLICY}}"
+      - terraform -chdir=./{{.SPIKE_DIR}} plan -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}"
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
 
@@ -98,7 +102,7 @@ tasks:
     prompt: This creates a Foundry account and two RAI policies in Azure. Continue?
     cmds:
       - task: init
-      - terraform -chdir=./{{.SPIKE_DIR}} apply -auto-approve -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name={{.RAI_BASE_POLICY}}"
+      - terraform -chdir=./{{.SPIKE_DIR}} apply -auto-approve -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}"
       - task: result
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
