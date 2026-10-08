@@ -103,3 +103,40 @@ and `docs/compatibility.md` §B9 for the deployment API.
   sdk half of the override dropped, the override floor lowered to ADK's ceiling, a
   simulated pip-built environment at otel 1.42.1, and a simulated upstream relaxation.
 - 136 unit tests pass with no network, no Azure, no credentials.
+
+### 2026-10-08 — A6 wired to the verified receipt table; Section A reaches PASS
+
+- `task verify:baseline` now reports **Section A: PASS** against the live endpoints and
+  real rows in `ContainerAppConsoleLogs_CL`. Exit 0.
+- A6 is a **positive control**, not a liveness ping: it polls for the receipts that A3/A4
+  just caused, and requires rows from *both* services for *this* run id. That is what
+  licenses a later absence claim in the same window. Query, columns and `parse_json(Log_s)`
+  come from Lambert's verified §3.2 / Q1 — nothing invented.
+- A7 runs Q2a (unattributed arrivals). It is mandatory, not decorative: Lambert observed a
+  live receipt with `demo_run_id == ""`.
+- **I was generating that defect myself.** A5 POSTed to the receiver with no marker to
+  prove "no credentials required", and every run therefore planted an unattributable
+  receipt. Fixed: A5 sends no credential but does carry the marker. A credential is the
+  thing under test; the marker is not a credential.
+- **The log window must be an explicit (start, end) pair.** A relative "last N minutes"
+  window with a safety pad reached back past the start of the run, and a *previous* run's
+  markerless probe answered this run's question. Caught only because A7 stayed red after
+  the A5 fix. Padding a window is not conservatism, it is contamination.
+- `classify_receipt_absence()` keeps four cases apart: arrived-for-this-run (FAIL, it was
+  not blocked), arrived-unattributed (INCONCLUSIVE), no-rows-in-window (PASS **only** with
+  proven same-window retrievability, otherwise INCONCLUSIVE), query-unavailable
+  (INCONCLUSIVE). An unattributed arrival outranks a healthy pipeline.
+- A failed query and an empty result set are different facts and are kept apart by a
+  reason string. Collapsing them would make every "no receipt" inherit every outage.
+- Log reads use `azure-monitor-query` + `DefaultAzureCredential` (new `verify` extra). No
+  az CLI. Run ids are validated against `^[A-Za-z0-9._:-]{1,128}$` before interpolation.
+- Ingestion lag measured ~1.5 s but polled up to `--receipt-wait` (default 180 s). A miss
+  inside the window is inconclusive: a late receipt and a dead pipeline look identical at
+  the moment of asking.
+- New tamper tests, each observed failing then reverted: unattributed arrival collapsed
+  into no-rows; passing without proven retrievability; unavailable query treated as a
+  pass; query exception reported as `ok`; wrong table name against the live workspace
+  (A6 and A7 both went inconclusive, neither passed); and a live markerless POST landed
+  mid-run, which correctly drove the run to INCONCLUSIVE.
+- `tests/unit/test_verify_harness.py` (28 tests) institutionalises all of it. Suite is 164
+  passing, still no network/Azure/credentials.
