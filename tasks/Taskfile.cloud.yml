@@ -332,6 +332,88 @@ tasks:
         echo "An init container that exited 0 means a version was ACCEPTED. It does not"
         echo "mean the RAI policy on that version is being enforced. Read the version back."
 
+  harness-watch:
+    desc: Follow the deploy init container until it finishes. Ctrl-C to stop.
+    vars:
+      # Override with: task cloud:harness-watch INTERVAL=10
+      INTERVAL: '{{.INTERVAL | default "5"}}'
+    cmds:
+      # Needs a kubeconfig: run `task cloud:kubeconfig` once first.
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        echo "Watching namespace $NS every {{.INTERVAL}}s. Ctrl-C to stop."
+        echo
+
+        # Only CHANGES are printed. A watcher that reprints an unchanged line every
+        # few seconds trains you to stop reading it, which defeats the point.
+        LAST=""
+        LAST_POD=""
+        while true; do
+          POD=$(kubectl -n "$NS" get pods -l "app.kubernetes.io/name=agent-harness" \
+            --sort-by=.metadata.creationTimestamp -o name 2>/dev/null | tail -1 || true)
+
+          if [ -z "$POD" ]; then
+            LINE="no harness pod in $NS"
+          else
+            # A pod swap mid-watch means the deploy RESTARTED FROM ZERO. Any progress
+            # reported against the previous pod no longer refers to anything running.
+            if [ -n "$LAST_POD" ] && [ "$POD" != "$LAST_POD" ]; then
+              echo "$(date -u +%H:%M:%SZ)  POD REPLACED: $LAST_POD -> $POD"
+              echo "                 The deploy started over. Elapsed time resets."
+            fi
+            LAST_POD="$POD"
+
+            PHASE=$(kubectl -n "$NS" get "$POD" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+            WAIT=$(kubectl -n "$NS" get "$POD" \
+              -o jsonpath='{.status.initContainerStatuses[0].state.waiting.reason}' 2>/dev/null || true)
+            T_REASON=$(kubectl -n "$NS" get "$POD" \
+              -o jsonpath='{.status.initContainerStatuses[0].state.terminated.reason}' 2>/dev/null || true)
+            CODE=$(kubectl -n "$NS" get "$POD" \
+              -o jsonpath='{.status.initContainerStatuses[0].state.terminated.exitCode}' 2>/dev/null || true)
+            RST=$(kubectl -n "$NS" get "$POD" \
+              -o jsonpath='{.status.initContainerStatuses[0].restartCount}' 2>/dev/null || true)
+
+            if [ -n "$T_REASON" ]; then
+              STATE="$T_REASON (exit $CODE)"
+            elif [ -n "$WAIT" ]; then
+              STATE="$WAIT"
+            else
+              STATE="Running"
+            fi
+            LINE="${POD#pod/}  pod=$PHASE  agent-deploy=$STATE  restarts=${RST:-0}"
+          fi
+
+          if [ "$LINE" != "$LAST" ]; then
+            echo "$(date -u +%H:%M:%SZ)  $LINE"
+            LAST="$LINE"
+          fi
+
+          # Terminated is the only stopping condition. A Running init container is
+          # not a result, however long it has been running.
+          if [ -n "${T_REASON:-}" ]; then
+            echo
+            echo "=== agent-deploy final output ($POD) ==="
+            LOGS=$(kubectl -n "$NS" logs "$POD" -c agent-deploy --tail=60 2>&1 || true)
+            if [ -z "$LOGS" ]; then
+              echo "NO OUTPUT. This is not evidence of what happened."
+              echo "  kubectl -n $NS logs $POD -c agent-deploy --previous"
+            else
+              printf '%s\n' "$LOGS"
+            fi
+            echo
+            if [ "${CODE:-1}" = "0" ]; then
+              echo "Exit 0: a version was ACCEPTED. It does not mean the RAI policy on"
+              echo "that version is being enforced. Read the version back."
+              exit 0
+            fi
+            echo "Exit ${CODE:-?}: the deploy FAILED. The cause is above, not here."
+            exit 1
+          fi
+
+          sleep {{.INTERVAL}}
+        done
+
   harness-down:
     desc: Removes the harness pod and its namespace. Leaves the cluster and the agent versions alone.
     prompt: This deletes the harness namespace. Agent versions already published stay published. Continue?
