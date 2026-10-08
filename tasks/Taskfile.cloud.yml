@@ -128,25 +128,61 @@ tasks:
         echo "The only difference between these two is whether the egress policy names"
         echo "them. No application code knows which is which."
 
+  _arm-get:
+    internal: true
+    # Every ARM read goes through here. az writes auto-upgrade chatter to STDOUT, so a
+    # raw `az rest | jq` silently feeds jq a line of apt output and jq fails. The caller
+    # then sees an empty string, which compares equal to another empty string and reads
+    # as a clean result. A query that did not run must never look like a query that
+    # returned nothing.
+    requires:
+      vars: [URL, QUERY, OUT]
+    cmds:
+      - |
+        set -eu
+        RAW=$(az rest --method get --url "{{.URL}}" --query "{{.QUERY}}" -o json --only-show-errors)
+        JSON=$(printf '%s\n' "$RAW" | sed -n '/^[[{]/,$p')
+        if [ -z "$JSON" ] || ! printf '%s\n' "$JSON" | jq empty >/dev/null 2>&1; then
+          echo "ARM QUERY DID NOT RETURN JSON. This is a failed read, not an empty result." >&2
+          echo "Nothing about the environment has been established." >&2
+          echo >&2
+          echo "url: {{.URL}}" >&2
+          echo "--- raw response ---" >&2
+          printf '%s\n' "$RAW" >&2
+          exit 1
+        fi
+        printf '%s\n' "$JSON" > "{{.OUT}}"
+
   policies:
     desc: Prove the two RAI policies differ in EXACTLY one field
     cmds:
       # The single-variable claim is checkable, so check it rather than asserting it.
       # Read from ARM, not from state: state is what terraform believes it wrote.
+      - task: _arm-get
+        vars:
+          URL:
+            sh: echo "https://management.azure.com$(terraform -chdir=./{{.CLOUD_DIR}} output -raw foundry_account_id)/raiPolicies?api-version=2026-05-15-preview"
+          QUERY: "value[?properties.type=='UserManaged'].{name:name, contentSafetyMode:properties.mode, basePolicy:properties.basePolicyName, egressMode:properties.egressPolicy.mode, defaultAction:properties.egressPolicy.defaultAction, rules:properties.egressPolicy.rules}"
+          OUT: /tmp/abl-policies.json
       - |
         set -eu
-        ACCOUNT_ID=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw foundry_account_id)
-
-        az rest --method get \
-          --url "https://management.azure.com${ACCOUNT_ID}/raiPolicies?api-version=2026-05-15-preview" \
-          --query "value[?properties.type=='UserManaged'].{name:name, contentSafetyMode:properties.mode, basePolicy:properties.basePolicyName, egressMode:properties.egressPolicy.mode, defaultAction:properties.egressPolicy.defaultAction, rules:properties.egressPolicy.rules}" \
-          -o json > /tmp/abl-policies.json
         cat /tmp/abl-policies.json
 
         echo
         echo "=== difference between the two policies, ignoring the name ==="
         AUDIT=$(jq -S 'map(select(.name=="egress-audit"))[0] | del(.name, .egressMode)' /tmp/abl-policies.json)
         ENFORCED=$(jq -S 'map(select(.name=="egress-enforced"))[0] | del(.name, .egressMode)' /tmp/abl-policies.json)
+
+        # Both absent also compares equal. Without this, a policy that was never created
+        # reads as "identical to the other one" and certifies the single-variable design.
+        if [ "$AUDIT" = "null" ] || [ "$ENFORCED" = "null" ] || [ -z "$AUDIT" ] || [ -z "$ENFORCED" ]; then
+          echo "ONE OR BOTH POLICIES ARE MISSING FROM THIS ACCOUNT."
+          echo "  egress-audit:    $([ "$AUDIT" = "null" ] || [ -z "$AUDIT" ] && echo MISSING || echo present)"
+          echo "  egress-enforced: $([ "$ENFORCED" = "null" ] || [ -z "$ENFORCED" ] && echo MISSING || echo present)"
+          echo "This is not a passing comparison. Apply infra/cloud."
+          exit 1
+        fi
+
         if [ "$AUDIT" = "$ENFORCED" ]; then
           echo "IDENTICAL apart from egressPolicy.mode. The single-variable design holds."
         else
@@ -186,16 +222,15 @@ tasks:
       #
       # Read from ARM rather than from terraform state: state is what terraform believes
       # it wrote.
+      - task: _arm-get
+        vars:
+          URL:
+            sh: echo "https://management.azure.com$(terraform -chdir=./{{.CLOUD_DIR}} output -raw foundry_account_id)/projects/$(terraform -chdir=./{{.CLOUD_DIR}} output -raw project_name)/connections?api-version=2026-05-15-preview"
+          QUERY: "value[?properties.category=='AppInsights'].{name:name, category:properties.category, authType:properties.authType, target:properties.target}"
+          OUT: /tmp/abl-connections.json
       - |
         set -eu
-        ACCOUNT_ID=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw foundry_account_id)
-        PROJECT=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw project_name)
-
-        FOUND=$(az rest --method get \
-          --url "https://management.azure.com${ACCOUNT_ID}/projects/${PROJECT}/connections?api-version=2026-05-15-preview" \
-          --query "value[?properties.category=='AppInsights'].{name:name, category:properties.category, authType:properties.authType, target:properties.target}" \
-          -o json)
-
+        FOUND=$(cat /tmp/abl-connections.json)
         echo "$FOUND"
         echo
 
