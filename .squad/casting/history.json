@@ -1,0 +1,12 @@
+{
+  "universe_usage_history": [
+    { "universe": "Alien", "assigned_at": "2026-10-08T16:58:53Z", "assignment_id": "abl-0001" }
+  ],
+  "assignment_cast_snapshots": {
+    "abl-0001": {
+      "universe": "Alien",
+      "assigned_at": "2026-10-08T16:58:53Z",
+      "cast": { "lead": "Ripley", "infra": "Parker", "agent-dev": "Brett", "verification": "Dallas", "telemetry": "Lambert" }
+    }
+  }
+}

@@ -6,34 +6,38 @@ How to decide who handles what.
 
 | Work Type | Route To | Examples |
 |-----------|----------|----------|
-| {domain 1} | {Name} | {example tasks} |
-| {domain 2} | {Name} | {example tasks} |
-| {domain 3} | {Name} | {example tasks} |
-| Code review | {Name} | Review PRs, check quality, suggest improvements |
-| Testing | {Name} | Write tests, find edge cases, verify fixes |
-| Scope & priorities | {Name} | What to build next, trade-offs, decisions |
-| Session logging | Scribe | Automatic — never needs routing |
+| Terraform, AKS, Kubernetes YAML, Azure resources | Parker | `infra/`, Jobs, init containers, workload identity, Container Apps, RAI policy resources, Taskfile targets |
+| Python, ADK, SDK, container contract | Brett | `src/containment_demo/`, agent + tools, protocol adapter, SDK-based agent deployment, Dockerfile, Dapr workflow app |
+| Tests, verification harness, result classification | Dallas | `tests/`, `scripts/verify_demo.py`, pass/fail/inconclusive rules, baseline establishment |
+| Telemetry, KQL, evidence fields, correlation | Lambert | App Insights queries, `docs/telemetry-map.md`, `telemetry.py`, monitoring RBAC |
+| Scope, experiment design, review | Ripley | PLAN.md phase gating, "is this claim supported", arbitration, reviewer gate |
+| Session logging | Scribe | Automatic - never needs routing |
+
+## Reviewer Gate
+
+**Ripley is the reviewer** for anything that produces or interprets evidence, or that
+touches the experimental control (the attached RAI policy being the only variable).
+
+**Dallas is the reviewer** for anything claiming a test result.
+
+On rejection the original author is locked out of the revision. A different agent must
+produce the next version. The Coordinator enforces this mechanically.
 
 ## Issue Routing
 
 | Label | Action | Who |
 |-------|--------|-----|
-| `squad` | Triage: analyze issue, assign `squad:{member}` label | Lead |
+| `squad` | Triage: analyze issue, assign `squad:{member}` label | Ripley |
 | `squad:{name}` | Pick up issue and complete the work | Named member |
-
-### How Issue Assignment Works
-
-1. When a GitHub issue gets the `squad` label, the **Lead** triages it — analyzing content, assigning the right `squad:{member}` label, and commenting with triage notes.
-2. When a `squad:{member}` label is applied, that member picks up the issue in their next session.
-3. Members can reassign by removing their label and adding another member's label.
-4. The `squad` label is the "inbox" — untriaged issues waiting for Lead review.
 
 ## Rules
 
-1. **Eager by default** — spawn all agents who could usefully start work, including anticipatory downstream work.
-2. **Scribe always runs** after substantial work, always as `mode: "background"`. Never blocks.
-3. **Quick facts → coordinator answers directly.** Don't spawn an agent for "what port does the server run on?"
-4. **When two agents could handle it**, pick the one whose domain is the primary concern.
-5. **"Team, ..." → fan-out.** Spawn all relevant agents in parallel as `mode: "background"`.
-6. **Anticipate downstream work.** If a feature is being built, spawn the tester to write test cases from requirements simultaneously.
-7. **Issue-labeled work** — when a `squad:{member}` label is applied to an issue, route to that member. The Lead handles all `squad` (base label) triage.
+1. **Eager by default** - spawn all agents who could usefully start work, including
+   anticipatory downstream work.
+2. **Scribe always runs** after substantial work, always `mode: "background"`.
+3. **Quick facts, the coordinator answers directly.** Do not spawn for "which region are we in".
+4. **No agent applies Terraform, creates billable resources, or publishes an image.**
+   They produce the artifact; Brian runs the command.
+5. **Nothing that ships uses the `az` CLI.** Terraform or SDK only.
+6. **Ask rather than assume.** If a requirement is ambiguous, surface the question to
+   Brian instead of picking a plausible default.

@@ -1,0 +1,11 @@
+{
+  "agents": {
+    "lead": { "persistent_name": "Ripley", "universe": "Alien", "created_at": "2026-10-08T16:58:53Z", "legacy_named": false, "status": "active" },
+    "infra": { "persistent_name": "Parker", "universe": "Alien", "created_at": "2026-10-08T16:58:53Z", "legacy_named": false, "status": "active" },
+    "agent-dev": { "persistent_name": "Brett", "universe": "Alien", "created_at": "2026-10-08T16:58:53Z", "legacy_named": false, "status": "active" },
+    "verification": { "persistent_name": "Dallas", "universe": "Alien", "created_at": "2026-10-08T16:58:53Z", "legacy_named": false, "status": "active" },
+    "telemetry": { "persistent_name": "Lambert", "universe": "Alien", "created_at": "2026-10-08T16:58:53Z", "legacy_named": false, "status": "active" },
+    "scribe": { "persistent_name": "Scribe", "universe": "none", "created_at": "2026-10-08T16:58:53Z", "legacy_named": true, "status": "active" },
+    "ralph": { "persistent_name": "Ralph", "universe": "none", "created_at": "2026-10-08T16:58:53Z", "legacy_named": true, "status": "active" }
+  }
+}
