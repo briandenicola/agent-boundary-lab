@@ -383,7 +383,11 @@ tasks:
         # exactly when one of the two secret values is different from last time.
         CONFIG_HASH=$(printf '%s\n%s' "$DIAG_TOKEN" "$APPINSIGHTS" | sha256sum | cut -d' ' -f1)
 
-        kustomize build deploy/kustomize/base \
+        # Rendered once into a variable so the placeholder check below inspects the stream
+        # that is actually about to be applied. Checking `kustomize build` on its own would
+        # re-read the unsubstituted source and count every placeholder every time, which
+        # can never fail and therefore guards nothing.
+        RENDERED=$(kustomize build deploy/kustomize/base \
           | sed -e "s|REPLACE_WITH_NAMESPACE|${NAMESPACE}|g" \
                 -e "s|REPLACE_WITH_SERVICE_ACCOUNT|${SERVICE_ACCOUNT}|g" \
                 -e "s|REPLACE_WITH_AGENT_DEPLOYER_CLIENT_ID|${CLIENT_ID}|g" \
@@ -400,13 +404,23 @@ tasks:
                 -e "s|REPLACE_WITH_MODEL_DEPLOYMENT|${MODEL_DEPLOYMENT}|g" \
                 -e "s|REPLACE_WITH_CONFIG_HASH|${CONFIG_HASH}|g" \
                 -e "s|REPLACE_WITH_DIAGNOSTICS_TOKEN|${DIAG_TOKEN}|g" \
-                -e "s|REPLACE_WITH_APPINSIGHTS_CONNECTION_STRING|${APPINSIGHTS}|g" \
-          | kubectl {{.KUBECTL_ARGS}} -f -
+                -e "s|REPLACE_WITH_APPINSIGHTS_CONNECTION_STRING|${APPINSIGHTS}|g")
 
-        # A placeholder that survived substitution would reach the cluster as a literal.
-        # Caught here rather than as a pod that cannot pull `REPLACE_WITH_AGENT_IMAGE`.
-        REMAINING=$(kustomize build deploy/kustomize/base | grep -c 'REPLACE_WITH_' || true)
-        echo "rendered ${REMAINING} placeholders from infra/cloud outputs"
+        # A placeholder that survived substitution would reach the cluster as a literal --
+        # a pod that cannot pull `REPLACE_WITH_AGENT_IMAGE`, or worse, an agent pointed at
+        # a hostname that is not the one under test. Caught BEFORE the apply, not after.
+        #
+        # Only placeholder NAMES are printed. The values they would have carried are not,
+        # because two of them are secrets.
+        LEFTOVER=$(printf '%s\n' "$RENDERED" | grep -o 'REPLACE_WITH_[A-Z0-9_]*' | sort -u || true)
+        if [ -n "$LEFTOVER" ]; then
+          echo "Refusing to apply: these placeholders were not substituted." >&2
+          echo "$LEFTOVER" >&2
+          echo "Each one needs a matching 'terraform output -raw' in this task." >&2
+          exit 1
+        fi
+
+        printf '%s\n' "$RENDERED" | kubectl {{.KUBECTL_ARGS}} -f -
 
   _require-kubectl:
     internal: true
