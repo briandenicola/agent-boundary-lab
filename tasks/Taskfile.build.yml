@@ -5,6 +5,11 @@ version: '3'
 # watching a demo, so the command itself is noise.
 silent: true
 
+includes:
+  arm:
+    taskfile: ./Taskfile.arm.yml
+    internal: true
+
 # Image builds and endpoint deployment.
 #
 # Every build happens in ACR rather than on the operator's machine, so the image that
@@ -90,15 +95,27 @@ tasks:
 
   agent-digest:
     desc: Print the agent image digest. This is what both agent versions must pin.
+    vars:
+      ACR_NAME:
+        sh: terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name
+      DIGEST_FILE:
+        sh: mktemp
     cmds:
+      # Routed through arm:_acr-digest rather than parsing `az` here. Capturing
+      # `az ... -o tsv` straight into a variable picks up the CLI's auto-upgrade chatter,
+      # which yields a digest with a sentence in front of it -- a wrong answer that looks
+      # like an answer. There is one place that knows how to read a digest.
+      - task: arm:_acr-digest
+        vars:
+          ACR: '{{.ACR_NAME}}'
+          REPOSITORY: containment-demo-agent
+          TAG: '{{.IMAGE_TAG | default "latest"}}'
+          OUT: '{{.DIGEST_FILE}}'
       - |
         set -eu
-        ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)
         SERVER=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_login_server)
-        DIGEST=$(az acr repository show \
-          --name "$ACR" \
-          --image "containment-demo-agent:${IMAGE_TAG:-latest}" \
-          --query digest -o tsv)
+        DIGEST=$(cat "{{.DIGEST_FILE}}")
+        rm -f "{{.DIGEST_FILE}}"
         echo
         echo "=== pin THIS in both agent versions ==="
         echo "${SERVER}/containment-demo-agent@${DIGEST}"

@@ -37,6 +37,50 @@ tasks:
         fi
         printf '%s' "$ID" > "{{.OUT}}"
 
+  _acr-digest:
+    internal: true
+    # Resolves a TAG to the immutable digest ACR currently has for it. Writes it to OUT.
+    #
+    # This is the experiment's control. Both agent versions must pin the same digest, so
+    # a wrong answer here is worse than no answer: it would let the two versions run
+    # different code while the demo claims the egress policy was the only variable.
+    # There is deliberately NO fallback digest -- a stale default would deploy code that
+    # is not what was built, and nothing downstream would notice.
+    requires:
+      vars: [ACR, REPOSITORY, TAG, OUT]
+    cmds:
+      - |
+        set -eu
+        # An explicitly pinned digest short-circuits the lookup, so that pinning an older
+        # build does not require that build still to be the current tag. It is validated
+        # by the same rule, in the same place, so there is one definition of "a digest".
+        EXPLICIT="{{.EXPLICIT}}"
+        if [ -n "$EXPLICIT" ]; then
+          printf '%s\n' "$EXPLICIT" | grep -qE '^sha256:[0-9a-f]{64}$' || {
+            echo "AGENT_IMAGE_DIGEST is set but is not sha256:<64 hex>: '$EXPLICIT'" >&2
+            exit 1
+          }
+          printf '%s' "$EXPLICIT" > "{{.OUT}}"
+          exit 0
+        fi
+        RAW=$(az acr repository show \
+          --name "{{.ACR}}" \
+          --image "{{.REPOSITORY}}:{{.TAG}}" \
+          --query digest -o tsv --only-show-errors 2>&1 || true)
+        # Same chatter problem as every other az read: the digest arrives with a line of
+        # apt output in front of it, and `sha256:...` with a sentence prepended is still
+        # a syntactically valid-looking string.
+        DIGEST=$(printf '%s\n' "$RAW" | grep -m1 -oE '^sha256:[0-9a-f]{64}$' || true)
+        if [ -z "$DIGEST" ]; then
+          echo "Could not resolve a digest for {{.REPOSITORY}}:{{.TAG}} in {{.ACR}}." >&2
+          echo "The image may not be built or pushed yet -- run 'task build:agent'." >&2
+          echo "Refusing to continue: there is no safe default digest to fall back to." >&2
+          echo "--- raw response ---" >&2
+          printf '%s\n' "$RAW" >&2
+          exit 1
+        fi
+        printf '%s' "$DIGEST" > "{{.OUT}}"
+
   _arm-get:
     internal: true
     # Every ARM read goes through here. az writes auto-upgrade chatter to STDOUT, so a

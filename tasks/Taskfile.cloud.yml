@@ -319,6 +319,15 @@ tasks:
 
   _harness-stream:
     internal: true
+    vars:
+      # Resolved here rather than in the script below so the digest lookup is a shared,
+      # guarded task instead of a second place that parses `az` output.
+      ACR_NAME:
+        sh: terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name
+      DIGEST_FILE:
+        sh: mktemp
+      EXPLICIT_DIGEST:
+        sh: printf '%s' "${AGENT_IMAGE_DIGEST:-}"
     # Renders the manifests and pipes them into kubectl. Nothing is written to disk.
     #
     # SERVER-SIDE APPLY, with --force-conflicts, on purpose and in both directions:
@@ -341,17 +350,29 @@ tasks:
     # containing a literal `|` or `&` would corrupt the substitution; none of these can
     # (ARM IDs, GUIDs, hostnames, an App Insights connection string, a hex token).
     cmds:
+      - task: arm:_acr-digest
+        vars:
+          ACR: '{{.ACR_NAME}}'
+          REPOSITORY: '{{.AGENT_IMAGE_REPOSITORY | default "containment-demo-agent"}}'
+          TAG: '{{.IMAGE_TAG | default "latest"}}'
+          EXPLICIT: '{{.EXPLICIT_DIGEST}}'
+          OUT: '{{.DIGEST_FILE}}'
       - |
         set -eu
 
         TF="terraform -chdir=./{{.CLOUD_DIR}} output -raw"
 
-        # The experiment's control. A tag here would let the two agent versions run
-        # different code, so it is validated before anything is rendered.
-        DIGEST="${AGENT_IMAGE_DIGEST:-sha256:0e4b5019cee0022d0892787bb09bb3f22465183e136a7b77e5866742161a4803}"
+        # The experiment's control. Both agent versions must pin the SAME digest, so it is
+        # resolved live from ACR by arm:_acr-digest rather than defaulting to anything.
+        # A stale fallback would deploy code that is not what was built, and the
+        # plan-cleanliness check could not catch it -- the infrastructure would be
+        # identical either way. An explicit AGENT_IMAGE_DIGEST still wins, and is
+        # validated by that same task.
+        DIGEST=$(cat "{{.DIGEST_FILE}}")
+        rm -f "{{.DIGEST_FILE}}"
         case "$DIGEST" in
           sha256:*) ;;
-          *) echo "AGENT_IMAGE_DIGEST must be sha256:<64 hex>, got '$DIGEST'." >&2
+          *) echo "Digest did not resolve to sha256:<64 hex>, got '$DIGEST'." >&2
              echo "Tags are mutable; two agent versions running different code would make" >&2
              echo "the RAI policy no longer the only variable. Read the current digest with" >&2
              echo "'task build:agent-digest'." >&2
