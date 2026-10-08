@@ -58,7 +58,13 @@ and `docs/compatibility.md` §B9 for the deployment API.
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
-### 2026-10-08 — telemetry-map.md first validation pass
+### 2026-10-08 — GATE 0 established: Q6 (OperationId correlation) runs first (Lambert's action)
+
+`demo_run_id` reaches Layer 3 (receipts) but is not documented to reach Layer 2 (platform egress
+decisions). Q6 (test OperationId propagation) becomes GATE 0 and must run on the first hosted
+agent run before any other build. **Pre-committed outcome:** if Q6 returns false, the evidence model
+needs rework and the demo claims "three consistent observations", never "joined rows". Procedural
+control (serial runs + timestamps) then substitutes for missing technical correlation.
 
 - **The Foundry project has zero connections** (`GET .../projects/.../connections?api-version=2025-06-01`
   → `{"value": []}`). App Insights `humble-phoenix-46689-ai` exists but is **not linked to the

@@ -58,7 +58,11 @@ and `docs/compatibility.md` §B9 for the deployment API.
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
-### 2026-10-08 — Phase 5 Section A harness and two missing unit guards
+### 2026-10-08 — PLAN re-gate: Sections B and C stubs cannot return pass (Dallas action)
+
+Ripley re-gated the plan against verified facts. Sections B and C are stubs returning
+`not_implemented` (exit 2). They cannot return a pass and should not pretend to. They remain blocked
+on Phase 4 completion. Sections B and C implementation is pending no agent version yet.
 
 - `scripts/verify_demo.py` exists and Section A is real. B and C are stubs that return
   `not_implemented`; they can never return a pass. Exit codes: 0 pass, 1 fail, 2

@@ -150,7 +150,15 @@ resource "kubernetes_deployment_v1" "harness" {
             # The image's own ENTRYPOINT is the Foundry protocol adapter. The deploy
             # module is a second entrypoint into the SAME image, so the code that
             # publishes the agent version is byte-identical to the code being published.
-            command = ["python", "-m", var.agent_deploy_module]
+            #
+            # The interpreter is an ABSOLUTE path, not `python`. The Dockerfile installs
+            # the agent's dependencies with `uv pip install --system` and the deploy
+            # extra (azure-ai-projects) into the separate venv at /opt/deploy-venv only.
+            # That venv is never activated and is not on PATH, so a bare `python` resolves
+            # to the system interpreter and the init container dies at import time with
+            # ModuleNotFoundError: azure.ai.projects. Relying on PATH ordering would also
+            # make this silently sensitive to a future ENV PATH edit in the Dockerfile.
+            command = [var.agent_deploy_interpreter, "-m", var.agent_deploy_module]
 
             dynamic "env" {
               for_each = local.deploy_env

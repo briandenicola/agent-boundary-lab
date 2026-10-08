@@ -45,7 +45,8 @@ variable "agent_image_digest" {
 
 variable "agent_deploy_module" {
   description = <<-EOT
-    Python module entrypoint the init container executes, as `python -m <module>`.
+    Python module entrypoint the init container executes, as
+    `<agent_deploy_interpreter> -m <module>`.
 
     CONTRACT WITH THE AGENT IMAGE. The image's own ENTRYPOINT starts the Foundry protocol
     adapter; the init container overrides it to run the deployment module instead. The
@@ -57,6 +58,31 @@ variable "agent_deploy_module" {
   EOT
   type        = string
   default     = "containment_demo.deploy"
+}
+
+variable "agent_deploy_interpreter" {
+  description = <<-EOT
+    Absolute path to the Python interpreter the init container uses to run
+    `agent_deploy_module`.
+
+    CONTRACT WITH THE AGENT IMAGE. The image carries two isolated dependency sets: the
+    agent's own stack installed system-wide, and the deployer's (`.[deploy]`, which pulls
+    azure-ai-projects and its openai>=3 requirement) installed into the venv at
+    /opt/deploy-venv. Keeping them apart is what stops the deployer from dragging the
+    agent's model stack sideways — the image digest is the experiment's only control.
+
+    The venv is never activated and is not on PATH, so this MUST be the absolute path to
+    its interpreter. A bare `python` resolves to the system interpreter, which has no
+    azure-ai-projects, and the pod fails in init with ModuleNotFoundError. An absolute
+    path is also immune to a later `ENV PATH` change in the Dockerfile.
+  EOT
+  type        = string
+  default     = "/opt/deploy-venv/bin/python"
+
+  validation {
+    condition     = startswith(var.agent_deploy_interpreter, "/")
+    error_message = "agent_deploy_interpreter must be an absolute path. Resolving the interpreter through PATH would silently pick the system interpreter, which lacks the deploy dependencies."
+  }
 }
 
 variable "agent_deploy_enabled" {

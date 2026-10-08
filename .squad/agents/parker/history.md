@@ -58,7 +58,14 @@ and `docs/compatibility.md` §B9 for the deployment API.
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
-### 2026-10-08 — client harness pod, agent-deployer identity, infra/k8s module
+## Learnings (2026-10-08 — PLAN.md re-gate)
+
+### 2026-10-08 — init-container interpreter defect (Parker's action item)
+
+`infra/k8s/harness.tf` runs `["python", "-m", var.agent_deploy_module]` but Dockerfile installs
+`azure-ai-projects` only into `/opt/deploy-venv`. The pod fails with `ModuleNotFoundError` on
+first run. Fix: use `["/opt/deploy-venv/bin/python", "-m", var.agent_deploy_module]`.
+This is a Ripley/Brett observation, Phase 4 Blocker 1.
 
 - **`Cognitive Services User` is sufficient for agent writes — verified, with one gap.**
   `az provider operation show -n Microsoft.CognitiveServices` registers
@@ -131,3 +138,24 @@ and `docs/compatibility.md` §B9 for the deployment API.
 - **Brett's deployment contract is final; do not change module path or env vars without telling him.** The init container reads `var.agent_deploy_module` from variables.tf; if it moves, the pod fails with `ModuleNotFoundError`.
 - **RBAC assumption on `agents/versions` write is unverified.** If init container gets 403 on `create_version`, suspect this before the federated credential. See decisions.md §8.
 - **The deploy SDK's openai>=3 dependency had to be isolated in a separate venv.** Without it, the SDK drags the agent's own model stack sideways (litellm 1.104→1.83, openai 2.54→3.26), which is an uncontrolled variable in the thing under test. The image digest is the experiment; dependencies on the agent's side must not drift.
+
+### 2026-10-08 — the init container was running the wrong interpreter
+
+- **The decision record said `/opt/deploy-venv/bin/python`; `harness.tf` said `python`.**
+  Ripley caught it during the PLAN re-gate. The defect was real: the Dockerfile installs
+  the agent stack with `uv pip install --system` and the deploy extra only into
+  `/opt/deploy-venv`, and that venv is never activated and never added to PATH. A bare
+  `python` resolves to the system interpreter, so the deploy would have died at import
+  time with `ModuleNotFoundError: azure.ai.projects` — after the pod had already pulled
+  the image and proven workload identity, which is the most misleading possible place to
+  fail.
+- **A decision record is not an artifact.** This one was written, agreed, quoted in two
+  places in `decisions.md`, and still did not match the Terraform. Nothing mechanical
+  connected the two. `terraform validate` cannot see it, and the unit suite does not
+  render the pod spec. The only check that would have caught it is actually running the
+  init container, which costs an apply.
+- **The interpreter is now `var.agent_deploy_interpreter`, defaulting to the absolute
+  path, with a validation that it starts with `/`.** Absolute over PATH ordering on
+  purpose: PATH resolution would also make the pod silently sensitive to any future
+  `ENV PATH` edit in the Dockerfile, and that failure would look identical to a missing
+  dependency.

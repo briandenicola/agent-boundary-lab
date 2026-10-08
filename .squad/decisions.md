@@ -166,6 +166,94 @@
 - Run before building anything else
 - If it closes gap: Layer 2 join works for free; if not, serial-run procedural control remains in place
 
+### GATE 0: OperationId Propagation Test (Layer 1↔2 Correlation)
+
+**By:** Ripley  
+**Date:** 2026-10-08  
+**Status:** Pending (blocks all verification phases)
+
+- `demo_run_id` is verified to reach Layer 3 (test-receiver receipts) via HTTP header
+- `demo_run_id` is verified **not documented** to reach Layer 2 (platform egress decisions)
+- Marker travels in HTTP header; platform not documented to copy it into decision records
+- Lambert's Q6 (OperationId propagation test) runs FIRST on first hosted run, before any other build
+- **Branch decided in advance:**
+  - If Q6 returns `joined == true`: Layer 2 join works; proceed with Phases 5–7 as written
+  - If Q6 returns `joined == false`: evidence model needs rework; claim weaker "three consistent observations in one window", never "three rows joined on shared key"; use procedural control (serial runs with explicit timestamps) as fallback
+- Fallback (hostname + window + version) is coincidence argument, not join; strict serial runs substitute for missing technical correlation
+
+### Phase 4 Blockers (Critical Path)
+
+**By:** Ripley, Parker, Brett  
+**Date:** 2026-10-08  
+**Status:** Three blockers, each with unblock criteria
+
+1. **Init-container interpreter mismatch.** `infra/k8s/harness.tf` runs `["python", "-m", ...]` but Dockerfile installs `azure-ai-projects` only into `/opt/deploy-venv`. Should run `["/opt/deploy-venv/bin/python", "-m", ...]`. Parker to fix. Blocks first hosted deploy.
+
+2. **Server-side digest acceptance unverified.** Client-side validation passes; service acceptance unknown. `deploy.py` raising `DigestRejectedError` with no tag fallback is correct (prevents control-variable drift). Unblocked by first in-VNet deploy; record exact error in compatibility.md B9a.
+
+3. **RBAC on `agents/versions` write assumed, not verified.** No primary source names the required role. Role `Cognitive Services User` wildcard `Microsoft.CognitiveServices/*` presumed to cover `agents/versions` write; assumption unverified. If init container gets 403, suspect this before federated credential.
+
+### Deployment SDK Shape Correction
+
+**By:** Ripley, Brett  
+**Date:** 2026-10-08  
+**Status:** Implemented in PLAN.md; code follows
+
+- Azure CLI **cannot** attach RAI policy, so it cannot deploy either side of this single-variable experiment
+- Deployment is `azure-ai-projects` 2.8.0 SDK from inside VNet (data plane rejects public access)
+- Image location: `definition.container_configuration.image`, not flat `definition.image`
+- Protocols field: `protocol_versions`, not `container_protocol_versions`
+- No container start operation; readiness polled via `get_version(...).status`
+- API version defaults to `"v1"` with separate `allow_preview` flag, not a date string
+
+### Receipt Absence Classification (Mandatory Companion Query)
+
+**By:** Ripley, Dallas  
+**Date:** 2026-10-08  
+**Status:** Implemented; Q2 paired with Q2a
+
+- Live unattributed receipt observed: `demo_run_id == ""` in `test-receiver` logs
+- "Zero receipts for our run id" is not "nothing arrived"; two cases now separate
+- Q2a (unattributed arrivals) is mandatory companion to Q2
+- Four outcomes for absence: (1) rows with marker = FAIL, (2) rows unattributed = INCONCLUSIVE, (3) no rows + proven retrievability in window = PASS (receipt leg only), (4) no rows + unproven retrievability = INCONCLUSIVE
+
+### Blocker 3: Implicit Allow Rule Test
+
+**By:** Ripley  
+**Date:** 2026-10-08  
+**Status:** Added to Phase 6
+
+- Risk: undocumented implicit allow is carrying the positive result
+- Test: remove explicit allow rule for permitted destination and confirm it is then denied
+- If still succeeds, the positive half of the demo proves nothing
+- Phase 6 exit criterion: either this test passes or the implicit allow is documented
+
+### Phase Status Labeling and Honest Assessment
+
+**By:** Ripley  
+**Date:** 2026-10-08  
+**Status:** Implemented in PLAN.md
+
+- Every phase carries **done / partial / not started / blocked** status
+- Every claim inside phase is labeled **tested result**, **proposed behaviour**, or **preview capability**
+- Specific downgrades:
+  - Phase 5 §B and §C: stubs returning `not_implemented`; cannot return pass
+  - Phase 6: `tests/integration` is empty (unwritten, not unrun)
+  - Phase 7: `demo-runbook.md` and `evidence-template.md` do not exist
+  - Phase 3: App Insights connection authored in Terraform; read-back is open (authoring is not evidence)
+  - Telemetry §2.1: stays blank until real row observed (no guessed platform column names)
+  - Phase 4: `assert_single_variable` must verify read-back definitions, not intent
+
+### Phases 8 and 9 Gated on Phase 5 §C and A2A Spike
+
+**By:** Ripley, Brett  
+**Date:** 2026-10-08  
+**Status:** Policy
+
+- Phase 8 does not begin before Phase 5 §C produces a result
+- Phase 9 (A2A on hosted container agents) remains blocked on A2A spike (Blocker 5)
+- Responses fallback is pre-agreed and costs nothing (harness transport method has no bearing on what agent tools can reach)
+
 ## Known Risks / Unverified Assumptions
 
 ### Server-Side Digest Acceptance

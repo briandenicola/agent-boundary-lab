@@ -1,0 +1,24 @@
+Record Ripley's PLAN re-gate, merge decisions inbox, and update team histories
+
+Orchestration:
+- .squad/orchestration-log/2026-10-08T17:54:57Z-ripley.md: Ripley's re-gating session
+  re-writing docs/PLAN.md with seven major decisions (GATE 0, deployment path, payload
+  shape, receipt absence, Phase 4 blockers, Blocker 3 test, phase labeling)
+
+Session log:
+- .squad/log/2026-10-08T17:54:57Z-plan-regate-and-taskfile-fixes.md: covers three commits
+  (4e0a335 ARM read false-positive fix, 87f3ed3 .env→terraform propagation, a23ec2e
+  account lookup consolidation + PLAN.md full rewrite)
+
+Decisions:
+- Merged inbox/ripley-plan-regate.md into .squad/decisions.md (seven new decision entries,
+  three Phase 4 blockers, Blocker 3 test, phases 8–9 gate)
+- Deleted inbox file
+
+Team history updates:
+- Parker: init-container venv interpreter defect (Phase 4 Blocker 1)
+- Lambert: GATE 0 established, Q6 correlation test runs first
+- Dallas: Sections B and C stubs cannot return pass
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+Copilot-Session: c5d7ad99-0e4c-4848-b659-594361ae3066
