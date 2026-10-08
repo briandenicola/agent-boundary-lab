@@ -5,10 +5,20 @@ version: '3'
 # Every build happens in ACR rather than on the operator's machine, so the image that
 # runs is the image ACR built, and nothing depends on a local Docker daemon.
 #
+# BUILDS DO NOT PROMPT. Pushing a new tag into your own registry changes nothing that is
+# running: the agent versions pin digests and the Container Apps keep serving whatever
+# image they were last pointed at. Rebuilding is also idempotent, so a repeated or
+# accidental run costs a little ACR time and nothing else. The confirmation stays on
+# deploy-endpoints, which is the step that actually swaps what is serving traffic.
+#
 # THE AGENT IMAGE DIGEST IS THE EXPERIMENT'S CONTROL. Both agent versions must run the
 # SAME digest, or the Audit and Enforced runs differ in more than the policy and the
 # result proves nothing. Tags are mutable and must never be used to publish a version -
 # use `task build:agent-digest` and pin what it prints.
+#
+# A corollary of not prompting: rebuilding `latest` moves the tag but NOT any digest a
+# version already pins. If you rebuild mid-experiment, re-read the digest and confirm
+# both versions still pin the same one before trusting a run.
 
 env:
   CLOUD_DIR: infra/cloud
@@ -27,7 +37,6 @@ tasks:
 
   agent:
     desc: BUILDS IN AZURE. Build and push the agent image to ACR
-    prompt: This runs a build in your Azure Container Registry. Continue?
     cmds:
       - |
         set -eu
@@ -42,7 +51,6 @@ tasks:
 
   services:
     desc: BUILDS IN AZURE. Build and push both controlled-endpoint images to ACR
-    prompt: This runs builds in your Azure Container Registry. Continue?
     cmds:
       # TWO images from ONE Dockerfile. services/Dockerfile resolves the app at build
       # time, so a running container cannot be repointed at the other service; building
