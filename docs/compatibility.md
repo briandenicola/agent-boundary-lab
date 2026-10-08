@@ -403,9 +403,67 @@ explicit rule, the experiment is muddied. Test empirically.
 
 - https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/add-hosted-agent-guardrails
 
----
+### B9. Deploying an agent version — the CLI cannot attach a policy
 
-## C. Evidence and observability
+Verified 2026-10-08 by reading the installed `azure-cli` source
+(`azure/cli/command_modules/cognitiveservices/custom.py`, az CLI 2.x, module present at
+`/opt/az/lib/python3.14/site-packages/`). These are the calls the CLI actually makes, not
+documentation prose.
+
+Hosted agents are **not an ARM resource type**. `az provider show -n
+Microsoft.CognitiveServices` lists no `accounts/projects/agents`; they live on the project
+**data plane**:
+
+| Item | Verified value |
+| --- | --- |
+| Base URL | `https://{account}.services.ai.azure.com/api/projects/{project}` (`_client_factory.py:71`) |
+| Create version | `POST /agents/{name}/versions` (`custom.py:~2204`) |
+| API version | `2025-11-15-preview` (`AGENT_API_VERSION_PARAMS`, `custom.py:495`) |
+| Version addressing | `/agents/{name}/versions/{version}`, container ops append `/containers/default` |
+
+Request body built by `_create_agent_definition` (`custom.py:1414`):
+
+```json
+{
+  "definition": {
+    "kind": "hosted",
+    "container_protocol_versions": [{ "protocol": "RESPONSES", "version": "v1" }],
+    "cpu": 1,
+    "memory": "2Gi",
+    "image": "<registry>/<repo>:<tag>",
+    "environment_variables": { "KEY": "value" }
+  },
+  "description": "optional"
+}
+```
+
+**`az cognitiveservices agent` cannot set an RAI policy.** No subcommand in the group
+(`create`, `update`, `show`, `status`) exposes a policy argument, and
+`_create_agent_definition` never emits `rai_config`. Since the attached policy is the
+demo's only experimental variable, **the CLI cannot deploy either of our agent versions**.
+The deployment must be a direct data-plane call that adds `rai_config.rai_policy_name`
+(B4) to the same `definition` object.
+
+`--image` is also tag-oriented: `_validate_image_tag` (`custom.py:510`) requires a colon
+and treats everything after the last one as "the tag, which becomes the agent version". A
+digest reference contains a colon, so it would pass validation, but the resulting version
+name would be the raw hex. **NOT VERIFIED:** whether the service accepts a digest
+reference in `definition.image` at all. The experiment requires digest pinning, so this
+must be proven before any run is trusted.
+
+**The data plane is unreachable from outside the VNet.** With
+`publicNetworkAccess: Disabled`, `az cognitiveservices agent list` returns:
+
+```
+(403) Public access is disabled. Please configure private endpoint.
+```
+
+So agent deployment has to originate inside the VNet, or the account's inbound posture has
+to change for the duration of the deployment. This is an inbound/control-plane concern and
+is independent of egress enforcement, but it is a real operational constraint on Phase 4.
+
+- Verified by source inspection; no Learn page documents this payload.
+- https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/add-hosted-agent-guardrails
 
 ### C1. Where egress decisions surface
 
