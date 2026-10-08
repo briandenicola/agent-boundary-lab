@@ -234,11 +234,17 @@ Begin after the base containment criteria pass. Keep the ADK agent and exactly t
 
 **Exit:** A reproducible AKS workflow survives application pod replacement during a durable wait, invokes the unchanged Foundry agent, and retains inspectable evidence. Storage/operations responsibilities and known gaps are documented.
 
-## Phase 9 — On-premises agentic harness
+## Phase 9 — Agentic harness (AKS, standing in for on-premises)
 
-The on-premises side is a **full agentic harness**: its own agent loop, its own model,
-its own local tools. It delegates selected steps outward. It is not a thin API client,
-and it is not contained by anything in this demo.
+The client is a **full agentic harness**: its own agent loop, its own model, its own local
+tools. It delegates selected steps outward. It is not a thin API client, and the Foundry
+egress policy does not govern it.
+
+**It runs on AKS, inside the VNet, standing in for an on-premises environment.** It is not
+literally on premises and must never be described as if it were. Running it in the VNet
+buys the property that matters: it reaches Foundry across the **private endpoint**, so the
+Foundry account stays inbound-private and the harness ingress is the environment's only
+public surface. True on-premises deployment is Phase 10 and stays deferred.
 
 It reaches Foundry on two separate paths, and keeping them separate is the point. The
 **direct path** (harness → hosted agent over A2A) is the containment demo, with nothing
@@ -249,6 +255,8 @@ containment result.
 
 - [ ] Implement a narrow application-owned API: start case, query status, submit authorized event. It invokes the local Dapr Workflow client/runtime using verified APIs.
 - [ ] Add `samples/onprem_harness/` — a standalone agent runtime, not a request script. No Dapr install and no Dapr sidecar on the harness.
+- [ ] Confirm the harness resolves the Foundry account through the **private DNS zones** (`cognitiveservices`, `openai`, `services.ai`) and not a public IP. A client that resolves the wrong zone gets an address it cannot reach rather than a clear failure, which is a slow and confusing way to lose an afternoon.
+- [ ] **Never present the private endpoint as outbound containment.** It governs inbound reach only; an agent behind a private endpoint can still call any host on the internet. Outbound is the egress policy's job, and conflating the two is the precise error this repository exists to disprove.
 - [ ] **A2A spike first.** Before building the direct path, prove that incoming A2A can be enabled on a *hosted container* agent. The primary documentation only blesses prompt agents; our agent is a hosted container agent that happens to use the required Responses protocol. If the spike fails, fall back to calling the agent over the Responses protocol and **record the substitution** — it changes nothing about containment, because how the harness reaches the agent has no bearing on what the agent's tools can reach. Do not report A2A-on-hosted-agents as working until the spike proves it.
 - [ ] Pin the A2A protocol version explicitly to **1.0** via the `A2A-Version` header, the `a2a-version` query parameter, or by resolving the v1.0 agent card. A call that names no version is served **preview v0.3**. Never send both selectors with different values — that is HTTP 400 `version-ambiguous`.
 - [ ] Authenticate to A2A with **Microsoft Entra ID only**; key-based and anonymous access are unsupported, including for the agent card. Grant the harness identity **Foundry Agent Consumer** (`eed3b665-ab3a-47b6-8f48-c9382fb1dad6`), scoped to a single agent rather than the project where possible. Token scope `https://ai.azure.com/.default`.
@@ -259,10 +267,10 @@ containment result.
 - [ ] Validate approved on-premises-to-AKS routing/DNS, API TLS, identity/token renewal, ingress authorization, and reconnect behavior. Private routing alone does not provide authorization.
 - [ ] Use only synthetic metadata and opaque references; document where API payloads, history, agent context, and telemetry are stored. Note that A2A tasks and contexts are retained **60 days** from last write.
 - [ ] Demonstrate harness start/query/event against the same workflow instance. The Foundry agent remains the runtime for the two-tool containment proof.
-- [ ] **Keep the two halves distinguishable in evidence.** Every artifact must make clear what ran in the uncontained on-premises harness and what ran inside the contained Foundry container. A report that blurs them is a failure, not a pass.
+- [ ] **Keep the two halves distinguishable in evidence.** Every artifact must make clear what ran in the harness, which the Foundry egress policy does not govern, and what ran inside the contained Foundry container. A report that blurs them is a failure, not a pass.
 - [ ] Extend `docs/workflow-runbook.md` with cluster/sidecar/state preflight, pod-restart test, API examples, monitoring queries using real fields, and safe cleanup.
 
-**Exit:** A separate on-premises agentic harness invokes the hosted agent on a pinned, Entra-authenticated protocol version, and independently drives a workflow case through the authenticated API — with no local Dapr dependency, no public sidecar access, and evidence that never confuses the uncontained harness with the contained container.
+**Exit:** A separate agentic harness on AKS, standing in for on-premises, invokes the hosted agent across the private endpoint on a pinned, Entra-authenticated protocol version, and independently drives a workflow case through the authenticated API — with the Foundry account inbound-private, the harness ingress the only public surface, no local Dapr dependency, no public sidecar access, and evidence that never confuses the harness with the contained container or a private endpoint with egress containment.
 
 ## Phase 10 — Deferred outbound bridge and on-premises portability
 
@@ -292,7 +300,7 @@ The owner can reproduce one ADK agent with two unchanged business tools in a rea
 
 ### Extended definition of done
 
-In addition to the original containment criteria, a Python Dapr Workflow application on AKS resumes the same case after pod restart during approval wait, using intact persistent storage. A separate on-premises **agentic harness** invokes the unchanged Foundry hosted agent over A2A — Entra-authenticated, with the protocol version pinned to 1.0 — and independently starts/queries/signals the case through a secured API. If incoming A2A proves unsupported on hosted container agents, the harness uses the Responses protocol and the substitution is recorded rather than hidden. MCP is excluded from the containment path by design. Evidence distinguishes the uncontained harness from the contained container. State-store operations, idempotency, access control, and trace linkage are verified. Azure Durable Task Scheduler is not required. Messaging bridge and local Dapr/ADK deployment remain deferred.
+In addition to the original containment criteria, a Python Dapr Workflow application on AKS resumes the same case after pod restart during approval wait, using intact persistent storage. A separate **agentic harness on AKS, standing in for on-premises**, invokes the unchanged Foundry hosted agent over A2A across a private endpoint — Entra-authenticated, with the protocol version pinned to 1.0 — and independently starts/queries/signals the case through a secured API. If incoming A2A proves unsupported on hosted container agents, the harness uses the Responses protocol and the substitution is recorded rather than hidden. MCP is excluded from the containment path by design. The Foundry account is inbound-private and the harness ingress is the only public surface, with the private endpoint never presented as outbound containment. Evidence distinguishes the harness from the contained container. State-store operations, idempotency, access control, and trace linkage are verified. Azure Durable Task Scheduler is not required. Messaging bridge and local Dapr/ADK deployment remain deferred.
 
 ## First GitHub Copilot task
 
@@ -322,14 +330,17 @@ idempotency of retried activities and distinguish expected platform denial from
 transient failure. Instrument real workflow and agent evidence; do not invent
 SDK APIs, state-store compatibility, or trace propagation.
 Then implement Phase 9: a secured start/status/event API plus a separate
-on-premises agentic harness that needs no local Dapr. The harness invokes the
-hosted agent over A2A with the version pinned to 1.0 and Entra ID auth; spike
-that first, because the documentation only confirms A2A for prompt agents, and
-fall back to the Responses protocol if a hosted container agent cannot be
-exposed. Do not route the containment path through MCP. Keep sidecar management
-ports private and enforce case/event authorization. Keep the uncontained harness
-and the contained container distinguishable in all evidence. Do not deploy
-resources or change access policies without approval. Keep Phase 10 messaging and
-OpenShift/local runtime options deferred. Report implemented, tested, blocked,
+agentic harness on AKS standing in for on-premises, needing no local Dapr. It
+invokes the hosted agent over A2A with the version pinned to 1.0 and Entra ID
+auth, across the private endpoint; spike that first, because the documentation
+only confirms A2A for prompt agents, and fall back to the Responses protocol if
+a hosted container agent cannot be exposed. Do not route the containment path
+through MCP. Keep the Foundry account inbound-private and the harness ingress the
+only public surface, and never present a private endpoint as outbound
+containment. Keep sidecar management ports private and enforce case/event
+authorization. Keep the harness and the contained container distinguishable in
+all evidence. Do not deploy resources or change access policies without approval.
+Keep Phase 10 messaging and OpenShift/local runtime options deferred. Report
+implemented, tested, blocked,
 and unverified work.
 ```

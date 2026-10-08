@@ -43,9 +43,19 @@ resource "azapi_resource" "foundry" {
       apiProperties          = {}
       customSubDomainName    = local.foundry_name
 
-      # Governs INBOUND reach only. See the variable's documentation for why the default
-      # is Enabled and why that does not weaken the outbound claim.
+      # Governs INBOUND reach only, and is Disabled. The harness that calls this account
+      # is the client, and it runs on AKS inside this VNet to mimic an on-premises
+      # environment, so it arrives over the private endpoint in private-endpoints.tf.
+      #
+      # This does NOT contain the agent's outbound traffic. A private endpoint never has.
+      # Egress is governed by networkInjections plus the egress policy in rai-policies.tf.
       publicNetworkAccess = var.foundry_public_network_access
+
+      networkAcls = {
+        defaultAction       = "Deny"
+        virtualNetworkRules = []
+        ipRules             = []
+      }
 
       networkInjections = [
         {

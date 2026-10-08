@@ -67,17 +67,24 @@ variable "foundry_public_network_access" {
   description = <<-EOT
     Inbound public access to the Foundry account's control and data plane.
 
-    DEFAULT ENABLED. Inbound reachability is not the control under test: the demo is
-    about OUTBOUND containment from the agent, which is governed by the managed network
-    injection and the egress policy regardless of this setting. Disabling it means the
-    agent can only be invoked and its evidence only collected from inside the VNet, which
-    impedes evidence collection without strengthening the claim.
+    DEFAULT DISABLED, and it should stay that way. A containment demo whose Foundry
+    account answers from the public internet undercuts its own claim before the first
+    tool call: a reviewer is entitled to ask why they should believe the outbound story
+    from a platform left inbound-open.
 
-    Set to "Disabled" only if the environment's own policy requires it, and plan to drive
-    the demo from a jumpbox.
+    Nothing needs it to be Enabled. The agentic harness runs on AKS, inside this VNet,
+    deliberately mimicking an on-premises environment, so it reaches the account over the
+    private endpoint. The only public surface in the environment is the harness's own
+    ingress.
+
+    Note that this setting governs INBOUND reach only, and the distinction is load-bearing
+    rather than pedantic: disabling it does NOT contain the agent's outbound traffic, and
+    a private endpoint never has. Egress is governed by the managed network injection and
+    the egress policy. Presenting a private endpoint as outbound containment is exactly
+    the confusion this repository exists to correct.
   EOT
   type        = string
-  default     = "Enabled"
+  default     = "Disabled"
 
   validation {
     condition     = contains(["Enabled", "Disabled"], var.foundry_public_network_access)

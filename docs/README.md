@@ -24,18 +24,24 @@ Exactly two business tools remain registered and callable in ADK in every mode:
 ## Proposed architecture
 
 ```text
-ON-PREMISES: agentic harness (full agent runtime, its own model + tools)
+                    [ the only public surface ]
+                                |
+                                v
+AKS, inside the VNet -- STANDS IN FOR ON-PREMISES
+  agentic harness: full agent runtime, its own model + tools. This is the client.
     |
     |  A2A (Agent2Agent) over JSONRPC, Microsoft Entra ID auth
     |  POST .../agents/{agent}/endpoint/protocols/a2a
+    |  resolved over the PRIVATE ENDPOINT -- never the internet
     v
-Foundry hosted-agent endpoint  (A2A + Responses protocols enabled)
+Foundry account: publicNetworkAccess Disabled, networkAcls default Deny
+  Foundry hosted-agent endpoint  (A2A + Responses protocols enabled)
     |
     v
 Python container: protocol adapter -> ADK runner -> two HTTP tools
     |
     v
-Foundry-managed egress policy
+Foundry-managed egress policy        <-- the ONLY thing containing outbound traffic
     |-- permitted hostname -> synthetic policy API
     |-- unapproved hostname -> controlled test receiver
 
@@ -43,20 +49,43 @@ Evidence: harness trace + ADK/tool traces + platform egress decisions + endpoint
 Telemetry destination: Application Insights; optional approved OTLP collector
 ```
 
-The caller is **not a thin test client**. It is a complete agentic harness that runs on
-premises, holds its own model and its own tools, and delegates one step of its work to a
-remote agent in Foundry. That is the realistic enterprise shape: the organization keeps
+The caller is **not a thin test client**. It is a complete agentic harness with its own
+agent loop, its own model and its own local tools, which delegates one step of its work to
+a remote agent in Foundry. That is the realistic enterprise shape: the organization keeps
 its harness where its data and controls already are, and reaches into Foundry for a
 capability it does not want to run locally.
 
+**The harness runs on AKS, standing in for an on-premises environment.** It is not
+literally on premises, and nothing in this repository should claim it is. Running it
+inside the VNet buys the thing that matters: the harness reaches Foundry across a private
+endpoint, so the Foundry account can be inbound-private and the environment needs exactly
+one public surface — the harness's own ingress. A reader evaluating true on-premises
+deployment should treat this as a topology stand-in, not as evidence that an on-premises
+harness works; that is Phase 10 and remains deferred.
+
+### Private endpoints are not egress containment
+
+The Foundry account is inbound-private: `publicNetworkAccess` is `Disabled` and
+`networkAcls.defaultAction` is `Deny`. A containment demo whose platform answers from the
+public internet undercuts itself before the first tool call.
+
+**But do not confuse the two directions, because confusing them is the exact error this
+repository exists to correct.** The private endpoint governs who can reach *in*. It places
+no restriction whatsoever on what the agent can reach *out* to. An agent behind a private
+endpoint can still call any host on the internet. Outbound is governed solely by the
+managed network injection and the egress policy — which is why the egress policy, not the
+private endpoint, is the experimental variable. If a diagram, slide, or report presents a
+private endpoint as outbound containment, it is wrong, regardless of how private the
+rest of the environment looks.
+
 **This changes who is being contained, and that distinction is the whole point.** The
-harness is not contained by anything in this demo — it runs on hardware we control,
-under whatever local policy applies, and Foundry has no visibility into it. Only the two
-tools that execute *inside the Foundry hosted-agent container* are subject to the egress
-policy. A reader who concludes "the platform contained the agent" without noticing that
-the on-premises half is uncontained has drawn the wrong lesson. Containment attaches to
-the runtime the code executes in, never to the logical agent, and never follows a tool
-back across the A2A boundary.
+harness is not contained by the Foundry egress policy at all. It runs on AKS, under
+whatever policy we apply to our own cluster, and Foundry has no visibility into it. Only
+the two tools that execute *inside the Foundry hosted-agent container* are subject to the
+egress policy. A reader who concludes "the platform contained the agent" without noticing
+that the harness half is governed by something else entirely has drawn the wrong lesson.
+Containment attaches to the runtime the code executes in, never to the logical agent, and
+never follows a tool back across the A2A boundary.
 
 ### Why A2A and not MCP
 
@@ -311,8 +340,9 @@ Running Dapr Workflow and/or ADK on on-premises Kubernetes/OpenShift is a later 
 - [ ] The same case survives workflow pod restart during approval wait, with the state store intact.
 - [ ] Denial, duplicate approvals, timeout, and activity retries have explicit safe outcomes.
 - [ ] Agent context and workflow state have independent tested persistence strategies.
-- [ ] A separately running on-premises agentic harness invokes the Foundry hosted agent over A2A — with the protocol version pinned to 1.0 and Entra ID authentication — and separately starts/queries/signals a workflow case through the authenticated API. If incoming A2A proves unsupported for hosted container agents, the harness uses the Responses protocol and that substitution is recorded, not hidden.
-- [ ] Evidence distinguishes what ran in the uncontained on-premises harness from what ran inside the contained Foundry container. A report that blurs the two is a failure, not a pass.
+- [ ] A separately running agentic harness on AKS, standing in for on-premises, invokes the Foundry hosted agent over A2A across the private endpoint — with the protocol version pinned to 1.0 and Entra ID authentication — and separately starts/queries/signals a workflow case through the authenticated API. If incoming A2A proves unsupported for hosted container agents, the harness uses the Responses protocol and that substitution is recorded, not hidden.
+- [ ] The Foundry account is inbound-private (`publicNetworkAccess` Disabled, `networkAcls` Deny) and the harness ingress is the environment's only public surface. The private endpoint is never described as outbound containment.
+- [ ] Evidence distinguishes what ran in the harness, which the egress policy does not govern, from what ran inside the contained Foundry container. A report that blurs the two is a failure, not a pass.
 - [ ] Raw sidecar management interfaces remain private; case-level authorization is tested.
 - [ ] State-store durability/backup, workflow retention, and trace linkage are documented.
 - [ ] Optional bridge and OpenShift/full-local deployment remain deferred unless separately approved.
