@@ -179,10 +179,22 @@ zero telemetry because no invocation has happened yet.**
   URL query string and a header; `send_to_external_processor` carries it in a **header only**.
   If the platform logs the URL but not headers, we'd correlate the allowed call and not the
   denied one — a half-correlation, which is a partial result, not a pass.
-- **Data plane is unreachable from outside the VNet** (HTTP 403 on
-  `…services.ai.azure.com/api/projects/…/agents`). So I cannot read back
-  `definition.rai_config` to confirm the policy is actually attached. The doc warns a bad
-  policy ID fails open silently while still reporting `active`. Someone in-cluster must
-  verify this.
+- **CORRECTED same day.** I first wrote that policy attachment was unverified and needed an
+  in-VNet readback. Wrong — the readback already exists and already ran. `verify_version()` in
+  `src/containment_demo/deploy.py` runs in the init container, in-cluster, reads
+  `version.definition` back after creation, and raises `DriftError` on a missing definition, a
+  `rai_policy_name` mismatch, or an image mismatch; `assert_single_variable()` then asserts
+  both agents pin the same digest. Init container exited 0 at 19:35Z, so both agents passed.
+  **Lasting lesson: before declaring something unverifiable from my vantage point, check
+  whether the repo already verifies it from a better one.** My HTTP 403 was a fact about
+  querying the data plane from outside the VNet, not evidence about attachment.
+- **The distinction that survives that correction, and matters:** a readback proves the policy
+  **field is set**; it does not prove the policy is **enforced at runtime**. An init container
+  exiting 0 means a version was *accepted*. A policy that attached cleanly but enforces nothing
+  is indistinguishable from a working Enforced agent that allows everything — which is exactly
+  what Layer 2 and Q0 exist to settle.
+- **ManagedNetworkEvent: decided, do not enable.** We don't turn on diagnostic categories
+  speculatively. It stays a documented fallback with its NOT VERIFIED status and the
+  `CorrelationId` column noted. Revisit only if Q0a is empty after a confirmed invocation.
 - Control-plane policies confirmed correct: `egress-audit` (Audit/Deny/allow-policy-api),
   `egress-enforced` (Enforced/Deny/allow-policy-api).

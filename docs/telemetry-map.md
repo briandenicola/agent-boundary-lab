@@ -151,11 +151,16 @@ which is a different mechanism (`docs/compatibility.md` §D). **Do not present
 `AMLManagedNetworkEvent` as the egress sink.** Treat it as a secondary candidate to check
 opportunistically after the first invocation.
 
-**If Brian wants it covered** (his decision — I did not create it), the change is a new
+**If Brian wants it covered** (his decision — I did not create it), the change would be a new
 diagnostic setting on the **account** `humble-phoenix-46689-foundry` with log category
-`ManagedNetworkEvent` enabled, destination workspace `humble-phoenix-46689-logs`, added to
-`infra/cloud` as an `azurerm_monitor_diagnostic_setting`. It does **not** touch
-`networkInjections`. It is additive and cheap. **It is not required for GATE 0** and should
+`ManagedNetworkEvent` enabled, destination workspace `humble-phoenix-46689-logs`.
+
+**DECIDED 2026-10-08: do not enable it, do not route it.** We do not enable diagnostic
+categories speculatively. It is recorded here as a **documented fallback** only: the category
+exists, the table is `AMLManagedNetworkEvent`, it has a `CorrelationId` column that would be
+a join candidate, and its status is **NOT VERIFIED** on every count that matters — it has
+never produced a row, and it is not documented to carry RAI egress decisions. Revisit only
+if Q0a returns empty after a confirmed invocation. It is not required for GATE 0 and must
 not delay the first invocation.
 
 ### 0.5 Supporting state, VERIFIED 2026-10-08
@@ -167,11 +172,25 @@ not delay the first invocation.
 - The Foundry **data plane is unreachable from outside the VNet**: an authenticated
   `GET …/agents?api-version=v1` against
   `humble-phoenix-46689-foundry.services.ai.azure.com` returned **HTTP 403**. Expected —
-  the account is inbound-private. Consequence: I **cannot** read back
-  `definition.rai_config` from here to confirm the policy is attached to each agent version.
-  **NOT VERIFIED from my side.** The guardrails doc warns that an agent referencing a
-  nonexistent policy is created successfully, reports `active`, and **fails open silently**.
-  Whoever has in-VNet access must run the verification `GET` from the doc and record it.
+  the account is inbound-private. This is a fact about *my* vantage point and is **not**
+  evidence about policy attachment.
+- **Policy attachment IS confirmed — in-cluster readback, VERIFIED 2026-10-08.**
+  `verify_version()` in `src/containment_demo/deploy.py` runs inside the init container,
+  within the VNet, and reads `version.definition` back from the service after creation. It
+  raises `DriftError` if `definition` is absent (*"Inconclusive, which is a failure here"*),
+  if the read-back `rai_policy_name` differs from the requested ARM policy id, or if the
+  read-back image differs from the requested digest. `assert_single_variable()` then asserts
+  both agents pin the same image. The init container **exited 0 at 19:35Z**, so all of those
+  checks passed for both agent versions.
+
+  **The precise claim this supports, and its limit:** the readback confirms the policy
+  **field is set to the expected ARM resource id**, on both versions, with the same image
+  digest. It does **not** prove the policy is **enforced at runtime**. An init container
+  exiting 0 means a version was *accepted*, not that the RAI policy on that version is doing
+  anything. Distinguishing "configured" from "enforced" is the entire purpose of §2 and the
+  Q0 gate — a correctly-attached policy that silently enforces nothing would look identical
+  to a working Enforced agent that allows everything. Only an observed decision record, or
+  an observed denial corroborated by an absent receipt, closes that gap.
 
 **VERIFIED 2026-10-08:** App Insights `IngestionMode` is `LogAnalytics` and its
 `WorkspaceResourceId` points at `humble-phoenix-46689-logs`. Consequence for every query
@@ -838,9 +857,10 @@ end if §D is resolved in the VNet direction.
    and §5 with the date. **Nothing downstream is built before this.**
 2. §0.1 confirmed — project App Insights connection present with `authType: ApiKey`
    (**confirmed 2026-10-08**); re-check if anything is redeployed.
-3. `rai_config.rai_policy_name` read back from **inside the VNet** for both agent versions.
-   Not verifiable from outside (§0.5), and the primary doc warns a bad policy ID fails open
-   silently while still reporting `active`.
+3. `rai_config.rai_policy_name` read back for both agent versions — **done, and it passes**
+   (`verify_version()` in `src/containment_demo/deploy.py`, init container exited 0 at
+   2026-10-08 19:35Z, §0.5). Note the limit: this proves the policy field is *set*, not that
+   it is *enforced*. Steps 1 and 7 are what test enforcement.
 4. Q8 green — both container apps logging from our ACR images (**confirmed 2026-10-08**,
    revisions `…--0000001`), recent rows.
 5. Q1 green for a throwaway run id — Layer 3 proven live before the agent is involved.
