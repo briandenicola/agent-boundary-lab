@@ -198,3 +198,22 @@ zero telemetry because no invocation has happened yet.**
   `CorrelationId` column noted. Revisit only if Q0a is empty after a confirmed invocation.
 - Control-plane policies confirmed correct: `egress-audit` (Audit/Deny/allow-policy-api),
   `egress-enforced` (Enforced/Deny/allow-policy-api).
+
+### 2026-10-08 — GATE 0 validation: sink verified, correlation path identified, Q0 ready
+
+- **Orchestration log created: 2026-10-08T19:45:18Z-lambert.md**
+- **Session log 2026-10-08T19:51:57Z-deploy-poller-debugging.md documents the batch**
+- **GATE 0 verdict: INCONCLUSIVE, not FAIL.** Nothing is broken; no invocation has happened yet, so platform has had no opportunity to emit a decision. Q0 (correlation query in `docs/telemetry-map.md` §4) closes this gate with first real invocation.
+- **Verified:** App Insights connection exists (ApiKey auth, created 2026-10-08T17:29:49Z), receiving zero rows (expected before invocation), both RAI policies on control plane correct, policy attachment confirmed in-cluster via readback and init-container 0 exit at 19:35Z.
+- **Unverified, revisit after invocation:** Does `demo_run_id` reach platform egress decision layer? (Zero rows mean zero observed field names; Q0 query will answer this.)
+- **Watch items, NOT VERIFIED:** 
+  - `ManagedNetworkEvent` category exists on Foundry; has `CorrelationId` column; has never produced a row (zero in 30 days). Do not enable it. Fallback only if Q0a empty after invocation.
+  - App Insights connection carries non-null `error`: *"Connection subresourceTarget not supported for PE creation"*. Probably benign. If Q0 empty after invocation, investigate first.
+- **For Dallas:** Flagged `demo_run_id` placement risk in `send_to_external_processor` (header only, no query string). If Q0c shows URL-logged / header-ignored pattern, add query string to one tool (one-line fix).
+- **Corrections made to docs:**
+  - Policy attachment was earlier marked unverified; now corrected: **verification proven** (readback in-cluster), but this proves *acceptance* not *runtime enforcement* (which is why Q0 and Layer-2 evidence exist).
+  - `docs/telemetry-map.md` §0.5, §2.2, §4, §6, §7 updated.
+  - `docs/compatibility.md` C1 needs update: `ManagedNetworkEvent` category does exist (literal wording was "NOT FOUND"; conclusion survives intact).
+- **Decision merged into .squad/decisions.md:** "GATE 0 Verdict: Inconclusive (Correlation Unresolved, Verified Prerequisites Met)" (Lambert)
+- **Path to close gate:** First invocation of both agents; run Q0; results determine Layer-1 ↔ Layer-2 correlation model.
+

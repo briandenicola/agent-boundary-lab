@@ -312,3 +312,17 @@ not mine. Reported with the proof rather than quietly patched.
 image digest. The marker change means the deployed digest `…bfa0d45` does *not* carry
 the query parameter. Until Brian rebuilds and redeploys both versions, a live run would
 produce exactly the correlation gap this change exists to close.
+
+### 2026-10-08 — Debugging batch: evidence coordination and receiver readiness verification
+
+- **Orchestration log created: 2026-10-08T19:49:02Z-dallas.md**
+- **Session log 2026-10-08T19:51:57Z-deploy-poller-debugging.md documents the batch**
+- **Critical finding — `demo_run_id` placement risk flagged:**
+  - `get_servicing_policy` sends `demo_run_id` as both URL query param **and** header ✓
+  - `send_to_external_processor` sends `demo_run_id` as **header only** (no query string) ⚠️
+  - If platform egress decision record logs URL but not headers, evidence would correlate **allowed** call only (headers captured), missing **denied** call (headers-only, denied because stripped from URL)
+  - **Mitigation:** If Q0c shows URL-logged / header-ignored pattern, add `demo_run_id` to query string on `send_to_external_processor` — one-line change in agent tool code
+- **Verified:** Test receiver endpoint ready, accepts unauthenticated POST, marker extraction working, receipt logging ready for first invocation
+- **Next:** Run Q0 with first invocation to test Layer 1 ↔ Layer 2 correlation. If Q0c shows URL-logged pattern, apply mitigation. Run Layer-3 queries.
+- **Note on deployment coupling:** This batch did not change deployed digests (decision merging only). However, Brett's poller fix changes `src/containment_demo/deploy.py`, so image digest changes on next build. Dallas's earlier `protocol_adapter.py` fix also changed digest (bug: `context.get_input_text()` not awaited). Until Brian rebuilds and redeploys both versions, live runs will carry Brett's fix but not the marker-in-query-string pattern if Dallas's PR is merged. Sequencing is Brian's call.
+

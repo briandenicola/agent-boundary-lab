@@ -174,3 +174,19 @@ unknown status. Status is now sticky; only versions the fake itself created auto
 
 Recorded in `docs/compatibility.md` B9c; B9b's status subsections annotated as superseded.
 Decision: `.squad/decisions/inbox/brett-deploy-poller.md`.
+
+### 2026-10-08 — Deploy poller debugging batch completed; status vocabulary and instrumentation fixed
+
+- **Orchestration log created: 2026-10-08T19:35:42Z-brett.md**
+- **Session log 2026-10-08T19:51:57Z-deploy-poller-debugging.md documents the batch**
+- **Root cause:** Incomplete SDK enum + `str(Enum).lower()` stringification bug + silent polling loop.
+  - `AgentVersionStatus` missing `running` (also `starting`, `updating` per Brian's production deployer at `briandenicola/banking-agent-foundry-orchestrator`)
+  - `str(status).lower()` on enum mixin → `'agentversionstatus.active'` (never equals `'active'`)
+  - Poll loop logged nothing; 270 HTTP 200s with zero status output made healthy and hung systems byte-identical
+- **Lesson for repo:** This repo's own evidence rule (missing evidence = INCONCLUSIVE, never signal) applies to debugging the demo itself. Polling without logging observability is a defect, not a clue.
+- **Decisions merged into .squad/decisions.md:**
+  - "Verify Status Vocabularies Against Running Service, Not SDK Enums" (Brett)
+  - Includes status sets with sources, bounded iteration, comprehensive logging, BrianDenicola's production deployer as primary reference
+- **Unit tests:** `tests/unit/test_deploy.py` covers all pollin scenarios including the original stringification bug as tamper test
+- **Next:** First invocation closes GATE 0 with Q0 query; both agents run and emit telemetry
+

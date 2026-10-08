@@ -315,3 +315,17 @@ What actually happened:
   surface` disappeared when I replaced a block that ended on it. Caught it only because
   the next edit's anchor did not match. Nothing in lint reads markdown structure. When
   replacing a block that ends at a heading, keep the heading in the replacement.
+
+### 2026-10-08 — Debugging batch: ACR pull permission and infrastructure landmine fixes
+
+- **Orchestration log created: 2026-10-08T19:41:30Z-parker.md**
+- **Session log 2026-10-08T19:51:57Z-deploy-poller-debugging.md documents the batch**
+- **Added:** `azurerm_role_assignment.foundry_acr_pull` — Foundry's `SystemAssigned` identity needs `AcrPull` on the agent registry. Hosted-agent runtime pulls its image as a distinct principal from kubelet. Without the role, pulls are retryable and version hangs in `creating`.
+  - Role: `AcrPull`, scope: registry, principal: `azapi_resource.foundry.output.identity.principalId`
+  - Plan: `1 to add, 0 to change, 0 to destroy`
+  - **Hypothesis, not proof:** Backend pull errors unreadable from outside private endpoint. Grant is necessary regardless of sufficiency.
+  - **Failure mode note:** If version hangs in `creating` again, check this role before re-debugging provisioning time.
+- **Landmine identified (not unilaterally changed):** `infra/cloud/variables.tf` still defaults `region = "eastus2"`; live environment is `canadacentral`. Bare `terraform -chdir=./infra/cloud plan` (without Taskfile's `-var region=` override) proposes destroying entire environment (38 add, 37 destroy, Foundry account and RAI policies included). **Always plan through `task cloud:plan`.** Region is deliberate choice in A2a, so flagged as landmine rather than changing the default unilaterally.
+- **Decision merged into .squad/decisions.md:** "Foundry's System-Assigned Identity Needs AcrPull on the Agent Registry" (Parker)
+- **For Brett (note in decision):** `find_matching_version` does not skip `creating`, so stuck version is reused by next run. Once this role is granted, stuck version should recover. Deletion requires in-VNet data-plane call; no SDK surface.
+

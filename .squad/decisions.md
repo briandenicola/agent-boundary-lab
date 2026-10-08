@@ -372,6 +372,58 @@
 - **Fix:** Encapsulate all `az` reads in `tasks/Taskfile.arm.yml` with filtering (grep/jq/sed). Callers invoke the task, never the CLI directly. Proven patterns keep this class of defect local to one file.
 - **Enforcement:** `scripts/check_no_az.sh` must reject raw `az` commands in all Taskfiles except `tasks/Taskfile.arm.yml`.
 
+### Verify Status Vocabularies Against Running Service, Not SDK Enums
+
+**By:** Brett  
+**Date:** 2026-10-08  
+**Status:** Implemented
+
+- **The lesson:** A client library's enum is the SDK's *claim* about the service, not the service's contract. It can be stale, partial, or generated from a different API version.
+- `AgentVersionStatus` in `azure-ai-projects` declares: creating / active / failed / deleting / deleted. The live service also returns `running`, and Brian's production deployer (primary reference: `briandenicola/banking-agent-foundry-orchestrator`) confirms `starting` and `updating`.
+- **What happened:** A hosted agent version was created and provisioned (portal showed `Status: Running` in under a minute), but `wait_until_active` polled for 45+ minutes and never terminated. Two bugs made polling invisible:
+  1. `_TERMINAL_OK = "active"` was incomplete. Service said `running`, which was in no status set.
+  2. `str(status).lower()` on an enum mixin produced `'agentversionstatus.active'` — polling could not terminate on success even if the service said `active`.
+  3. The poll loop logged **nothing**. Healthy and hung deployments emitted byte-identical output.
+- **Decisions (all implemented):**
+  1. Status sets cited inline with sources: `_READY_STATUSES = {"active", "running"}`, etc. No uncited strings.
+  2. Loop bounded by iteration count `for attempt in range(1, attempts + 1)`, not `while True` with a deadline. A bounded loop cannot fail to terminate.
+  3. Every poll logs: agent name, version, verbatim status, attempt `n/N`, elapsed seconds, flushed immediately.
+  4. Unrecognised status: WARNING on every sighting, then `UnrecognisedStatusError` at bound. Never silently succeed, never pending forever.
+  5. Timeouts remain FAILURE, never optimistic pass. Budget 120s (was 900s; 4x headroom after sub-60s observed provisioning), poll 3s, request timeout 15s, retry 2.
+  6. SDK HTTP logging downgraded to WARNING (was burying the signal).
+- **Constraints unchanged:** Two business tools, RAI policy handling, digest pinning untouched.
+- **Primary reference:** `briandenicola/banking-agent-foundry-orchestrator` must be consulted before deriving behaviour from SDK type definitions.
+
+### Foundry's System-Assigned Identity Needs AcrPull on the Agent Registry
+
+**By:** Parker  
+**Date:** 2026-10-08  
+**Status:** Implemented (role assignment created, not yet applied)
+
+- The Foundry account's `SystemAssigned` principal had no role on ACR. `acr.tf` granted `AcrPull` only to AKS kubelet and Container Apps identities.
+- Hosted-agent runtime pulls the agent image as its own principal (distinct from kubelet). Without `AcrPull`, a pull is retryable rather than fatal, and the version hangs in `creating`.
+- Added `azurerm_role_assignment.foundry_acr_pull`: `AcrPull`, scoped to the registry, principal `azapi_resource.foundry.output.identity.principalId`.
+- **This is a hypothesis, not proof.** It fits the symptom (version accepted, then stuck in `creating`), but the data plane is private-endpoint-only and backend pull errors are unreadable from outside. The grant is necessary regardless of sufficiency.
+- **Failure mode (for debugging):** "accepted, then hangs in `creating`" = missing pull permission. Check this role before re-debugging provisioning time.
+- **For Brett:** `find_matching_version` does not skip `creating`, so a stuck version is reused by the next run. Once the role is granted, a stuck version should recover; deletion requires a data-plane call from inside the VNet (no SDK surface in B9a).
+
+### GATE 0 Verdict: Inconclusive (Correlation Unresolved, Verified Prerequisites Met)
+
+**By:** Lambert  
+**Date:** 2026-10-08  
+**Status:** Policy (Q0 closes this gate; first invocation required)
+
+- **Does `demo_run_id` reach platform egress decisions? UNANSWERABLE TODAY.**
+  - Sink exists: YES (verified, `humble-phoenix-46689-ai` App Insights connection, ApiKey auth, created 2026-10-08T17:29:49Z)
+  - Receiving rows: NO (zero in 7 days across Traces, Requests, Dependencies, Exceptions, Events)
+  - Joinable field: UNKNOWN (zero rows means zero observed fields to join on)
+- **Verdict: INCONCLUSIVE, not FAIL.** No invocation has happened yet; platform had no opportunity to emit a decision. Gate closes with one real invocation and `docs/telemetry-map.md` §4 **Q0**.
+- **For Dallas — run id placement:** `get_servicing_policy` sends `demo_run_id` as URL query param **and** header; `send_to_external_processor` sends header **only**. Primary doc: decision record Destination is "method and URL". If platform logs URL not headers, we correlate allowed call only, missing the denied half. Fix: add `demo_run_id` to query string on `send_to_external_processor` if Q0c shows URL-logged / header-ignored pattern.
+- **For Brian — watch items:**
+  1. `ManagedNetworkEvent` category exists on Foundry account but **zero rows ever**. **Status: NOT VERIFIED** to carry RAI egress decisions. Do not enable it. Revisit only if Q0a empty after confirmed invocation.
+  2. App Insights connection carries non-null `error`: *"Connection subresourceTarget is not supported for PE creation"*. Probably benign (telemetry egresses outbound from sandbox). NOT VERIFIED. If Q0 empty after invocation, investigate this first.
+- **Corrected:** Policy attachment **IS confirmed** (not unverified). `verify_version()` in-cluster readback confirms policy field set to expected ARM id on both versions with same digest. Init containers exited 0 at 19:35Z. Readback confirms *acceptance*, not *runtime enforcement* — which is why Q0 and Layer-2 evidence exist. `docs/telemetry-map.md` §0.5 and §7 corrected; `docs/compatibility.md` C1 needs update (ManagedNetworkEvent category does exist, even if never populated).
+
 ## Known Risks / Unverified Assumptions
 
 ### Server-Side Digest Acceptance
