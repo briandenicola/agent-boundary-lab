@@ -23,6 +23,7 @@ __pycache__
 *.tfstate
 *.tfstate.*
 .terraform
+.task
 infra
 tasks
 

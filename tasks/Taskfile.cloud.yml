@@ -54,6 +54,26 @@ tasks:
     cmds:
       - terraform -chdir=./{{.CLOUD_DIR}} init -upgrade
 
+  _init-once:
+    internal: true
+    # `terraform init` is slow and is needed only when the provider requirements or the
+    # lock file change, so that is exactly what is fingerprinted. Running it
+    # unconditionally before every plan and apply added a wait to operations that did
+    # not need one, which trains you to walk away from the terminal during an apply.
+    #
+    # The stamp lives INSIDE .terraform deliberately: deleting that directory removes
+    # the stamp with it, so a wiped provider cache re-initialises instead of failing
+    # with "Please run terraform init". Run `task cloud:init` to force one anyway,
+    # which is also the only path that passes -upgrade.
+    sources:
+      - '{{.CLOUD_DIR}}/providers.tf'
+      - '{{.CLOUD_DIR}}/.terraform.lock.hcl'
+    generates:
+      - '{{.CLOUD_DIR}}/.terraform/abl-init-stamp'
+    cmds:
+      - terraform -chdir=./{{.CLOUD_DIR}} init -input=false
+      - touch ./{{.CLOUD_DIR}}/.terraform/abl-init-stamp
+
   fmt:
     desc: Format the terraform
     cmds:
@@ -68,15 +88,16 @@ tasks:
   plan:
     desc: Show what would be created (creates nothing)
     cmds:
-      - task: init
+      - task: _init-once
       - terraform -chdir=./{{.CLOUD_DIR}} plan -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}"
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
 
   up:
     desc: CREATES BILLABLE RESOURCES including an AKS cluster. Apply the environment
+    aliases: [apply]
     cmds:
-      - task: init
+      - task: _init-once
       - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}"
       - task: endpoints
     vars:

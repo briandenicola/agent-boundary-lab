@@ -31,6 +31,9 @@ terraform.tfstate.d
 *.tfvars
 !*.tfvars.example
 
+# Task's checksum store. Deleting it only costs one extra terraform init.
+.task/
+
 # Verification output. Evidence summaries are run artifacts, not source.
 evidence/
 
