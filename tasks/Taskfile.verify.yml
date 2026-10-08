@@ -1,0 +1,40 @@
+version: '3'
+
+# The verification harness. Reads endpoints from configuration, never from a literal.
+#
+# `verify:baseline` makes real outbound HTTPS calls to the two controlled endpoints from
+# YOUR machine. It creates nothing and changes nothing. What it proves is narrow: both
+# endpoints are alive, well-behaved, and - critically - the non-allowlisted one rejects
+# nothing on its own authority. Without that baseline a later denial inside the agent is
+# unattributable, because the endpoint might simply have been down.
+#
+# It is NOT containment evidence. Nothing run from here is.
+#
+# Exit codes: 0 pass, 1 fail, 2 inconclusive. Inconclusive is a real answer: it means a
+# signal was missing, and a missing signal is never a pass.
+
+tasks:
+  default:
+    desc: Show available verification tasks
+    cmds:
+      - task --list
+
+  baseline:
+    desc: Section A - prove both controlled endpoints work from outside the agent
+    cmds:
+      - .venv/bin/python scripts/verify_demo.py --section a
+
+  baseline-json:
+    desc: Section A, writing a machine-readable evidence summary to evidence/
+    cmds:
+      - .venv/bin/python scripts/verify_demo.py --section a --json evidence/baseline-{{.NOW}}.json
+    vars:
+      NOW:
+        sh: date -u +%Y%m%dT%H%M%SZ
+
+  all:
+    desc: Every section, including the not-yet-implemented hosted ones
+    cmds:
+      # Sections B and C report NOT IMPLEMENTED by design. They cannot return a pass
+      # while no hosted agent version exists.
+      - .venv/bin/python scripts/verify_demo.py --section all

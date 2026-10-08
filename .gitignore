@@ -30,3 +30,6 @@ terraform.tfstate.d
 .terraform.tfstate.lock.info
 *.tfvars
 !*.tfvars.example
+
+# Verification output. Evidence summaries are run artifacts, not source.
+evidence/

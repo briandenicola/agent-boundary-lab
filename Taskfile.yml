@@ -28,6 +28,10 @@ includes:
     taskfile: ./tasks/Taskfile.lint.yml
     internal: false
 
+  verify:
+    taskfile: ./tasks/Taskfile.verify.yml
+    internal: false
+
 tasks:
   default:
     desc: Show available tasks
