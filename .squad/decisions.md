@@ -354,6 +354,7 @@
 - **Adoption:** the first `harness-up` runs against objects terraform created. It uses `--server-side --force-conflicts`, which moves field ownership from the `Terraform` field manager to `kubectl`. The objects keep running; expect `configured`, not `created`.
 - **Secrets never touch disk.** The diagnostics token and App Insights connection string are placeholders in git and exist only inside the apply pipe. `.gitignore` blocks rendered manifests and kubeconfigs.
 - **Technical context:** Coordinator found two defects in the migration: (a) placeholder guard ran on unsubstituted source after apply (commit f533ea8), (b) hardcoded fallback image digest risked control-variable drift; resolve live from ACR instead (commit b52d58c). The second defect also identified the fourth instance of the az auto-upgrade chatter bug.
+- **Forward scope rule — this is the durable part.** Cluster workloads do **not** go back into Terraform. Terraform owns Azure resources; `kubectl` + `kustomize` own anything with a `kind:`. This binds work not yet written: Phase 8's Dapr components and workflow app, and Phase 9's `samples/onprem_harness/`, are kustomize overlays. The earlier plan called for `infra/aks/` and `infra/dapr/` Terraform roots — those are void. A future phase proposing a `kubernetes_*` resource is re-opening a settled decision and needs Brian, not an agent.
 
 ### Every `az` Read Routes Through `tasks/Taskfile.arm.yml` (Azure CLI Output Parsing Bug)
 
