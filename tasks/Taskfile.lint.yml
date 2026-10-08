@@ -1,5 +1,10 @@
 version: '3'
 
+# Task echoes every command by default, so anything that prints its own
+# output shows up twice. These tasks are written to be read by a human
+# watching a demo, so the command itself is noise.
+silent: true
+
 # Everything here is local and free. No Azure access, no network, no billable resources.
 
 tasks:
@@ -46,22 +51,46 @@ tasks:
 
   terraform:
     desc: Validate and format-check the terraform
+    # infra/k8s is a separate root module with its own state. It is validated here
+    # because `fmt -recursive infra` already covers its formatting, and a module that
+    # is formatted but never validated is the one that breaks on the day you need it.
+    vars:
+      MODULES: spike cloud k8s
     cmds:
       - terraform fmt -check -recursive infra
-      - terraform -chdir=./infra/spike init -backend=false -upgrade >/dev/null
-      - terraform -chdir=./infra/spike validate
-      - terraform -chdir=./infra/cloud init -backend=false -upgrade >/dev/null
-      - terraform -chdir=./infra/cloud validate
-      # infra/k8s is a separate root module with its own state. It is validated here
-      # because `fmt -recursive infra` already covers its formatting, and a module that
-      # is formatted but never validated is the one that breaks on the day you need it.
-      - terraform -chdir=./infra/k8s init -backend=false -upgrade >/dev/null
-      - terraform -chdir=./infra/k8s validate
+      - |
+        for M in {{.MODULES}}; do
+          printf '%-8s ' "$M"
+          terraform -chdir="./infra/$M" init -backend=false -upgrade >/dev/null
+          terraform -chdir="./infra/$M" validate -no-color | head -1
+        done
 
   no-az:
     desc: Fail if the Azure CLI is invoked from anything that ships
+    # Deployment is Terraform or SDK only, because that is what the client uses.
+    # Read-only az at a terminal is fine; it must not land in a shipped artifact.
+    # tasks/ is deliberately not scanned: Taskfiles are operator tooling.
+    # grep -n emits path:line:content, so stripping from the first '#' drops both
+    # whole-line and trailing comments while leaving the line number intact.
     cmds:
-      - ./scripts/check_no_az.sh
+      - |
+        HITS=$(grep -rn \
+          --include='*.py' --include='*.tf' --include='*.yml' \
+          --include='*.yaml' --include='*.sh' --include='Dockerfile*' \
+          -E '(^|[^[:alnum:]_.-])az[[:space:]]+[a-z]' \
+          src services infra tests scripts samples 2>/dev/null \
+          | sed 's/#.*$//' \
+          | grep -E '(^|[^[:alnum:]_.-])az[[:space:]]+[a-z]' || true)
+        if [ -n "$HITS" ]; then
+          echo "Azure CLI invoked from shipped code:"
+          echo
+          echo "$HITS"
+          echo
+          echo "Deployment is Terraform or SDK only. If this is prose, make it a"
+          echo "comment. If it is a real invocation, replace it with the SDK."
+          exit 1
+        fi
+        echo "no az CLI invocations in shipped code"
 
   venv:
     desc: Create the virtualenv and install dependencies

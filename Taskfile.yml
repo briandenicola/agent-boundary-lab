@@ -1,5 +1,10 @@
 version: '3'
 
+# Task echoes every command by default, so anything that prints its own
+# output shows up twice. These tasks are written to be read by a human
+# watching a demo, so the command itself is noise.
+silent: true
+
 dotenv: ['.env']
 
 env:
