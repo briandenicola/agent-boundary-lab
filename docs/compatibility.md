@@ -564,9 +564,75 @@ See C3. If the narrative promises a single correlated trace spanning tool call �
 decision, that must be verified empirically. Until then `demo_run_id` is the primary
 correlation key and the correlated-trace claim stays out of the docs.
 
----
+### Blocker 5 — incoming A2A is unconfirmed for hosted *container* agents
 
-## Unverified — must be tested empirically
+**Status: UNVERIFIED. Must be spiked before Phase 9 builds the direct path.**
+
+The on-premises side of this demo is a full agentic harness that invokes the Foundry
+hosted agent over A2A. The protocol itself is well documented and **v1.0 is GA**, but the
+documentation's supported-agent story does not clearly cover our case.
+
+What the primary source says (accessed **2026-10-08**,
+https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint,
+`ms.date: 2026-09-11`):
+
+- "Incoming A2A requires the responses protocol." **Our agent uses exactly that** — it is
+  hosted on `ResponsesAgentServerHost` — so it plausibly qualifies.
+- **But the only agent type explicitly blessed is the prompt agent:** "Prompt agents
+  support the responses protocol by default, and you can expose them as A2A endpoints."
+  The prerequisites likewise name "a deployed **prompt agent**".
+- Nothing found in any primary source confirms *or* denies that a custom hosted container
+  agent can be exposed over incoming A2A.
+
+**Do not write A2A-on-hosted-agents into any report as tested until a spike proves it.**
+
+**Fallback, and why it is cheap.** If the spike fails, the harness calls the agent over the
+Responses protocol directly. Containment is unaffected: the protocol the harness uses to
+*reach* the agent has no bearing on what the agent's tools can *reach*. Record the
+substitution rather than hiding it.
+
+#### Verified A2A facts (same source and access date)
+
+| Item | Value |
+| --- | --- |
+| Versions | **1.0 GA**, 0.3 preview, same base path |
+| Transport | v1.0 is **JSONRPC only**; v0.3 also allows HTTP+JSON; gRPC on neither |
+| Auth | **Microsoft Entra ID only.** Key-based and anonymous unsupported, *including for the agent card* |
+| Caller role | **Foundry Agent Consumer**, `eed3b665-ab3a-47b6-8f48-c9382fb1dad6`, assignable at project or single-agent scope |
+| Token scope | `https://ai.azure.com/.default` |
+| Enablement | `PATCH $BASE_URL/agents/$AGENT_NAME?api-version=v1` setting `agent_card` + `agent_endpoint.protocol_configuration.{responses,a2a}`. **Not available in the portal** |
+| Python SDK | `azure-ai-projects>=2.5.0`, `project.agents.update_details(...)` |
+| Endpoint | `…/agents/{agent}/endpoint/protocols/a2a` |
+| Agent card | `…/a2a/agentCard/v1.0` and `…/agentCard/v0.3` — **not** `.well-known/agent-card.json` |
+| Client libs | `a2a-sdk==1.0.2`, `azure-identity==1.25.3`, `httpx==0.28.1` |
+| Retention | A2A tasks and contexts kept **60 days** from most recent write |
+
+**Two traps worth their own lines.**
+
+1. **Unversioned requests get PREVIEW v0.3, not GA v1.0.** Pin explicitly via
+   `A2A-Version: 1.0`, `?a2a-version=1.0`, or by resolving the v1.0 card — otherwise the
+   demo silently runs on a preview protocol while the report claims GA. Supplying the
+   header and query string with *different* values returns HTTP 400 `version-ambiguous`.
+2. **The agent card lives at a non-standard path.** Generic A2A SDK resolvers default to
+   `.well-known/agent-card.json` and will miss it; pass an explicit `agent_card_path`.
+
+#### MCP is excluded from the containment path — by design, not oversight
+
+Accessed **2026-10-08**,
+https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/tools/model-context-protocol
+(`ms.date: 2026-08-26`).
+
+Foundry agents are MCP **clients**: they connect out to remote MCP servers to gain tools.
+No primary source documents exposing a Foundry agent *as* an MCP server, so "harness
+reaches Foundry over MCP" is not a supported topology.
+
+The supported direction would actively break this demo. An on-premises MCP server consumed
+by the agent means the agent makes an **outbound call to an on-premises host** — precisely
+the egress path under test. That host would need to be in the allowlist, the on-premises
+boundary would become a third variable, and a denial would no longer be attributable to
+the egress policy alone. Keep MCP out of the containment path.
+
+
 
 These cannot be resolved from documentation. Each is a test in `scripts/verify_demo.py` or a
 one-off spike, and each must be recorded here with its result before any claim depends on it.
@@ -618,3 +684,5 @@ one-off spike, and each must be recorded here with its result before any claim d
 | [Google ADK — Traces](https://adk.dev/observability/traces/) | 2026-10-07 |
 | [google/adk-python `telemetry/setup.py`](https://github.com/google/adk-python) | 2026-10-07 |
 | [LiteLLM Azure provider](https://docs.litellm.ai/docs/providers/azure) | 2026-10-07 |
+| [Enable an agent-to-agent (A2A) endpoint](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint) | 2026-10-08 |
+| [Connect agents to MCP server endpoints](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/tools/model-context-protocol) | 2026-10-08 |
