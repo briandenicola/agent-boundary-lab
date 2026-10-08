@@ -246,13 +246,41 @@ This is a Ripley/Brett observation, Phase 4 Blocker 1.
 - **Foundry hosted agents are served on AzureML behind Istio** — `Server: istio-envoy`,
   `azureml-served-by-cluster`. Recorded as an OBSERVATION only. It is inbound control-path
   metadata and says nothing about egress; nothing may depend on it.
-- **The version status vocabulary is still unknown, and that matters.** `deploy.py` waits
-  for the literal `"active"` taken from the SDK enum, not from an observed response. The
-  init container polled ~6 minutes without terminating. Because the data plane is
-  private-endpoint-only, the 900s timeout's error message — which prints the last status
-  verbatim — is the only channel that carries the real string out to an operator. Left
-  OPEN as unverified item 10.
-- **The Taskfile's default `AGENT_IMAGE_DIGEST` is the PREVIOUS image.** `sha256:0e4b5019…`
-  (145,547,315 bytes); the current one is `sha256:0acce8b8ec…` (196,110,685 bytes).
-  Reported rather than changed — the digest is the experiment's control and is Brian's to
-  move.
+- **The version status vocabulary is RESOLVED — by the SDK enum, not by the timeout.**
+  `AgentVersionStatus` in `azure/ai/projects/models/_enums.py` declares exactly
+  `creating` / `active` / `failed` / `deleting` / `deleted`, on
+  `CaseInsensitiveEnumMeta`. `deploy.py` was already correct: `_TERMINAL_OK = "active"`
+  and `_TERMINAL_BAD = {"failed","deleting","deleted"}` match it exactly, and
+  `_status_of()` already calls `.lower()`, which is what the case-insensitive metaclass is
+  hinting at. No code change was needed. **This is the client library's claim about the
+  service, not an observed response** — we have still never seen a status string come back
+  over the wire, and that is a weaker class of fact than the live 200s in B9b. Read from
+  2.4.0 locally; the container runs 2.8.0.
+- **`creating` is therefore what the service returns while the init container polls, and
+  the real open question is the TIMEOUT.** The version was still provisioning after ~10
+  minutes against `deploy_timeout_seconds=900` (deploy.py:162). If 900s proves too short
+  the fix is a longer timeout — never a looser success condition, and never treating a
+  timeout as a pass. deploy.py's own docstring already says that and it stays true.
+
+#### Correction, 2026-10-08 — I reported a digest defect that no longer existed
+
+I wrote here that "the Taskfile's default `AGENT_IMAGE_DIGEST` is the PREVIOUS image". That
+was **wrong about the current tree** and is corrected in place rather than deleted, because
+an uncorrected defect note in this file resurfaces later as a false bug report.
+
+What actually happened:
+
+- A hardcoded fallback digest `sha256:0e4b5019…` (145,547,315 bytes) **did** exist in the
+  harness tasks, used whenever `AGENT_IMAGE_DIGEST` was unset. It was real, and it did real
+  damage: it pointed at an image built before the venv existed, so the pod crashlooped with
+  `exec: "/opt/deploy-venv/bin/python": no such file or directory`. The interpreter fix was
+  correct; the image the fallback pinned simply predated it.
+- Brian removed it in **b52d58c**. The digest now resolves live from ACR through
+  `arm:_acr-digest`, with **no fallback at all** — if it cannot resolve, the task fails
+  rather than deploying an unknown image. An explicit `AGENT_IMAGE_DIGEST` still wins and
+  is validated by the same rule in the same place.
+- **The lesson is about the failure mode, not the digest.** A stale fallback would deploy
+  code that is not what was built and nothing downstream would notice, because the
+  infrastructure plan is byte-identical either way. The experiment's control cannot have a
+  default. Verify a claim against the tree before writing it down; `grep -rn 0e4b5019` now
+  returns one legitimate hit, the image-size record in compatibility.md B9b.

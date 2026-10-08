@@ -494,7 +494,8 @@ the agent are deliberately different images.
 | Readiness | `AgentVersionDetails.status` ∈ creating / active / failed / deleting / deleted | `models/_enums.py:380` |
 
 These status values come from the **client library's enum**, not from an observed
-response. What the service actually returns on the wire is still unverified — see B9b.
+response. The vocabulary is settled on that basis — see B9b, which also records the
+case-insensitivity hint and why `deploy.py` already handles it.
 
 **B4 confirmed in code.** `RaiConfig.rai_policy_name` is a plain `rest_field` with no
 `name=` override, so the wire name is snake_case `rai_policy_name`, and it hangs off
@@ -586,29 +587,58 @@ particular, do not treat an `istio-envoy` response as evidence about egress enfo
 this header is on the *inbound* control path to the data plane and has nothing to do with
 the agent's outbound traffic, which is the thing under test.
 
-#### OPEN — the version status vocabulary is still unknown
+#### Version status vocabulary — RESOLVED from the SDK enum, still not observed on the wire
 
-`src/containment_demo/deploy.py` `wait_until_active` accepts exactly one terminal-good
-value, the literal lowercase string `"active"` (`_TERMINAL_OK`, line 78), and treats
-`{"failed", "deleting", "deleted"}` as terminal-bad (`_TERMINAL_BAD`, line 79). Those
-strings come from the SDK enum in B9a (`models/_enums.py:380`) — from the client library,
-**not** from an observed response.
+`AgentVersionStatus` (`azure/ai/projects/models/_enums.py`) declares exactly five values:
 
-At the time of writing the init container had been polling for roughly six minutes and had
-**not** terminated. So:
+| Value | SDK comment |
+| --- | --- |
+| `creating` | The agent version is being provisioned. |
+| `active` | The agent version is active and ready to serve requests. |
+| `failed` | The agent version provisioning failed. |
+| `deleting` | The agent version is being deleted. |
+| `deleted` | The agent version has been deleted. |
 
-- We do not know what status string the service actually returns on the wire.
-- We do not know whether `"active"` is ever reached, or how long provisioning takes.
-- We do not know whether the service's casing matches the SDK enum's.
+The enum is declared `class AgentVersionStatus(str, Enum, metaclass=CaseInsensitiveEnumMeta)`.
 
-Do not record provisioning as working until a terminal status has been observed. **The
-900-second timeout is the intended mechanism for learning the vocabulary:** its error
-message prints the last observed status verbatim. That is deliberate. The data plane is
-private-endpoint-only, so an operator outside the VNet cannot query the version directly,
-and the timeout message is the only channel that carries the real string back out.
+**`src/containment_demo/deploy.py` is already correct and needs no change.**
+`_TERMINAL_OK = "active"` (line 78) matches the enum exactly; `_TERMINAL_BAD =
+{"failed", "deleting", "deleted"}` (line 79) matches exactly; and `_status_of()` (lines
+297–299) already calls `.lower()`, which is precisely what `CaseInsensitiveEnumMeta`
+implies is necessary — the metaclass exists because the service may return different
+casing. `creating` is the only non-terminal value, so that is what the service must be
+returning while the init container polls.
 
-- Observed in a live run on 2026-10-08; no primary source documents the wire-level status
-  values.
+**Mind the class of fact.** This is read from the **client library's declared enum**, which
+is the SDK's claim about the service. It is strong evidence and it is sufficient to call
+the vocabulary settled. It is **not** the same class of fact as the live 200s, URL and
+headers above: no status string has yet been observed coming back from the service in a
+response body. Do not describe it as observed.
+
+Read on 2026-10-08 from `azure-ai-projects` **2.4.0** at
+`/home/brian/.local/lib/python3.10/site-packages/azure/ai/projects/models/_enums.py`. The
+container that ran the live deployment uses **2.8.0** (B9b, above). The enum was not read
+from the version that actually ran, and that difference is recorded rather than glossed:
+if 2.8.0 widened the vocabulary, this table would be incomplete.
+
+#### OPEN — is a 900-second timeout long enough for provisioning?
+
+This is the real open question left by the live run, and it replaces the vocabulary
+question.
+
+The version was still provisioning after roughly ten minutes.
+`DeploySettings.deploy_timeout_seconds` defaults to **900.0** (deploy.py line 162), with a
+`le=3600` bound, polled every 10 seconds. We do not yet know a typical or worst-case
+provisioning time for a Foundry hosted agent, and no primary source states one.
+
+**If 900s proves too short, the fix is a longer timeout.** It is not a change to the
+success condition, and it is under no circumstances a decision to treat a timeout as a
+pass. `deploy.py` already states this in its own words — a hung provision is a failure,
+not a pending success — and that stays true. A timeout is an **inconclusive** result at
+best; it tells you nothing about whether the version would have become active.
+
+- SDK enum read 2026-10-08 from the installed 2.4.0 package; no primary source documents
+  the wire-level status values or a provisioning-time expectation.
 
 
 
@@ -1149,10 +1179,10 @@ one-off spike, and each must be recorded here with its result before any claim d
 9. Whether ADK remains functional against `opentelemetry-api` 1.43+ at **runtime** under real
    load, not just at import (Blocker 0). The smoke test covers import and agent construction
    only.
-10. The agent-version **status vocabulary on the wire** (B9b). `deploy.py` waits for the
-    literal `"active"`, taken from the SDK enum; no live response has yet been observed
-    carrying a terminal status. The 900s timeout's error message is the mechanism for
-    learning it, because the data plane is private-endpoint-only.
+10. Whether `deploy_timeout_seconds = 900` (deploy.py line 162) is long enough for Foundry
+    hosted-agent provisioning (B9b). A version was still `creating` after ~10 minutes. If
+    it proves too short the fix is a longer timeout — never a looser success condition,
+    and never treating a timeout as a pass.
 
 ### Resolved since first draft
 
@@ -1173,6 +1203,7 @@ one-off spike, and each must be recorded here with its result before any claim d
 | `agents/versions` write permission (B9b) | **Sufficient** — `Cognitive Services User` at account scope created and read a version | Live deploy, 2026-10-08 |
 | Data-plane `api-version` value (B9a) | **`v1`** accepted; not a preview date string | Observed request URL, 2026-10-08 |
 | Workload identity on the deploy path (B9b) | **Works** — `ManagedIdentityCredential` used the projected token | Init container log, 2026-10-08 |
+| Agent-version status vocabulary (B9b) | **Settled** — creating / active / failed / deleting / deleted; `deploy.py` already matches | SDK `AgentVersionStatus` enum, 2.4.0, 2026-10-08. Not yet observed on the wire. |
 
 ---
 
