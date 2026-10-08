@@ -302,7 +302,8 @@ What actually happened:
 - **azapi v2 exports are read as `.output.<path>`** — `azapi_resource.foundry.output.identity.principalId`.
   Confirmed against this tree's existing `.output.properties.endpoint` in outputs.tf, not
   from memory. Provider pinned `~> 2`, lock at 2.13.0.
-- **A bare `terraform plan` in infra/cloud proposes destroying the entire environment.**
+- **A bare `terraform plan` in infra/cloud proposed destroying the entire environment.**
+  (FIXED 2026-10-08 — the default was removed; see the next entry.)
   `var.region` defaults to `eastus2`; the live environment is `canadacentral`, supplied by
   the Taskfile's `DEFAULT_REGION`. Planning without `-var region=` showed
   `38 to add, 0 to change, 37 to destroy`, Foundry account and RAI policies included. I ran
@@ -329,3 +330,45 @@ What actually happened:
 - **Decision merged into .squad/decisions.md:** "Foundry's System-Assigned Identity Needs AcrPull on the Agent Registry" (Parker)
 - **For Brett (note in decision):** `find_matching_version` does not skip `creating`, so stuck version is reused by next run. Once this role is granted, stuck version should recover. Deletion requires in-VNet data-plane call; no SDK surface.
 
+
+### 2026-10-08 — the region default is gone, and my AcrPull theory was wrong
+
+- **Removed the `eastus2` default from `infra/cloud` `var.region`.** I flagged this last
+  task and did not act on it, which was the wrong call: a hazard I understood well enough
+  to describe in a decision record was left live for a day. Measured again before changing
+  it — bare plan, no `-var`: `38 to add, 0 to change, 37 to destroy`, including both RAI
+  policies. Tamper-tested after: fails with "No value for required variable" before any
+  refresh, reaches no plan at all. That verification step is the point; "I removed the
+  default" is not the same claim as "the hazard is gone".
+- **Did not substitute `canadacentral` as the new default.** A correct-today default is
+  still a default and would be wrong the next time the environment moves, which is exactly
+  the failure that just occurred. Required variable, Taskfile as the single source of
+  truth.
+- **The rule:** no default may encode current-environment state. A default claims the
+  value is a safe fallback; for anything in resource identity there is no safe fallback,
+  only a quiet one. Sibling of C6.
+- **What made it dangerous was that the plan looked normal.** 37 destroys did not read as
+  a disaster, it read as a first-time deploy. When auditing for hazards, look for the ones
+  whose failure output is indistinguishable from success output — those are the ones that
+  survive review.
+- **My AcrPull diagnosis was wrong and I have recorded it as wrong.** Both agent versions
+  reached `active` in ~4 seconds, and the role I added was applied *after* they were
+  already healthy. The real defect was a `str(enum)` comparison in the poller. Account
+  AcrPull is not required for the pull; the role stays because removing it would be a
+  second change on a second theory, but B9b now carries a DISPROVEN block saying plainly
+  that the answer is no.
+- **Three theories — pull permissions, status enum, timeout — all built to explain a
+  silence, all wrong.** I built infrastructure on one of them. The repository's own rule
+  says missing evidence is inconclusive, never a signal. I applied that rule to the demo's
+  findings and not to my own debugging. One log line of the observed value would have
+  ended it.
+- **Recorded the reference implementation's roles without applying any of them** (B9d,
+  `banking-agent-foundry-orchestrator` `apps/roles.tf`, fetched via the GitHub contents
+  API rather than trusting the summary I was handed). It grants `AcrPull` to the
+  **project's** identity, not the account's — so it does not corroborate my assignment, it
+  points elsewhere. `Foundry Agent Consumer` on the project is the one Dallas will likely
+  need when invocation lands. Everything else is a working-to-working swap with no upside.
+- **Its deployer is a `azurerm_container_app_job`, not an init container.** Better shape in
+  the abstract — real completion state, retry limit. Ours is an init container because the
+  deploy must run inside the VNet and AKS is already there. Different constraint, different
+  answer; recorded so nobody reads the reference and thinks we diverged by accident.
