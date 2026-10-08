@@ -165,17 +165,24 @@ variable "enable_state_store" {
   description = <<-EOT
     Create the PostgreSQL Flexible Server that backs Dapr Workflow state.
 
-    Defaults to false, and that default is deliberate. No phase before 8 reads from this
-    server, and Flexible Server is restricted in several regions including eastus2, where
-    the containment environment runs. VNet injection pins the server to its subnet's
-    region, so provisioning it unconditionally would force the containment demo to
-    relocate for a database nothing queries.
+    Defaults to false because no phase before 8 reads from it. The server would sit idle
+    and billing, and it adds a resource to every teardown, so it is created when it is
+    needed rather than kept warm for a future phase. Set this to true when Phase 8 begins.
 
-    Set this to true when Phase 8 begins, and deploy that environment in a region where
-    Flexible Server is available. Surveyed 2026-10-08: centralus, westus3, northcentralus
-    and canadacentral were unrestricted; eastus, eastus2, westus2 and southcentralus were
-    not. A restricted region reports "The value of the 'Version' should be in: []", which
-    names the wrong cause -- check the capabilities API for restricted: Enabled.
+    The default region (canadacentral) permits Flexible Server, so this flag is now purely
+    about cost and lifecycle, not availability. It began as an availability workaround:
+    the subscription is restricted from provisioning Flexible Server in eastus2, where the
+    containment environment previously ran, and Flexible Server uses VNet injection rather
+    than a private endpoint, so the server is pinned to its subnet's region and could not
+    simply live elsewhere. That conflict was resolved by moving the whole environment to
+    canadacentral.
+
+    If the region ever changes again, check availability first. Surveyed 2026-10-08:
+    swedencentral, centralus, westus3, northcentralus and canadacentral were unrestricted;
+    eastus, eastus2, westus2, southcentralus and canadaeast were not. A restricted region
+    reports "The value of the 'Version' should be in: []", which names the wrong cause --
+    check the capabilities API for restricted: Enabled. Neighbouring regions do not share
+    the restriction: canadacentral is clear while canadaeast is not.
   EOT
   type        = bool
   default     = false

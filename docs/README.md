@@ -296,14 +296,17 @@ the full Flexible Server configuration behind `enable_state_store`, which defaul
 `false`. Nothing before Phase 8 reads from it, so the containment environment runs without
 it.
 
-The default exists because of a regional conflict that cannot be configured away. The demo
-subscription is restricted from provisioning Flexible Server in `eastus2`: the capabilities
-API returns `restricted: Enabled` with every supported version list empty, which surfaces
-as the misleading error `The value of the 'Version' should be in: []`. Flexible Server uses
-VNet injection rather than a private endpoint, so the server is pinned to its subnet's
-region. Creating it unconditionally would force the containment demo — which is the point
-of this repository, and which is running and verified in `eastus2` — to relocate for a
-database no phase queries yet.
+The default is now about cost and lifecycle rather than availability: the server would sit
+idle and billing, and add a resource to every teardown, so it is created when Phase 8 needs
+it.
+
+It began as an availability workaround. The subscription is restricted from provisioning
+Flexible Server in `eastus2`, where the containment environment previously ran: the
+capabilities API returns `restricted: Enabled` with every supported version list empty,
+which surfaces as the misleading error `The value of the 'Version' should be in: []`.
+Flexible Server uses VNet injection rather than a private endpoint, so the server is pinned
+to its subnet's region and could not simply live elsewhere. That conflict is what drove the
+move to `canadacentral`, which permits both.
 
 Surveyed 2026-10-08:
 
