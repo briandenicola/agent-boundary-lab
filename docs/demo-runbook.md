@@ -135,6 +135,128 @@ whether or not any policy existed.
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
+### 3.0 Bring-up order, and the cluster-context check we learned the hard way
+
+**Tested result (2026-10-08):** every task name below was read back from `task --list-all`
+and from `tasks/Taskfile.cloud.yml`. This is the order, and all six exist:
+
+| # | Command | What it does |
+| --- | --- | --- |
+| 1 | `task cloud:up` | **Creates billable resources**, including the AKS cluster. Prompts first. |
+| 2 | `task build:agent` | Builds and pushes the agent image in ACR. Produces the digest both agent versions pin. |
+| 3 | `task cloud:kubeconfig` | Fetches AKS credentials. **Run this even if `kubectl` already works** — see below. |
+| 4 | `task cloud:harness-plan` | Server-side dry run of the harness manifests. Changes nothing. |
+| 5 | `task cloud:harness-up` | **Changes the cluster.** Applies the harness; its init container publishes both agent versions. Prompts first. |
+| 6 | `task cloud:harness-status` | Shows the pod and the deploy init container's result. |
+
+Steps 1, 2 and 5 are Brian's to run. Steps 3, 4 and 6 are read-only or non-mutating, but
+step 3 rewrites your local kubeconfig.
+
+#### P0a — `kubelogin` must be on `PATH` before step 3
+
+```bash
+command -v kubelogin
+```
+
+The cluster runs with **local accounts disabled and Entra RBAC**. There is no admin
+kubeconfig to fall back on, so `kubelogin` is not optional. `task cloud:kubeconfig` checks
+for it and refuses early, but if you get past that step some other way, **a missing
+`kubelogin` surfaces later as an exec-plugin error that reads exactly like bad
+credentials.** You will spend the next twenty minutes suspecting your own identity. Check
+the binary first.
+
+#### P0b — fetch the credentials
+
+```bash
+task cloud:kubeconfig
+```
+
+**Tested result (2026-10-08):** skipping this step is how the harness deploy failed the
+first time it was attempted. Nothing in the earlier steps touches your kubeconfig, so
+`kubectl` quietly keeps whatever context it already had — in that instance a **dead cluster
+from an unrelated project**.
+
+#### P0c — confirm you are pointed at *our* cluster, before you apply anything
+
+Hope is not a pre-flight check. Run both of these and compare the strings yourself:
+
+```bash
+kubectl config current-context
+terraform -chdir=infra/cloud output -raw aks_cluster_name; echo
+```
+
+**They must be identical.** `az aks get-credentials` names the context after the cluster,
+so a mismatch means the active context is not ours. **Tested result (2026-10-08):** both
+print `humble-phoenix-46689-aks`.
+
+Then confirm the context actually reaches that cluster — read-only, and the output names
+the cluster and the region:
+
+```bash
+kubectl cluster-info
+```
+
+Expect a control-plane URL of the form
+`https://humble-phoenix-46689-aks-<suffix>.hcp.canadacentral.azmk8s.io:443`. Ours is in
+**canadacentral**. A different name or a different region in that URL means stop.
+
+#### What a wrong-context failure looks like — recognise it in one second
+
+```
+Unable to connect to the server: remote error: tls: unrecognized name
+```
+
+**Tested result (2026-10-08):** observed against
+`model-osprey-55220-aks-2pll9qwn.hcp.swedencentral.azmk8s.io` — a dead cluster from an
+unrelated project that was still the active `kubectl` context.
+
+That message means **the kubeconfig is pointing at an AKS API-server FQDN that is no longer
+serving**, and the TLS front end does not recognise the SNI it was handed. It is **not** an
+authentication problem, **not** a network policy, **not** our cluster being broken, and
+nothing in `infra/cloud` or `deploy/kustomize/` will fix it. Run P0b and re-check P0c.
+
+Note the sharper risk: a *dead* wrong cluster fails loudly like this. A *live* wrong cluster
+would accept the apply. That is why P0c is a string comparison done before the apply, not an
+error message read after it.
+
+#### 3.0.1 How the harness is applied now — `kubectl` + `kustomize`, not Terraform
+
+Mechanics changed and the runbook reflects the current ones:
+
+- **`infra/k8s/` no longer exists.** There is no Terraform root module for the cluster
+  workloads. If you have a note, a shell history entry, or a memory that says otherwise, it
+  is stale.
+- The manifests live in **`deploy/kustomize/base/`** — namespace, serviceaccount, secret and
+  deployment — and carry committed `REPLACE_WITH_*` placeholders. **The files on disk are
+  never mutated.** Each task streams `kustomize build` through `sed`, substituting from
+  `terraform output -raw` against `infra/cloud`, straight into `kubectl`.
+- **The two secrets — the diagnostics token and the App Insights connection string — exist
+  only inside that pipe.** They are never written to disk. Keep it that way: do not
+  redirect the rendered stream to a file to "have a look at it".
+- A placeholder that survives substitution aborts the apply before anything reaches the
+  cluster, and only the placeholder *names* are printed, never their values.
+
+**`task cloud:harness-plan` is a server-side dry run. Be precise about what it buys you:**
+
+- It **does** tell you the API server ran admission and would accept the apply, and reports
+  `created` / `configured` / `unchanged` per object. Nothing is persisted.
+- It **does not** tell you which fields are about to change. It is deliberately **not**
+  `kubectl diff`, because a diff of this stream would print the Secret's contents to the
+  terminal and into any captured demo log.
+- A clean dry run is **not evidence of anything about containment**. It is a statement about
+  the Kubernetes API server, in a cluster the Foundry egress policy does not govern at all.
+
+**Every apply uses `--server-side --force-conflicts`, on purpose.** The four live objects
+were created by Terraform's field manager and carry no
+`kubectl.kubernetes.io/last-applied-configuration` annotation, so a client-side apply would
+have no prior state to merge against; server-side apply reads the real `managedFields` and
+`--force-conflicts` moves ownership of these fields from `Terraform` to `kubectl`.
+
+**Expect the first apply to report `configured`, not `created`.** That is the adoption step
+working as intended — the objects keep running and only the ownership metadata changes. The
+flags stay on every later run too, where they are a no-op, so that the first run and every
+subsequent run use identical flags.
+
 ### 3.1 Environment identity and local sanity
 
 | # | Command | Proves | Does **not** prove |
@@ -218,6 +340,11 @@ Three of these deserve the operator's attention:
 
 Every one of these must be true, and recorded, before a run counts:
 
+- [ ] P0a — `kubelogin` present on `PATH`.
+- [ ] P0b — `task cloud:kubeconfig` run **this session**.
+- [ ] P0c — `kubectl config current-context` string-matches
+      `terraform -chdir=infra/cloud output -raw aks_cluster_name`, and `kubectl cluster-info`
+      names that cluster in **canadacentral**.
 - [ ] P1–P3 run; subscription and resource names recorded.
 - [ ] P5 green — exactly one field differs between the two policies.
 - [ ] P6 — image digest recorded.
@@ -297,8 +424,9 @@ evidence and no part of it may appear in a containment verdict.
 Prerequisite: both agents deployed (`containment-demo-audit`, `containment-demo-enforced` —
 two separately named agents, not two versions of one), each reading back `status == active`
 and the intended `rai_config.rai_policy_name`, with byte-identical
-`container_configuration.image` digests. Brian runs the apply; `task cloud:harness-status`
-shows the deploy init container's result.
+`container_configuration.image` digests. Brian runs the apply; the bring-up order and the
+cluster-context check are §3.0, and `task cloud:harness-status` shows the deploy init
+container's result.
 
 **An init container that exited 0 means a version was accepted. It does not mean the policy
 on that version is being enforced.** Read the version back.
@@ -521,7 +649,7 @@ agent, and nothing here should be run casually — `cloud:down` deletes the envi
 
 | Command | What it removes | Leaves behind |
 | --- | --- | --- |
-| `task cloud:harness-down` | The harness pod and its namespace. Prompts first. | The cluster, and **any agent versions already published stay published**. |
+| `task cloud:harness-down` | The harness pod and its namespace. Prompts first. Deleting the namespace removes the Deployment, Secret and ServiceAccount with it; there is no Terraform state to clean up, because the cluster workloads are manifests. | The cluster, and **any agent versions already published stay published**. |
 | `task cloud:down` | Everything `infra/cloud` created, and the local state. | Nothing from this module. |
 | `task spike:down` | Everything the region spike created, and its local state. | — |
 

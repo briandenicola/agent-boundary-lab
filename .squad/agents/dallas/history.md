@@ -205,3 +205,50 @@ Azure, no applies. `task lint:all` green (164 passed, 1 skipped).
 - The diagnostic route is the documented trigger (`POST /internal/diagnostics/run`, bearer
   token, port 8088, optional `?tool=`), because a model declining to call a tool means
   nothing was attempted and proves nothing about the network.
+
+### 2026-10-08 — Runbook pre-flight gains a cluster-context gate; harness deploy is kubectl + kustomize
+
+Two corrections to `docs/demo-runbook.md` and `docs/evidence-template.md`, both found by
+Brian running the real thing. Docs only, no Azure, no applies. `task lint:all` green (164
+passed, 1 skipped).
+
+- **A missing pre-flight step cost twenty minutes.** The harness deploy failed with
+  `Unable to connect to the server: remote error: tls: unrecognized name` against
+  `model-osprey-55220-aks-2pll9qwn.hcp.swedencentral.azmk8s.io` — a dead cluster from an
+  unrelated project that was still the active kubectl context. Ours is
+  `humble-phoenix-46689-aks` in canadacentral. `task cloud:kubeconfig` already existed; the
+  runbook never told anyone to run it. **A step that only exists in a Taskfile is not a
+  procedure.**
+- **The check is a string comparison, not a hope.** New P0a/P0b/P0c: `kubelogin` on PATH,
+  `task cloud:kubeconfig`, then `kubectl config current-context` string-matched against
+  `terraform -chdir=infra/cloud output -raw aks_cluster_name`, plus `kubectl cluster-info`
+  to confirm the control-plane URL names the cluster and the region. Verified live: both
+  strings print `humble-phoenix-46689-aks`.
+- **The failure signature is written down verbatim** so the next person recognises it in a
+  second. It is NOT an auth failure, NOT a network policy, NOT our cluster being broken.
+  And the sharper point: a *dead* wrong cluster fails loudly; a *live* wrong cluster would
+  accept the apply. That is why the check runs before the apply, not after the error.
+- **`kubelogin` is a hard dependency**, because the cluster has `local_account_disabled =
+  true` with Entra RBAC — there is no admin kubeconfig fallback. A missing binary surfaces
+  as an exec-plugin error that reads exactly like bad credentials.
+- **Cluster workloads moved out of Terraform.** `infra/k8s/` is deleted;
+  `deploy/kustomize/base/` holds namespace/serviceaccount/secret/deployment with committed
+  `REPLACE_WITH_*` placeholders, stream-substituted at apply time from `terraform output
+  -raw`. Files on disk are never mutated and the two secrets (diagnostics token, App
+  Insights connection string) exist only inside the apply pipe. Runbook says so, including
+  "do not redirect the rendered stream to a file to have a look at it".
+- **Task names were verified, not assumed.** `task --list-all` confirms all six of
+  `cloud:up`, `build:agent`, `cloud:kubeconfig`, `cloud:harness-plan`, `cloud:harness-up`,
+  `cloud:harness-status` exist, and the order is right. The existing `cloud:harness-*`
+  references in the runbook were already correct and did not change.
+- **`cloud:harness-plan` is a server-side dry run, and the runbook states its limits.** It
+  proves the API server would accept the apply; it does NOT say which fields are about to
+  change. It is deliberately not `kubectl diff`, because a diff of this stream prints the
+  Secret into any captured demo log. **A clean dry run is not evidence about containment**
+  — new mandatory §8 row in the evidence template says so, so nobody can present it as one.
+- **Expect `configured`, not `created`, on the first apply.** `--server-side
+  --force-conflicts` adopts objects written by Terraform's field manager, which carry no
+  `last-applied-configuration` annotation. Ownership moves to kubectl; the workload keeps
+  running.
+- Evidence template now records the AKS context, the control-plane URL, and where the
+  harness was applied from — so a later reader can tell which cluster the run touched.

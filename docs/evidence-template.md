@@ -46,6 +46,9 @@ word containment. Skip §4 and §5; record §8 anyway.
 | `egressPolicy.mode` on that policy | `Audit` / `Enforced` | Read back from ARM. |
 | Allowlisted destination host | | `task cloud:endpoints` |
 | Non-allowlisted destination host | | `task cloud:endpoints` |
+| **AKS context used for the harness** | | `kubectl config current-context`; must match `terraform -chdir=infra/cloud output -raw aks_cluster_name`. |
+| **AKS control-plane URL** | | `kubectl cluster-info`. Confirms cluster **and** region (canadacentral). |
+| Harness applied from | `deploy/kustomize/base/` | `kubectl` + `kustomize`, `--server-side --force-conflicts`. No Terraform module; `infra/k8s/` no longer exists. |
 | Endpoint image tag/digest | | Both endpoints, from one build. |
 | Log Analytics workspace / App Insights | | |
 
@@ -57,6 +60,9 @@ A run with incomplete pre-flight is **inconclusive before it starts**.
 
 | # | Check | Command | Result | Recorded value / note |
 | --- | --- | --- | --- | --- |
+| P0a | `kubelogin` on `PATH` | `command -v kubelogin` | pass / fail / **not collected** | Cluster has local accounts disabled; a missing binary fails like an auth error. |
+| P0b | AKS credentials fetched this session | `task cloud:kubeconfig` | pass / fail / **not collected** | |
+| P0c | **Active context is OUR cluster** | `kubectl config current-context` vs `terraform -chdir=infra/cloud output -raw aks_cluster_name`, then `kubectl cluster-info` | pass / fail / **not collected** | Record both strings and the control-plane URL. `tls: unrecognized name` = wrong/dead context, not an auth problem. |
 | P1 | Subscription identity | `task cloud:whoami` | pass / fail / **not collected** | |
 | P2 | Local guards green | `task lint:all` | pass / fail / **not collected** | |
 | P3 | Resource inventory | `task cloud:output` | pass / fail / **not collected** | |
@@ -236,6 +242,7 @@ closed and with what evidence. "N/A" without a reason is not an answer.
 | Attachment of the policy caused enforcement | | Authoring success is not enforcement proof |
 | Anything about protocols other than HTTP/HTTPS | | Out of scope by design |
 | Anything about the AKS harness | | The Foundry egress policy does not govern it |
+| A clean `cloud:harness-plan` dry run meant the deployment is correct | | A server-side dry run says the API server would accept the apply. It does not say which fields change, and it says nothing about egress. |
 | The private endpoint contained outbound traffic | | **It does not.** It governs inbound reach only. |
 | Production readiness or compliance | | Network egress controls are **preview, no SLA, explicitly not for production** |
 | Prompt-injection resistance | | Not tested, not claimed |
@@ -253,6 +260,7 @@ Anything else this run did not establish (free text — **required**):
 | Diagnostic route response(s) | |
 | `task cloud:policies` output | |
 | `task cloud:app-insights-connection` output | |
+| `task cloud:harness-plan` output | | Server-side dry run. Records that the API server would accept the apply — **not** which fields changed, and **nothing** about containment. |
 | `task cloud:harness-status` output | |
 | Screenshots / recordings | |
 
