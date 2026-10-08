@@ -111,3 +111,57 @@ and `docs/compatibility.md` §B9 for the deployment API.
 - Kubernetes cluster in separate Terraform root (`infra/k8s/`) with own state; Apply order: `cloud:up` → `build:agent` → `cloud:harness-up`.
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
+
+## Learnings (2026-10-08 — PLAN.md re-gate)
+
+### A plan written before verification is a liability, not a baseline
+
+`docs/PLAN.md` survived four agents' verification work unchanged. By the time I read it, it
+was describing a deployment path that cannot work (`az` CLI cannot attach an RAI policy, so
+it cannot deploy either side of a single-variable experiment), a payload shape that does not
+exist in the SDK that actually ships, and a correlation that nobody has.
+
+**Rule going forward:** whenever `docs/compatibility.md` gains a correction, the plan gets
+re-gated in the same session. A stale plan looks authoritative, which is worse than no plan.
+
+### The biggest hole was absence, not error
+
+The worst thing in the old plan was not a wrong fact. It was the **missing gate**: nothing
+anywhere said "find out whether `demo_run_id` reaches the platform layer before building
+the evidence story on top of it". Wrong facts get caught on contact. Missing gates do not.
+Audit plans for what they do not mention.
+
+### Decide the branch before running the test
+
+GATE 0 now carries both outcomes written down in advance. If Q6 returns `joined == false`
+after a long build, the pressure to call the time-plus-hostname fallback "correlation" will
+be considerable. Pre-committing the weaker sentence — "three consistent observations in one
+short window, not three rows joined on a shared key" — removes the room to negotiate with
+ourselves later.
+
+### Terraform authoring is not evidence, and neither is client-side acceptance
+
+Two instances of the same error pattern in this repo:
+- the App Insights project connection exists in Terraform; nobody has re-read the
+  `connections` endpoint and seen a non-empty `value`
+- `ContainerConfiguration.image` is an unvalidated `str`, so the digest passes client-side
+  and says nothing about whether the service accepts it
+
+Both look like progress in a diff. Neither is an observation. Always ask what was read
+back, from where, and on what date.
+
+### Documented decisions drift from code silently
+
+`.squad/decisions.md` records the init-container command as
+`["/opt/deploy-venv/bin/python", "-m", "containment_demo.deploy"]`. `infra/k8s/harness.tf`
+runs `["python", ...]`, and the Dockerfile installs `azure-ai-projects` only into
+`/opt/deploy-venv`. The decision record was right; the code quietly was not. Found by
+reading the file, not by trusting the record. **Spot-check code against decisions.md when
+re-gating.**
+
+### Blocker 3 needed a test and had none
+
+"The implicit allowlist is unenumerated" sat as a noted risk with no action. If an
+undocumented implicit allow is what makes the permitted call succeed, the positive half of
+the demo proves nothing. Removing the explicit allow rule and confirming the permitted host
+is then denied too is now a Phase 6 item. **A risk without a test is a sentence.**
