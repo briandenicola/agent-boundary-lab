@@ -3,7 +3,8 @@
 #
 # NOTE ON WHAT THIS VNET IS AND IS NOT.
 #
-# This VNet hosts the AKS cluster (harness and, later, the workflow app), the private endpoints and
+# This VNet hosts the AKS cluster (harness and, later, the workflow app), the Postgres
+# state store, the private endpoints and
 # the Container Apps environment. It does NOT host the Foundry agent. Agent egress runs
 # through the Microsoft-managed network created by the `networkInjections` block in
 # foundry.tf, which is outside this address space entirely.
@@ -74,3 +75,20 @@ resource "azurerm_subnet" "container_apps" {
 # using a private endpoint, so this subnet cannot be shared with anything else.
 #############################################
 
+# Postgres subnet. Flexible Server uses VNet injection rather than a private endpoint,
+# so it needs a delegated subnet of its own.
+resource "azurerm_subnet" "postgres" {
+  name                 = "postgres-subnet"
+  resource_group_name  = azurerm_resource_group.this.name
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = [local.postgres_subnet_cidr]
+
+  delegation {
+    name = "postgres"
+
+    service_delegation {
+      name    = "Microsoft.DBforPostgreSQL/flexibleServers"
+      actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
+    }
+  }
+}

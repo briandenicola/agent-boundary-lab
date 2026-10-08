@@ -137,3 +137,14 @@ output "what_this_environment_does_not_prove" {
     Missing evidence is inconclusive. It is never a pass.
   EOT
 }
+
+output "postgres_fqdn" {
+  description = "Fully qualified domain name of the Dapr workflow state store."
+  value       = azurerm_postgresql_flexible_server.main.fqdn
+}
+
+output "postgres_admin_password" {
+  description = "Generated administrator password for the workflow state store."
+  value       = random_password.postgres_admin.result
+  sensitive   = true
+}

@@ -291,18 +291,39 @@ approval gates and restart survival around that same unchanged agent. Keeping th
 separate means the workflow extension can never be blamed for, or credited with, a
 containment result.
 
-**The state store is not provisioned yet, and the region matters.** `infra/cloud/` does
-not create a database: nothing consumes one until Phase 8, and the demo subscription is
-**restricted from provisioning PostgreSQL Flexible Server in `eastus2`** — the capabilities
-API returns `restricted: Enabled` with every supported version list empty, which surfaces
-as the misleading error `The value of the 'Version' should be in: []`. Checked 2026-10-08:
-`centralus`, `westus3`, `northcentralus` and `canadacentral` were unrestricted; `eastus`,
-`eastus2`, `westus2` and `southcentralus` were not. Flexible Server VNet injection requires
-the server and subnet in the same region, so Phase 8 must either move the environment to an
-unrestricted region or choose a different state store. Verify availability before writing
-any Terraform for it.
+**PostgreSQL is the state store, and the region is chosen to accommodate it.** The demo
+subscription is restricted from provisioning PostgreSQL Flexible Server in `eastus2`: the
+capabilities API returns `restricted: Enabled` with every supported version list empty,
+which surfaces as the misleading error `The value of the 'Version' should be in: []`.
+Flexible Server VNet injection pins the server to its subnet's region, so the environment
+deploys where PostgreSQL is available rather than working around it.
 
-Use PostgreSQL as the candidate state store. Validate compatibility with the selected Dapr runtime/SDK, actor-state requirements, transactions, concurrency, and durability configuration before adoption. Demo storage must survive pod restart; an ephemeral database is not a recovery proof. Pin a mutually compatible runtime, Python Workflow SDK, AKS extension or Helm release, and state-store component. Pick one installation method; do not install overlapping Dapr control planes.
+Surveyed 2026-10-08:
+
+| Unrestricted | Restricted |
+| --- | --- |
+| `centralus`, `westus3`, `northcentralus`, `canadacentral` | `eastus`, `eastus2`, `westus2`, `southcentralus` |
+
+**Confirm the egress preview in the target region before building the full environment.**
+This is the real risk in moving, and it is not a theoretical one: there is no published
+region list for hosted agents or for the network egress preview (see `compatibility.md`
+A2 and B1). `eastus2` support was *inferred* from the general Agents table and then
+confirmed empirically by the Phase 0 spike. A different region has neither. Run
+`task spike:up -- <region>` first — it creates only a Foundry account and two RAI
+policies, costs little, and answers in minutes whether the egress policy is accepted
+there. If it is not, that is a blocker to record, not a reason to quietly fall back to an
+application-level check.
+
+Validate the chosen version against the selected Dapr runtime and Python Workflow SDK for
+actor-state requirements, transactions, concurrency and durability configuration before
+adoption. Dapr Workflow is built on actors, and a Dapr state store can back actors only if
+it supports *both transactional operations and ETag* — PostgreSQL does, but confirm the
+specific component version rather than assuming it. **Demo storage must survive pod
+restart; an ephemeral store is not a recovery proof.** Pin a mutually compatible runtime,
+Python Workflow SDK, AKS extension or Helm release, and state-store component. Pick one
+installation method; do not install overlapping Dapr control planes.
+
+Source: [Dapr supported state stores](https://docs.dapr.io/reference/components-reference/supported-state-stores/), accessed 2026-10-08 — "State stores can be used for actors if it supports both transactional operations and ETag."
 
 Proposed case flow:
 

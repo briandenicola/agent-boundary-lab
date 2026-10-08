@@ -157,3 +157,30 @@ variable "workflow_service_account" {
   default     = "workflow-workload-identity"
 }
 
+#############################################
+# POSTGRES — Dapr workflow state store (Phase 8)
+#############################################
+
+variable "postgres_sku_name" {
+  description = "Flexible Server SKU. The workflow state store holds a handful of orchestration rows, so the smallest burstable tier is sufficient."
+  type        = string
+  default     = "B_Standard_B1ms"
+}
+
+variable "postgres_storage_mb" {
+  description = "Flexible Server storage in MB."
+  type        = number
+  default     = 32768
+}
+
+variable "postgres_version" {
+  description = "PostgreSQL major version."
+  type        = string
+  default     = "16"
+}
+
+variable "postgres_admin_username" {
+  description = "Administrator login for the Flexible Server. The password is generated, never supplied."
+  type        = string
+  default     = "pgadmin"
+}

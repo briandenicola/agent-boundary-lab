@@ -18,6 +18,7 @@ locals {
   aks_name            = "${local.resource_name}-aks"
   aks_node_rg_name    = "${local.aks_name}_nodes_rg"
   caenv_name          = "${local.resource_name}-cae"
+  postgres_name       = "${local.resource_name}-pg"
 
   # ACR names reject hyphens and have tight length limits, so they are squashed.
   acr_name = substr("${replace(local.resource_name, "-", "")}acr", 0, 50)
@@ -35,6 +36,7 @@ locals {
   # hardcoded, so two environments in one subscription will not overlap.
   vnet_cidr                 = cidrsubnet("10.0.0.0/8", 8, random_integer.vnet_cidr.result)
   aks_subnet_cidr           = cidrsubnet(local.vnet_cidr, 8, 1)
+  postgres_subnet_cidr      = cidrsubnet(local.vnet_cidr, 8, 4)
   pe_subnet_cidr            = cidrsubnet(local.vnet_cidr, 8, 2)
   containerapps_subnet_cidr = cidrsubnet(local.vnet_cidr, 8, 3)
 
