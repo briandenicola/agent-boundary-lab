@@ -372,3 +372,14 @@ What actually happened:
   the abstract — real completion state, retry limit. Ours is an init container because the
   deploy must run inside the VNet and AKS is already there. Different constraint, different
   answer; recorded so nobody reads the reference and thinks we diverged by accident.
+
+### 2026-10-08 — Fixed: region default was dangerously quiet (environment replacement plan masqueraded as new deploy)
+
+- **Decision merged into .squad/decisions.md:** "No Variable Default May Encode Current-Environment State" (Parker)
+- **Measured symptom:** Bare `terraform -chdir=./infra/cloud plan` with no `-var region=` proposed `38 to add, 0 to change, 37 to destroy` — resource group, Foundry account, **both RAI policies**, registry, cluster marked for replacement.
+- **Why it was dangerous:** Wrong region produces a plan that reads as a legitimate first-time deploy, not obviously catastrophic. Would silently destroy live environment if someone ran it.
+- **Fix:** Removed default outright. `region` now required; fails with "No value for required variable" before refresh. `task cloud:plan` unaffected (Taskfile supplies it); bare plan now errors.
+- **General rule:** Variables encoding current-environment state must not have defaults. A default is a claim that a value is a safe fallback; for resource identity, there is no safe fallback. Sibling of C6 (no plan-time-varying functions).
+- **Decided:** `infra/spike` still defaults to `eastus2` because spike has no state file (bare plan has nothing to destroy) and module is disposable by design. Remove only if it gains persistent state.
+- **Role reference notes:** Compared Brian's deployer roles (`briandenicola/banking-agent-foundry-orchestrator`, fetched 2026-10-08) against ours in `docs/compatibility.md` B9d. **Not applied.** Likely need `Foundry Agent Consumer` scoped to project (for Dallas's invocation work); add with that work. `AcrPull` on project vs. account identity noted; ours kept (harmless, least-privilege, registry-scoped, proven) but unproven-necessary.
+

@@ -424,6 +424,19 @@
   2. App Insights connection carries non-null `error`: *"Connection subresourceTarget is not supported for PE creation"*. Probably benign (telemetry egresses outbound from sandbox). NOT VERIFIED. If Q0 empty after invocation, investigate this first.
 - **Corrected:** Policy attachment **IS confirmed** (not unverified). `verify_version()` in-cluster readback confirms policy field set to expected ARM id on both versions with same digest. Init containers exited 0 at 19:35Z. Readback confirms *acceptance*, not *runtime enforcement* — which is why Q0 and Layer-2 evidence exist. `docs/telemetry-map.md` §0.5 and §7 corrected; `docs/compatibility.md` C1 needs update (ManagedNetworkEvent category does exist, even if never populated).
 
+### No Variable Default May Encode Current-Environment State
+
+**By:** Parker  
+**Date:** 2026-10-08  
+**Status:** Implemented
+
+- `infra/cloud/variables.tf` defaulted `region = "eastus2"` while environment runs in `canadacentral`. Bare `terraform -chdir=./infra/cloud plan` with no `-var region=` produced `38 to add, 0 to change, 37 to destroy` — resource group, Foundry account, **both RAI policies**, registry, cluster all marked for replacement.
+- **The danger:** Resource names derive from region; wrong region replaces the environment rather than drifting it. The plan output reads as a legitimate first-time deploy, making it subtle rather than obviously catastrophic.
+- **Fixed:** Removed default outright. `region` is now required and fails with "No value for required variable" before refresh. `task cloud:plan` unchanged; bare plan now errors.
+- **The rule:** No variable may carry a default that encodes current-environment state. A default is a claim that the value is a safe fallback; for anything participating in resource identity there is no safe fallback, only a quiet one. Sibling of decision C6 (no plan-time-varying functions).
+- **Sibling survives untouched:** `infra/spike` still defaults to `eastus2` because it has no state file, so a bare plan has nothing to destroy. Spike is disposable by design; remove the default only if it gains persistent state.
+- **Role survey (recorded, not applied):** Brian's reference deployer (`briandenicola/banking-agent-foundry-orchestrator`, fetched 2026-10-08) compared in `docs/compatibility.md` B9d. Likely needs `Foundry Agent Consumer` scoped to project (for Dallas's invocation path); add with that work, not speculatively. `AcrPull` on project identity vs. our account identity noted; ours kept (harmless, least-privilege, registry-scoped, proven-working) but unproven-necessary.
+
 ## Known Risks / Unverified Assumptions
 
 ### Server-Side Digest Acceptance
