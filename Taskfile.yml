@@ -5,7 +5,11 @@ dotenv: ['.env']
 env:
   TITLE: Agent Boundary Lab
   SPIKE_TITLE: Agent Boundary Lab Spike
-  DEFAULT_REGION: eastus2
+  # Canada Central hosts everything: the containment environment and, from Phase 8, the
+  # workflow state store. It is one of the few regions that permits both. East US 2 cannot
+  # host PostgreSQL Flexible Server on this subscription, and Flexible Server uses VNet
+  # injection, so the database cannot simply live elsewhere. See compatibility.md A2a/A2b.
+  DEFAULT_REGION: canadacentral
 
 includes:
   cloud:

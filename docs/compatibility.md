@@ -5,11 +5,15 @@
 under [Unverified — must be tested empirically](#unverified--must-be-tested-empirically).
 Nothing in this document was inferred from a plausible-sounding guess.
 
-Target region: **East US 2** for the containment environment, which is deployed and
-verified there. **Sweden Central** was spiked on 2026-10-08 and passed the same check (A2a);
-it is the preferred region for the Phase 8 workflow environment because it also permits
-PostgreSQL Flexible Server, which East US 2 does not (A2b). Target subscription: from the
-ambient `az login` context (matching the `online-banking-demo` convention).
+Target region: **Canada Central**, chosen so that the containment environment and the
+Phase 8 workflow state store can share one region. East US 2 hosted the containment
+environment through Phase 0 and is verified there, but it cannot host PostgreSQL Flexible
+Server on this subscription, and Flexible Server uses VNet injection, so the database
+cannot simply live elsewhere (A2b). Canada Central permits both. **Its egress spike is
+pending — see A2a; do not tear down a working environment before it passes.** Sweden
+Central was spiked and passed on 2026-10-08 and remains the proven fallback. Target
+subscription: from the ambient `az login` context (matching the `online-banking-demo`
+convention).
 
 > **Preview status.** Network egress controls are preview, carry **no preview SLA**, and are
 > **not intended for production use**. This repository is a demonstration, not a compliance
@@ -60,14 +64,27 @@ independently stated. Confirm by attempting a deployment before relying on it.
 
 - https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/limits-quotas-regions
 
-### A2a. Region — Sweden Central, tested rather than inferred
+### A2a. Region — spike status per region
 
-**Spiked and passed, 2026-10-08.** The caveat in A2 applies to every region: there is no
-published table scoped to hosted agents or to the egress preview. East US 2 was only
-trusted because the Phase 0 spike confirmed it empirically, so Sweden Central was held to
-the same standard rather than accepted from the general Agents table.
+The caveat in A2 applies to every region: there is no published table scoped to hosted
+agents or to the egress preview. East US 2 was only ever trusted because the Phase 0 spike
+confirmed it empirically, so every candidate is held to the same standard rather than
+accepted from the general Agents table.
 
-The spike created a Foundry account there and read the configuration back from ARM:
+| Region | Egress spike | Postgres (A2b) |
+| --- | --- | --- |
+| East US 2 | **Passed** 2026-10-07 | Restricted |
+| Sweden Central | **Passed** 2026-10-08 | Unrestricted |
+| Canada Central | **PENDING** — run `task spike:up -- canadacentral` | Unrestricted |
+| Canada East | Not run | **Restricted** — not viable |
+
+Canada Central is the selected target because it clears Postgres and keeps everything in
+one region, but its spike has not been run. Until it passes, nothing about egress support
+there is established, and the working environment should not be destroyed on the assumption
+that it will.
+
+The Sweden Central spike created a Foundry account there and read the configuration back
+from ARM:
 
 | Checked | Result |
 | --- | --- |
@@ -100,9 +117,15 @@ Checked 2026-10-08 against
 
 | Unrestricted | Restricted |
 | --- | --- |
-| `swedencentral`, `centralus`, `westus3`, `northcentralus`, `canadacentral` | `eastus`, `eastus2`, `westus2`, `southcentralus` |
+| `swedencentral`, `centralus`, `westus3`, `northcentralus`, `canadacentral` | `eastus`, `eastus2`, `westus2`, `southcentralus`, `canadaeast` |
 
-Sweden Central reports supported major versions 11–18, covering the module default of 16.
+Both `swedencentral` and `canadacentral` report supported major versions 11–18, covering
+the module default of 16, and both have `gpt-4o-mini` `2024-07-18` available on the
+`GlobalStandard` SKU the module deploys.
+
+`canadaeast` was checked on request and is **restricted**, returning *"Provisioning is
+restricted in this region. Please choose a different region."* Regions within a geography
+do not share this restriction, so each must be checked individually.
 
 Flexible Server uses **VNet injection rather than a private endpoint**, so the server is
 pinned to its subnet's region. This is why the restriction forces a region decision instead
@@ -741,6 +764,7 @@ one-off spike, and each must be recorded here with its result before any claim d
 | LiteLLM rotating Entra token (E2) | **Supported** via `azure_ad_token_provider` | Source of installed 1.104.0 |
 | ADK + agent server co-install (Blocker 0) | Conflict confirmed; override tested working on otel 1.44.0 | Install + smoke test |
 | Sweden Central viability (A2a) | **Passed** — managed VNet and both egress policies stored | Spike + ARM read-back, 2026-10-08 |
+| Canada East viability (A2b) | **Not viable** — Postgres restricted | Capabilities API, 2026-10-08 |
 | Postgres region restriction (A2b) | East US 2 restricted; Sweden Central clear | Capabilities API, 2026-10-08 |
 | State store must back actors (A2c) | PostgreSQL qualifies; Table/Blob do not | Dapr component reference, 2026-10-08 |
 

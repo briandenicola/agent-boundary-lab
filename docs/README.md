@@ -311,12 +311,16 @@ Surveyed 2026-10-08:
 | --- | --- |
 | `centralus`, `westus3`, `northcentralus`, `canadacentral` | `eastus`, `eastus2`, `westus2`, `southcentralus` |
 
-**Phase 8 sets `enable_state_store = true` and deploys in `swedencentral`.** That region
-was chosen because it satisfies both constraints at once, and both were tested rather than
-inferred (`compatibility.md` A2a and A2b): PostgreSQL Flexible Server is unrestricted there
-with major versions 11–18, and a spike on 2026-10-08 confirmed that ARM stores the
-Microsoft-managed agent network and both egress policies, with `publicNetworkAccess`
-`Disabled`. `gpt-4o-mini` `2024-07-18` is available there on `GlobalStandard`.
+**The target region is `canadacentral`, so that the containment environment and the Phase 8
+state store share one region.** PostgreSQL Flexible Server is unrestricted there with major
+versions 11–18, and `gpt-4o-mini` `2024-07-18` is available on `GlobalStandard`
+(`compatibility.md` A2b). **Its egress spike has not been run yet** — until it passes,
+support for the egress preview there is unestablished, and the working environment should
+not be destroyed on the assumption that it will pass. `swedencentral` was spiked on
+2026-10-08 and passed, and is the proven fallback if Canada Central does not.
+
+Check regions individually rather than by geography: `canadaeast` is restricted for
+PostgreSQL even though `canadacentral` is not.
 
 That testing was not optional. There is **no published region list** for hosted agents or
 for the network egress preview — `eastus2` is trusted only because the Phase 0 spike
