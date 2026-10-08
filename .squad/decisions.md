@@ -398,7 +398,35 @@
 
 **By:** Parker  
 **Date:** 2026-10-08  
-**Status:** Implemented (role assignment created, not yet applied)
+**Status:** ⚠️ **DISPROVEN — superseded 2026-10-08 19:35Z. The reasoning below is wrong.**
+
+> **DO NOT USE THE DEBUGGING HEURISTIC IN THIS ENTRY.** It is the exact false lead that
+> cost a day. Preserved unedited because this ledger is append-only and because the
+> mistake is more instructive than its removal would be.
+>
+> **What actually happened.** The role assignment was applied *after* the agent was
+> already healthy, and fixed nothing. `containment-demo-audit` reached `active` at
+> 18:39:26Z with **no** Foundry AcrPull role in place — so the platform could already
+> pull, and `registry_connection_id=None` was correct all along.
+>
+> **The real defect** was one line in `deploy.py`: `str(AgentVersionStatus.ACTIVE).lower()`
+> yields `'agentversionstatus.active'`, which can never equal `'active'`. The poller could
+> not terminate on success under *any* status vocabulary or *any* set of permissions.
+> After the fix, both versions were created and matched on attempt 1/40 at elapsed 0.0s.
+>
+> **Specifically false:** "accepted, then hangs in `creating`" does **not** indicate a
+> missing pull permission. The version was never in `creating` — it was `active` within
+> seconds, and our poller simply could not say so. The hypothesis was built to explain a
+> **silence**, and a silent poll loop makes a healthy system and a hung one byte-identical.
+>
+> **The rule this violated**, which this repository already states and which applies to
+> debugging the demo and not only to the demo's findings: *missing evidence is
+> INCONCLUSIVE, never a signal.* Demand the observed value before constructing a theory.
+>
+> The role assignment itself is retained: harmless, registry-scoped, defensible on
+> least-privilege grounds — but **unproven-necessary**, and the reference implementation
+> grants AcrPull to the *project's* identity rather than the account's, so it does not
+> corroborate this entry either. See `docs/compatibility.md` B9b (DISPROVEN block) and B9d.
 
 - The Foundry account's `SystemAssigned` principal had no role on ACR. `acr.tf` granted `AcrPull` only to AKS kubelet and Container Apps identities.
 - Hosted-agent runtime pulls the agent image as its own principal (distinct from kubelet). Without `AcrPull`, a pull is retryable rather than fatal, and the version hangs in `creating`.
