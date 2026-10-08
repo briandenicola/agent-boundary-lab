@@ -128,3 +128,6 @@ and `docs/compatibility.md` §B9 for the deployment API.
   `services/Dockerfile` in one build. The policy API's success is only a usable control
   for the receiver's silence if the two cannot drift apart, and a single tag makes that
   divergence impossible to express.
+- **Brett's deployment contract is final; do not change module path or env vars without telling him.** The init container reads `var.agent_deploy_module` from variables.tf; if it moves, the pod fails with `ModuleNotFoundError`.
+- **RBAC assumption on `agents/versions` write is unverified.** If init container gets 403 on `create_version`, suspect this before the federated credential. See decisions.md §8.
+- **The deploy SDK's openai>=3 dependency had to be isolated in a separate venv.** Without it, the SDK drags the agent's own model stack sideways (litellm 1.104→1.83, openai 2.54→3.26), which is an uncontrolled variable in the thing under test. The image digest is the experiment; dependencies on the agent's side must not drift.

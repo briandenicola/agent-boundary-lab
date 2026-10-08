@@ -86,3 +86,18 @@ and `docs/compatibility.md` §B9 for the deployment API.
   unobservable; Layer 3 fully verified. The correlation Layer 1↔2 remains NOT FOUND — Q6 is
   written to test it empirically the moment an agent version exists, and must be the first
   query run.
+
+### 2026-10-08 — Telemetry-map complete, App Insights connection blocker unblocked
+
+- **Platform egress property keys (§2.1) left deliberately blank.** Portal UI labels (Decision, Reason, Matched rule, Rule source, Enforcement, Destination, Default action) are **not** Log Analytics column names. Fill this table only after a real row is observed in live run. Do not guess.
+- **Correlation gap is structural, not a query problem.** Layer 1 (app trace) carries `demo_run_id` in HTTP header/query param. Platform egress decision records are not documented to copy it. Fallback: run window + hostname + agent version, which breaks under concurrency and depends on unmeasured Foundry-side clock lag. **Procedural control required:** demo runs strictly serial with timestamps.
+- **First post-deploy action: Run Q6.** Test whether generic OperationId propagation closes the Layer 1↔2 gap for free. If it does, join works. If not, serial-run procedural control stays in place.
+- **App Insights project connection schema fully verified (2026-10-08)** from installed SDK source, not documentation:
+  - Type: `Microsoft.CognitiveServices/accounts/projects/connections@2026-05-15-preview` (preview, not stable)
+  - Scope: child of project, not account
+  - `category: "AppInsights"`, `authType: "ApiKey"`, `credentials: { key: <connection string> }`
+  - The "API key" is the **connection string**, not instrumentation key or resource id
+  - Trap: `AAD` or `ManagedIdentity` would apply cleanly and silently do nothing. Auth type check is not optional.
+  - **Parker's action:** Add connection in Terraform (completed; see parker-appinsights-connection-and-endpoint-images.md).
+- **Pre-run validation checklist (§7):** Treat query failures as INCONCLUSIVE, never fail. Q2 always paired with Q2a. Use in-payload `received_at`, not `TimeGenerated`.
+- **Standing rule:** §2.1 stays blank until real observation. Platform telemetry audit cannot invent column names.

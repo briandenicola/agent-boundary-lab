@@ -140,3 +140,18 @@ and `docs/compatibility.md` §B9 for the deployment API.
   mid-run, which correctly drove the run to INCONCLUSIVE.
 - `tests/unit/test_verify_harness.py` (28 tests) institutionalises all of it. Suite is 164
   passing, still no network/Azure/credentials.
+
+### 2026-10-08 — Section A now PASS, receipt absence classification finalized
+
+- **Section A overall status: PASS** (exit 0, via `task verify:baseline`). Transport baseline (A1–A5) and receipt retrievability (A6) both working.
+- **Receipt absence is four outcomes, not two.** Implemented in `classify_receipt_absence()`. Must be called by Section C before deriving logic again:
+  - Rows with `demo_run_id`: **FAIL** (call was not blocked)
+  - Rows present, none with marker: **INCONCLUSIVE** (unattributed arrival could be ours)
+  - No rows, retrievability proven in same window: **PASS** (receipt leg only)
+  - No rows, retrievability unproven or query failed: **INCONCLUSIVE**
+- **A5 is a hard gate on attribution.** Test receiver POST with no credentials must answer 2xx. Parker: do not add authentication or IP restrictions. A 403 from inside sandbox stops being attributable to egress policy. Demo design changes if this ever happens.
+- **Never probe without run marker.** Unmarked probe plants unattributable receipt on every run, manufacturing the ambiguity A7 detects. Marker is traceability, not credential.
+- **Explicit (start_time, end_time) on every log query.** Relative windows contaminate. Previous run's traffic can answer this run's question. Use in-payload `received_at`, not `TimeGenerated`.
+- **`task verify:baseline` is pre-demo gate.** Run before any demo run, never after failure. Endpoint state is experiment variable; a dead endpoint makes denial unattributable.
+- Blocker 0 (guard against `google-adk` OpenTelemetry pin relaxation): `test_dependency_overrides.py` fails on purpose if pin relaxes. Operator must delete `[tool.uv]` override and update compatibility.md.
+- Sections B and C remain NOT IMPLEMENTED (exit 2, cannot return pass). B requires hosted agent version; C requires platform decision record path.

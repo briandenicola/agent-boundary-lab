@@ -103,3 +103,13 @@ credentials and no network — 124 passing, 1 skipped (the real-SDK model check,
 landed. An Enforced agent with a silently-unattached policy looks exactly like a working
 Enforced agent that allows everything — that is the most dangerous way this demo could
 lie, so it is a loud `DriftError`.
+
+### 2026-10-08 — Deploy SDK finalized, openai dependency isolated
+
+- **Digest-only validation is final.** `DEMO_AGENT_IMAGE` must be `repo@sha256:<64 hex>`. If service rejects it, the module raises `DigestRejectedError`, exits 3 with STOP, no tag fallback, no configuration to override this. Server-side acceptance is still unknown; first hosted run answers it.
+- **Read-back verification is real.** After creating each version, the module reads it back and asserts the attached policy ARM id and image digest match exactly. Detects the silent failure (policy did not attach).
+- **Idempotent on pod restart.** Version matching both image digest AND policy ARM id, not in terminal bad state, is reused. Existing versions never mutated (maintains auditability). A restart creates nothing and exits 0.
+- **Only `DEMO_POLICY_MODE` differs between agents.** `assert_single_variable()` and `test_environment_differs_only_by_the_evidence_label()` enforce this. No hostname hint, allowlist, or "expected outcome" sneaks in via env var.
+- **Timeouts are bounded and a timeout is a failure.** `DEMO_DEPLOY_TIMEOUT_SECONDS` (default 900) for status == "active". A version still "creating" at deadline is failure, not optimistic pass. An unprovisioned agent proves nothing.
+- **The deployer venv is in the same image as the agent, not a separate image.** `/opt/deploy-venv` (install `.[deploy]` there), `/opt/deploy-venv/bin/python` (init container uses this). One image, one digest, two isolated dependency sets. Agent's dependencies untouched.
+- **Parker's init-container contract is final.** Module path in `var.agent_deploy_module` (variables.tf), entrypoint command in `infra/k8s/harness.tf`, all `DEMO_*` env vars injected from Terraform outputs. If the module moves, tell Parker and he updates variables.tf.
