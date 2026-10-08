@@ -105,14 +105,22 @@ tasks:
       - |
         set -eu
         RG=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw resource_group_name)
-        NAME=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw resource_name)
         SERVER=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_login_server)
 
-        for APP in policy-api test-receiver; do
-          IMAGE="${SERVER}/containment-demo-${APP}:{{.IMAGE_TAG}}"
-          echo "updating ${NAME}-${APP} -> ${IMAGE}"
+        # Read the app names from terraform. Container Apps cap names at 32 characters, so
+        # the module truncates the prefix and the names are NOT resource_name plus a
+        # suffix. Rebuilding them here looked right and addressed an app that never
+        # existed.
+        POLICY_APP=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw policy_api_app_name)
+        RECEIVER_APP=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw test_receiver_app_name)
+
+        for PAIR in "policy-api:${POLICY_APP}" "test-receiver:${RECEIVER_APP}"; do
+          IMG=${PAIR%%:*}
+          APP=${PAIR#*:}
+          IMAGE="${SERVER}/containment-demo-${IMG}:{{.IMAGE_TAG}}"
+          echo "updating ${APP} -> ${IMAGE}"
           az containerapp update \
-            --name "${NAME}-${APP}" \
+            --name "$APP" \
             --resource-group "$RG" \
             --image "$IMAGE" \
             --output none

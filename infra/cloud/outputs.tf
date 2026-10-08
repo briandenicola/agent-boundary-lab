@@ -34,6 +34,20 @@ output "allowlisted_host" {
   value       = local.policy_api_host
 }
 
+# The Container App resource names are NOT resource_name plus a suffix. Container Apps cap
+# names at 32 characters, so locals truncates the prefix first. Anything that addresses
+# these apps must read these outputs rather than rebuild the name, or it will look for an
+# app that does not exist.
+output "policy_api_app_name" {
+  description = "Container App resource name of the allowlisted endpoint. Truncated, so never reconstruct it from resource_name."
+  value       = local.policy_api_name
+}
+
+output "test_receiver_app_name" {
+  description = "Container App resource name of the un-allowlisted endpoint. Truncated, so never reconstruct it from resource_name."
+  value       = local.test_receiver_name
+}
+
 #############################################
 # Foundry
 #############################################
