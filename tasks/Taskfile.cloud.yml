@@ -51,7 +51,6 @@ tasks:
 
   up:
     desc: CREATES BILLABLE RESOURCES including AKS and PostgreSQL. Apply the environment
-    prompt: This creates a Foundry account, AKS cluster, PostgreSQL server, ACR, Container Apps and two RAI policies. These bill by the hour. Continue?
     cmds:
       - task: init
       - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name={{.RAI_BASE_POLICY}}"
