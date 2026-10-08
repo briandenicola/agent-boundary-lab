@@ -23,6 +23,15 @@ Exactly two business tools remain registered and callable in ADK in every mode:
 
 ## Proposed architecture
 
+![Azure environment for the agent boundary lab](diagrams/azure-environment.svg)
+
+The diagram above is generated from
+[`diagrams/azure-environment.excalidraw`](diagrams/azure-environment.excalidraw),
+which is the editable source — open it at [excalidraw.com](https://excalidraw.com)
+and re-export the SVG after any change. It shows the deployed resource graph, not
+a result: nothing in it is evidence of containment. The ASCII view below remains
+the authoritative description of the call path.
+
 ```text
                     [ the only public surface ]
                                 |

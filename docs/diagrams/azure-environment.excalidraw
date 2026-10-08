@@ -78,7 +78,7 @@
     {
       "id": "foundry",
       "type": "rectangle",
-      "x": 700,
+      "x": 740,
       "y": 100,
       "width": 620,
       "height": 420,
@@ -107,7 +107,7 @@
     {
       "id": "foundry_t",
       "type": "text",
-      "x": 720,
+      "x": 760,
       "y": 114,
       "width": 252.00000000000003,
       "height": 22.5,
@@ -143,7 +143,7 @@
     {
       "id": "foundry_s",
       "type": "text",
-      "x": 720,
+      "x": 760,
       "y": 140,
       "width": 371.28000000000003,
       "height": 16.25,
@@ -179,7 +179,7 @@
     {
       "id": "mnet",
       "type": "rectangle",
-      "x": 720,
+      "x": 760,
       "y": 176,
       "width": 580,
       "height": 230,
@@ -208,7 +208,7 @@
     {
       "id": "mnet_t",
       "type": "text",
-      "x": 738,
+      "x": 778,
       "y": 188,
       "width": 260.40000000000003,
       "height": 18.75,
@@ -244,7 +244,7 @@
     {
       "id": "mnet_s",
       "type": "text",
-      "x": 738,
+      "x": 778,
       "y": 210,
       "width": 443.52000000000004,
       "height": 15.0,
@@ -280,7 +280,7 @@
     {
       "id": "agent",
       "type": "rectangle",
-      "x": 740,
+      "x": 780,
       "y": 238,
       "width": 540,
       "height": 72,
@@ -309,7 +309,7 @@
     {
       "id": "agent_t",
       "type": "text",
-      "x": 758,
+      "x": 798,
       "y": 250,
       "width": 378.00000000000006,
       "height": 18.75,
@@ -345,7 +345,7 @@
     {
       "id": "agent_s",
       "type": "text",
-      "x": 758,
+      "x": 798,
       "y": 274,
       "width": 530.88,
       "height": 15.0,
@@ -381,7 +381,7 @@
     {
       "id": "proxy",
       "type": "rectangle",
-      "x": 740,
+      "x": 780,
       "y": 324,
       "width": 540,
       "height": 62,
@@ -410,7 +410,7 @@
     {
       "id": "proxy_t",
       "type": "text",
-      "x": 758,
+      "x": 798,
       "y": 334,
       "width": 277.20000000000005,
       "height": 18.75,
@@ -446,7 +446,7 @@
     {
       "id": "proxy_s",
       "type": "text",
-      "x": 758,
+      "x": 798,
       "y": 358,
       "width": 416.64000000000004,
       "height": 15.0,
@@ -482,7 +482,7 @@
     {
       "id": "rai",
       "type": "rectangle",
-      "x": 720,
+      "x": 760,
       "y": 424,
       "width": 580,
       "height": 76,
@@ -511,7 +511,7 @@
     {
       "id": "rai_t",
       "type": "text",
-      "x": 738,
+      "x": 778,
       "y": 436,
       "width": 431.20000000000005,
       "height": 17.5,
@@ -547,7 +547,7 @@
     {
       "id": "rai_a",
       "type": "text",
-      "x": 738,
+      "x": 778,
       "y": 458,
       "width": 189.28000000000003,
       "height": 16.25,
@@ -583,7 +583,7 @@
     {
       "id": "rai_e",
       "type": "text",
-      "x": 1020,
+      "x": 1060,
       "y": 458,
       "width": 232.96000000000004,
       "height": 16.25,
@@ -1213,8 +1213,8 @@
       "type": "arrow",
       "x": 640,
       "y": 396,
-      "width": 60,
-      "height": 96,
+      "width": 140,
+      "height": 122,
       "angle": 0,
       "strokeColor": "#1971c2",
       "backgroundColor": "transparent",
@@ -1247,7 +1247,11 @@
         ],
         [
           60,
-          -96
+          -122
+        ],
+        [
+          140,
+          -122
         ]
       ],
       "lastCommittedPoint": null,
@@ -1259,10 +1263,10 @@
     {
       "id": "a2a_l",
       "type": "text",
-      "x": 648,
-      "y": 364,
-      "width": 98.56,
-      "height": 27.5,
+      "x": 646,
+      "y": 408,
+      "width": 89.60000000000001,
+      "height": 25.0,
       "angle": 0,
       "strokeColor": "#1971c2",
       "backgroundColor": "transparent",
@@ -1282,7 +1286,7 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "fontSize": 11,
+      "fontSize": 10,
       "fontFamily": 3,
       "text": "A2A over\nprivate endpoint",
       "textAlign": "left",
@@ -1290,15 +1294,15 @@
       "containerId": null,
       "originalText": "A2A over\nprivate endpoint",
       "lineHeight": 1.25,
-      "baseline": 11
+      "baseline": 10
     },
     {
       "id": "ep",
       "type": "rectangle",
       "x": 40,
-      "y": 580,
-      "width": 1280,
-      "height": 200,
+      "y": 600,
+      "width": 1320,
+      "height": 210,
       "angle": 0,
       "strokeColor": "#868e96",
       "backgroundColor": "#ffffff",
@@ -1325,7 +1329,7 @@
       "id": "ep_t",
       "type": "text",
       "x": 60,
-      "y": 594,
+      "y": 614,
       "width": 413.28000000000003,
       "height": 22.5,
       "angle": 0,
@@ -1361,7 +1365,7 @@
       "id": "ep_s",
       "type": "text",
       "x": 60,
-      "y": 620,
+      "y": 640,
       "width": 560.5600000000001,
       "height": 16.25,
       "angle": 0,
@@ -1397,7 +1401,7 @@
       "id": "allow",
       "type": "rectangle",
       "x": 80,
-      "y": 652,
+      "y": 672,
       "width": 560,
       "height": 100,
       "angle": 0,
@@ -1426,7 +1430,7 @@
       "id": "allow_t",
       "type": "text",
       "x": 100,
-      "y": 664,
+      "y": 684,
       "width": 232.96000000000004,
       "height": 20.0,
       "angle": 0,
@@ -1450,11 +1454,11 @@
       "locked": false,
       "fontSize": 16,
       "fontFamily": 2,
-      "text": "policy-api     ALLOWLISTED",
+      "text": "policy-api  \u2014  ALLOWLISTED",
       "textAlign": "left",
       "verticalAlign": "top",
       "containerId": null,
-      "originalText": "policy-api     ALLOWLISTED",
+      "originalText": "policy-api  \u2014  ALLOWLISTED",
       "lineHeight": 1.25,
       "baseline": 16
     },
@@ -1462,7 +1466,7 @@
       "id": "allow_s",
       "type": "text",
       "x": 100,
-      "y": 690,
+      "y": 710,
       "width": 409.92,
       "height": 15.0,
       "angle": 0,
@@ -1498,7 +1502,7 @@
       "id": "allow_s2",
       "type": "text",
       "x": 100,
-      "y": 714,
+      "y": 734,
       "width": 315.84000000000003,
       "height": 15.0,
       "angle": 0,
@@ -1533,8 +1537,8 @@
     {
       "id": "deny",
       "type": "rectangle",
-      "x": 720,
-      "y": 652,
+      "x": 760,
+      "y": 672,
       "width": 560,
       "height": 100,
       "angle": 0,
@@ -1562,8 +1566,8 @@
     {
       "id": "deny_t",
       "type": "text",
-      "x": 740,
-      "y": 664,
+      "x": 780,
+      "y": 684,
       "width": 295.68,
       "height": 20.0,
       "angle": 0,
@@ -1587,19 +1591,19 @@
       "locked": false,
       "fontSize": 16,
       "fontFamily": 2,
-      "text": "test-receiver     NOT ALLOWLISTED",
+      "text": "test-receiver  \u2014  NOT ALLOWLISTED",
       "textAlign": "left",
       "verticalAlign": "top",
       "containerId": null,
-      "originalText": "test-receiver     NOT ALLOWLISTED",
+      "originalText": "test-receiver  \u2014  NOT ALLOWLISTED",
       "lineHeight": 1.25,
       "baseline": 16
     },
     {
       "id": "deny_s",
       "type": "text",
-      "x": 740,
-      "y": 690,
+      "x": 780,
+      "y": 710,
       "width": 389.76000000000005,
       "height": 15.0,
       "angle": 0,
@@ -1634,8 +1638,8 @@
     {
       "id": "deny_s2",
       "type": "text",
-      "x": 740,
-      "y": 714,
+      "x": 780,
+      "y": 734,
       "width": 423.36,
       "height": 15.0,
       "angle": 0,
@@ -1670,10 +1674,10 @@
     {
       "id": "a_allow",
       "type": "arrow",
-      "x": 900,
-      "y": 386,
-      "width": 540,
-      "height": 266,
+      "x": 1310,
+      "y": 348,
+      "width": 1380,
+      "height": 374,
       "angle": 0,
       "strokeColor": "#2f9e44",
       "backgroundColor": "transparent",
@@ -1701,16 +1705,24 @@
           0
         ],
         [
-          0,
-          174
+          90,
+          2
         ],
         [
-          -540,
-          174
+          90,
+          187
         ],
         [
-          -540,
-          266
+          -1290,
+          187
+        ],
+        [
+          -1290,
+          374
+        ],
+        [
+          -1230,
+          374
         ]
       ],
       "lastCommittedPoint": null,
@@ -1722,8 +1734,8 @@
     {
       "id": "allow_l",
       "type": "text",
-      "x": 380,
-      "y": 528,
+      "x": 60,
+      "y": 542,
       "width": 54.88,
       "height": 17.5,
       "angle": 0,
@@ -1758,10 +1770,10 @@
     {
       "id": "a_deny",
       "type": "arrow",
-      "x": 1100,
-      "y": 386,
-      "width": 100,
-      "height": 266,
+      "x": 1310,
+      "y": 368,
+      "width": 120,
+      "height": 354,
       "angle": 0,
       "strokeColor": "#e03131",
       "backgroundColor": "transparent",
@@ -1789,16 +1801,16 @@
           0
         ],
         [
-          0,
-          174
+          120,
+          4
         ],
         [
-          -100,
-          174
+          120,
+          354
         ],
         [
-          -100,
-          266
+          10,
+          354
         ]
       ],
       "lastCommittedPoint": null,
@@ -1810,8 +1822,8 @@
     {
       "id": "deny_l",
       "type": "text",
-      "x": 1020,
-      "y": 528,
+      "x": 1150,
+      "y": 578,
       "width": 172.48000000000002,
       "height": 17.5,
       "angle": 0,
@@ -1847,8 +1859,8 @@
       "id": "obs",
       "type": "rectangle",
       "x": 40,
-      "y": 812,
-      "width": 1280,
+      "y": 840,
+      "width": 1320,
       "height": 118,
       "angle": 0,
       "strokeColor": "#868e96",
@@ -1876,7 +1888,7 @@
       "id": "obs_t",
       "type": "text",
       "x": 60,
-      "y": 824,
+      "y": 852,
       "width": 694.96,
       "height": 21.25,
       "angle": 0,
@@ -1912,7 +1924,7 @@
       "id": "obs_1",
       "type": "text",
       "x": 60,
-      "y": 854,
+      "y": 882,
       "width": 215.04000000000002,
       "height": 30.0,
       "angle": 0,
@@ -1947,8 +1959,8 @@
     {
       "id": "obs_2",
       "type": "text",
-      "x": 470,
-      "y": 854,
+      "x": 480,
+      "y": 882,
       "width": 241.92000000000002,
       "height": 30.0,
       "angle": 0,
@@ -1983,8 +1995,8 @@
     {
       "id": "obs_3",
       "type": "text",
-      "x": 880,
-      "y": 854,
+      "x": 900,
+      "y": 882,
       "width": 248.64000000000001,
       "height": 30.0,
       "angle": 0,
@@ -2020,7 +2032,7 @@
       "id": "obs_n",
       "type": "text",
       "x": 60,
-      "y": 904,
+      "y": 932,
       "width": 934.08,
       "height": 15.0,
       "angle": 0,
