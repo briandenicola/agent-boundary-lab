@@ -284,3 +284,34 @@ What actually happened:
   infrastructure plan is byte-identical either way. The experiment's control cannot have a
   default. Verify a claim against the tree before writing it down; `grep -rn 0e4b5019` now
   returns one legitimate hit, the image-size record in compatibility.md B9b.
+
+### 2026-10-08 — Foundry could not pull its own image
+
+- **The hosted-agent runtime pulls the agent image as its OWN principal.** The Foundry
+  account's `SystemAssigned` identity had no role on ACR; `acr.tf` had granted `AcrPull` to
+  the AKS kubelet identity and the Container Apps identity only. Those pull the harness and
+  endpoint images. Same registry, same image, two unrelated pulls by two unrelated
+  identities — which is exactly why it was missed: the harness pod pulled fine, so the
+  registry looked healthy.
+- **"Accepted, then stuck in `creating`" is what a missing pull permission looks like.**
+  `create_version` returns 200, the version exists, and it never reaches `failed` because
+  an unauthorised pull is retryable rather than fatal. Every signal we can see says
+  success. Recorded in compatibility.md B9b as a hypothesis, not a diagnosis — the data
+  plane is private-endpoint-only and the backend's pull error is unreadable from outside.
+  The grant is necessary whether or not it is sufficient.
+- **azapi v2 exports are read as `.output.<path>`** — `azapi_resource.foundry.output.identity.principalId`.
+  Confirmed against this tree's existing `.output.properties.endpoint` in outputs.tf, not
+  from memory. Provider pinned `~> 2`, lock at 2.13.0.
+- **A bare `terraform plan` in infra/cloud proposes destroying the entire environment.**
+  `var.region` defaults to `eastus2`; the live environment is `canadacentral`, supplied by
+  the Taskfile's `DEFAULT_REGION`. Planning without `-var region=` showed
+  `38 to add, 0 to change, 37 to destroy`, Foundry account and RAI policies included. I ran
+  it myself and briefly believed it. **Always plan through `task cloud:plan`.** Flagged the
+  default as a landmine in the inbox rather than changing it unilaterally.
+- **The clean-plan control works.** Through the task, with the region correct, the plan is
+  `1 to add, 0 to change, 0 to destroy` — the C6 fix holding up exactly as intended. That
+  is the first time the plan has been readable as a drift check.
+- **I dropped a section heading in an earlier edit.** `### C1. Where egress decisions
+  surface` disappeared when I replaced a block that ended on it. Caught it only because
+  the next edit's anchor did not match. Nothing in lint reads markdown structure. When
+  replacing a block that ends at a heading, keep the heading in the replacement.

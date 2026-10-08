@@ -640,7 +640,56 @@ best; it tells you nothing about whether the version would have become active.
 - SDK enum read 2026-10-08 from the installed 2.4.0 package; no primary source documents
   the wire-level status values or a provisioning-time expectation.
 
+#### OBSERVED 2026-10-08, HYPOTHESIS NOT YET CONFIRMED — a version stuck in `creating`
 
+A version created successfully at 18:41 (HTTP 200, `Created version`) was still `creating`
+15+ minutes later, with the init container still polling.
+
+**The hypothesis, stated as a hypothesis.** The Foundry account carries a `SystemAssigned`
+identity (`infra/cloud/foundry.tf`), and that principal had **no role on the container
+registry**. `infra/cloud/acr.tf` granted `AcrPull` to the AKS kubelet identity and to the
+Container Apps user-assigned identity, and `AcrPush` to the operator — but not to Foundry.
+The hosted-agent runtime pulls the digest-pinned agent image **itself**, as a different
+principal from the kubelet identity that pulls the harness image onto our own nodes. With
+no `AcrPull`, that pull cannot authenticate.
+
+This fits the symptom precisely: an unauthorised pull is **retryable, not fatal**, so the
+version never transitions to `failed` and sits in `creating` instead. The control plane
+accepted the version, so every signal we can see says success. It is a failure mode that
+looks exactly like slow provisioning.
+
+**It is not proven, and cannot be proven from outside.** The data plane is
+private-endpoint-only, so the backend's actual pull error is not readable by the operator.
+Nothing observed in this run names the registry or an authorisation failure. What is
+recorded here is a hypothesis that fits the evidence, not a diagnosis.
+
+**The role assignment is necessary regardless of whether it is sufficient.** No pull can
+succeed without `AcrPull` on the pulling principal, so granting it is correct even if
+something else is also wrong. Added as `azurerm_role_assignment.foundry_acr_pull`
+(`infra/cloud/acr.tf`): `AcrPull` only, scoped to the registry, principal
+`azapi_resource.foundry.output.identity.principalId`. `task cloud:plan` renders it as
+`1 to add, 0 to change, 0 to destroy`.
+
+**Confirmation is simply whether a version reaches `active` after the grant.** Nothing
+subtler is available to us. If a version still hangs in `creating` with the role in place,
+this entry is wrong or incomplete and must be corrected here rather than quietly
+forgotten.
+
+**Two things deliberately NOT done.**
+
+1. The **project** (`azapi_resource.project`) also has its own `SystemAssigned` identity,
+   and its `principalId` is not currently exported. If the account-level grant turns out to
+   be the wrong principal, that is the next candidate — but no primary source states which
+   identity Foundry uses to pull, so it is not being granted speculatively.
+2. Foundry may additionally require an explicit **ACR connection resource** on the project,
+   in the same family as the `AppInsights` connection in C5 — `ContainerConfiguration`
+   carries a `registry_connection_id` field (B9a) which we leave unset. **No authoritative
+   evidence was found either way.** This repository does not invent resource shapes; if a
+   primary source turns up, record it here before implementing it.
+
+- Observed 2026-10-08. Hypothesis, not a verified cause.
+
+### C1. Where egress decisions surface
 
 Application Insights **`traces`** table, filtered on a literal message string:
 
