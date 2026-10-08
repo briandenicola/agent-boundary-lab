@@ -8,6 +8,12 @@ version: '3'
 # nothing on its own authority. Without that baseline a later denial inside the agent is
 # unattributable, because the endpoint might simply have been down.
 #
+# It also reads this run's own receipts back out of Log Analytics. That read is the
+# positive control: it proves receipt logging was working DURING this window, which is the
+# only thing that makes a later absent receipt mean anything. It needs an Azure credential
+# (`az login` is enough) and the `verify` extra. Without either, the receipt checks report
+# inconclusive rather than passing.
+#
 # It is NOT containment evidence. Nothing run from here is.
 #
 # Exit codes: 0 pass, 1 fail, 2 inconclusive. Inconclusive is a real answer: it means a

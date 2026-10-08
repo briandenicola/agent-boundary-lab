@@ -12,6 +12,11 @@ Three things this script will never do:
    Terraform outputs, in that order. If neither source yields both, the run is
    inconclusive and stops.
 
+Section A reads receipt rows back out of Log Analytics (``ContainerAppConsoleLogs_CL``,
+docs/telemetry-map.md §3.2) using ``DefaultAzureCredential``. That query is read-only and
+creates nothing. Without a credential or the ``verify`` extra installed, the receipt
+checks report **inconclusive** — they never fail and never pass on missing access.
+
 Sections B (hosted Audit) and C (hosted Enforced) are **not implemented** — the hosted
 agent versions do not exist yet. They are stubs that report ``not_implemented`` and can
 never return a pass.
@@ -30,6 +35,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -352,6 +358,232 @@ def _resolves(host: str) -> tuple[bool, str]:
 # Section A — independent baseline (local control client)
 # --------------------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------------------
+# Receipt evidence — Log Analytics
+#
+# Table, columns and parsing are taken verbatim from docs/telemetry-map.md §3.2, which
+# Lambert verified end to end against real receipt rows on 2026-10-08. Nothing here is
+# inferred: `ContainerAppConsoleLogs_CL`, the JSON receipt string in `Log_s`, and the
+# `event == "receipt"` discriminator were all observed. `/healthz` is deliberately not
+# logged as a receipt on either service, so probe traffic cannot pollute these answers.
+#
+# Queries are the telemetry map's own (Q1, Q2a, Q8). They are not re-invented here.
+# --------------------------------------------------------------------------------------
+
+RECEIPT_TABLE = "ContainerAppConsoleLogs_CL"
+
+#: Ingestion lag of ~1.5 s was measured (telemetry-map §3.2), but lag is not a constant.
+#: Receipts are polled rather than read once, and a miss is inconclusive, never a pass.
+DEFAULT_RECEIPT_WAIT_SECONDS = 180.0
+
+_SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
+
+class ReceiptEvidence(StrEnum):
+    """What the receipt log actually said. The four cases are not interchangeable."""
+
+    #: Receipts carrying this run's marker were found.
+    ARRIVED_FOR_THIS_RUN = "arrived_for_this_run"
+    #: Receipts landed in the window but carried no usable marker. Observed in the wild
+    #: on 2026-10-08 (telemetry-map §3.2): a test-receiver receipt with demo_run_id "".
+    ARRIVED_UNATTRIBUTED = "arrived_without_marker"
+    #: No receipt rows at all in the window.
+    NO_ROWS_IN_WINDOW = "no_rows_in_window"
+    #: The question could not be asked.
+    QUERY_UNAVAILABLE = "query_unavailable"
+
+
+@dataclass
+class LogQuery:
+    """A bound Log Analytics reader, or an explanation of why there isn't one."""
+
+    client: Any | None
+    workspace_id: str | None
+    reason: str
+
+    @property
+    def available(self) -> bool:
+        return self.client is not None and self.workspace_id is not None
+
+
+def open_log_query(workspace_id: str | None) -> LogQuery:
+    """Build a Log Analytics client, or report precisely why it is unavailable.
+
+    Unavailability is never a failure and never a pass: it means the question could not
+    be asked. Managed identity / developer credentials only — no key, and no az CLI.
+    """
+    if not workspace_id:
+        return LogQuery(None, None, "no workspace id (terraform output log_analytics_workspace_id)")
+    try:
+        from azure.identity import DefaultAzureCredential
+        from azure.monitor.query import LogsQueryClient
+    except ImportError as exc:
+        return LogQuery(None, None, f"azure-monitor-query not installed ({exc}); pip extra: verify")
+    try:
+        client = LogsQueryClient(DefaultAzureCredential())
+    except Exception as exc:
+        return LogQuery(None, None, f"could not build a credential: {sanitize(exc)}")
+    return LogQuery(client, workspace_id, "ready")
+
+
+def _run_query(
+    log: LogQuery, kql: str, window: tuple[datetime, datetime]
+) -> tuple[list[dict[str, Any]], str]:
+    """Execute one KQL query. Returns ``(rows, reason)``; rows is empty on any error.
+
+    A query error and an empty result set are different facts and are kept apart by the
+    reason string, because collapsing them is how "no receipt" becomes a false pass.
+
+    ``window`` is an explicit (start, end) pair, never a "last N minutes" duration. A
+    padded relative window reaches back past the start of the run and lets an earlier
+    run's traffic answer this run's question — observed doing exactly that on 2026-10-08.
+    """
+    if not log.available:
+        return [], log.reason
+    from azure.monitor.query import LogsQueryStatus
+
+    try:
+        response = log.client.query_workspace(log.workspace_id, kql, timespan=window)
+    except Exception as exc:
+        return [], f"query failed: {sanitize(exc)}"
+    if response.status == LogsQueryStatus.FAILURE:
+        return [], f"query failed: {str(getattr(response, 'partial_error', 'unknown'))[:200]}"
+    rows: list[dict[str, Any]] = []
+    for table in response.tables:
+        rows.extend(dict(zip(table.columns, row, strict=False)) for row in table.rows)
+    return rows, "ok"
+
+
+def _app_filter(app_names: list[str]) -> str:
+    quoted = ", ".join(f'"{name}"' for name in app_names)
+    return f"| where ContainerAppName_s in ({quoted})"
+
+
+def query_receipts_for_run(
+    log: LogQuery, app_names: list[str], run_id: str, window: tuple[datetime, datetime]
+) -> tuple[list[dict[str, Any]], str]:
+    """telemetry-map §4 Q1 — receipts at either endpoint carrying this run's marker."""
+    if not _SAFE_RUN_ID.match(run_id):
+        return [], f"run id {run_id!r} is not safe to embed in a query"
+    kql = f"""
+{RECEIPT_TABLE}
+{_app_filter(app_names)}
+| extend rec = parse_json(Log_s)
+| where tostring(rec.event) == "receipt"
+| where tostring(rec.demo_run_id) == "{run_id}"
+| project TimeGenerated,
+          service     = tostring(rec.service),
+          demo_run_id = tostring(rec.demo_run_id),
+          received_at = tostring(rec.received_at),
+          path        = tostring(rec.path),
+          bytes       = toint(rec.content_length_bytes),
+          ContainerAppName_s
+| order by TimeGenerated asc
+"""
+    return _run_query(log, kql, window)
+
+
+def query_unattributed_receipts(
+    log: LogQuery, app_names: list[str], window: tuple[datetime, datetime]
+) -> tuple[list[dict[str, Any]], str]:
+    """telemetry-map §4 Q2a — receipts in the window carrying no usable marker.
+
+    Mandatory companion to any absence claim. A receipt with ``demo_run_id == ""`` was
+    observed on 2026-10-08, so "no rows for our run id" is not "nothing arrived".
+    """
+    kql = f"""
+{RECEIPT_TABLE}
+{_app_filter(app_names)}
+| extend rec = parse_json(Log_s)
+| where tostring(rec.event) == "receipt"
+| where isempty(tostring(rec.demo_run_id))
+| project TimeGenerated,
+          service     = tostring(rec.service),
+          received_at = tostring(rec.received_at),
+          bytes       = toint(rec.content_length_bytes),
+          ContainerAppName_s
+| order by TimeGenerated asc
+"""
+    return _run_query(log, kql, window)
+
+
+def query_pipeline_liveness(
+    log: LogQuery, app_names: list[str], window: tuple[datetime, datetime]
+) -> tuple[list[dict[str, Any]], str]:
+    """telemetry-map §4 Q8 — is the console-log pipeline producing anything at all?"""
+    kql = f"""
+{RECEIPT_TABLE}
+{_app_filter(app_names)}
+| summarize last_seen = max(TimeGenerated), rows = count()
+          by ContainerAppName_s, RevisionName_s
+"""
+    return _run_query(log, kql, window)
+
+
+def classify_receipt_absence(
+    *,
+    query_available: bool,
+    rows_for_run: list[dict[str, Any]],
+    unattributed_rows: list[dict[str, Any]],
+    any_rows_in_window: bool,
+    retrievability_proven_in_window: bool,
+) -> tuple[Status, ReceiptEvidence, str]:
+    """Decide what an *absent* receipt is worth. This is the demo's sharpest edge.
+
+    Used by the Enforced run to judge "no receipt appeared at the un-allowlisted
+    receiver". It exists as a pure function so it can be exercised against every case,
+    including the ones that are hard to produce on demand.
+
+    The four cases are deliberately not collapsed:
+
+    * the query could not run                      -> inconclusive, nothing is known;
+    * receipts carrying our marker arrived         -> the call was NOT blocked;
+    * receipts arrived carrying no marker          -> inconclusive, an unattributed
+      arrival could be ours with a stripped marker (telemetry-map §3.2, Q2a);
+    * no receipt rows at all                       -> candidate for "nothing arrived",
+      and still only usable if retrievability was proven in the *same* window.
+
+    ``retrievability_proven_in_window`` must mean a positive control: a receipt that was
+    known to be sent *was* read back during this window. Pipeline liveness over some
+    other app or some other hour is not that.
+    """
+    if not query_available:
+        return (
+            Status.INCONCLUSIVE,
+            ReceiptEvidence.QUERY_UNAVAILABLE,
+            "the receipt log could not be queried, so absence means nothing here",
+        )
+    if rows_for_run:
+        return (
+            Status.FAIL,
+            ReceiptEvidence.ARRIVED_FOR_THIS_RUN,
+            f"{len(rows_for_run)} receipt(s) carrying this run's marker arrived at the "
+            "destination. The request was not blocked.",
+        )
+    if unattributed_rows:
+        return (
+            Status.INCONCLUSIVE,
+            ReceiptEvidence.ARRIVED_UNATTRIBUTED,
+            f"{len(unattributed_rows)} receipt(s) arrived in this window carrying an empty "
+            "demo_run_id. Something reached the destination and could not be attributed, "
+            "so 'no receipt for our run id' cannot be read as 'nothing arrived'.",
+        )
+    if not retrievability_proven_in_window:
+        return (
+            Status.INCONCLUSIVE,
+            ReceiptEvidence.NO_ROWS_IN_WINDOW,
+            "no receipt rows, but receipt retrievability was not proven during this same "
+            "window. An absent receipt is indistinguishable from an absent pipeline.",
+        )
+    detail = (
+        "no receipt rows at the destination in this window, with receipt retrievability "
+        "proven in the same window by a positive control."
+    )
+    if not any_rows_in_window:
+        detail += " Note: the window contained no receipt rows of any kind."
+    return Status.PASS, ReceiptEvidence.NO_ROWS_IN_WINDOW, detail
+
+
 LOCAL = RunKind.LOCAL_CONTROL_CLIENT
 
 
@@ -422,7 +654,198 @@ def judge_own_rejection(bare_call: Attempt) -> tuple[Status, str]:
     )
 
 
-def section_a(endpoints: Endpoints, run_id: str, timeout: float) -> list[Check]:
+def _app_names(endpoints: Endpoints) -> list[str]:
+    """Container App names for the two endpoints, resolved, never written down here.
+
+    Terraform is authoritative because the module truncates names to the 32-character
+    Container Apps limit. The hostname's first label is the documented fallback for a
+    tree without state.
+    """
+    names = [
+        _terraform_output("policy_api_app_name"),
+        _terraform_output("test_receiver_app_name"),
+    ]
+    if all(names):
+        return [n for n in names if n]
+    return [endpoints.policy_host.split(".")[0], endpoints.receiver_host.split(".")[0]]
+
+
+def _receipt_checks(
+    endpoints: Endpoints, run_id: str, window_start: datetime, receipt_wait: float
+) -> list[Check]:
+    """A6 retrievability (positive control) and A7 unattributed arrivals.
+
+    A6 polls for the receipts that A3 and A4 just caused. Ingestion lags, so a miss
+    inside the wait window is reported **inconclusive**, never failed and never passed:
+    a late receipt and an absent pipeline look identical at the moment of asking.
+    """
+    workspace = _terraform_output("log_analytics_workspace_id") or os.environ.get(
+        "DEMO_LOG_ANALYTICS_WORKSPACE_ID"
+    )
+    log = open_log_query(workspace)
+    app_names = _app_names(endpoints)
+
+    if not log.available:
+        unavailable = (
+            f"NOT CHECKED: {log.reason}. Absence of a receipt cannot be used as evidence "
+            "until this check passes. Missing signal: receipt-log retrievability."
+        )
+        return [
+            Check(
+                id="a6-receipt-log-retrievability",
+                title="Receipts for this run are retrievable from the platform log store",
+                status=Status.INCONCLUSIVE,
+                run_kind=LOCAL,
+                detail=unavailable,
+                evidence={"demo_run_id": run_id, "missing_signal": "receipt_log_query"},
+                group="receipt_log",
+            ),
+            Check(
+                id="a7-unattributed-arrivals",
+                title="No unattributed receipts landed at the endpoints during this run",
+                status=Status.INCONCLUSIVE,
+                run_kind=LOCAL,
+                detail=unavailable,
+                evidence={"missing_signal": "receipt_log_query"},
+                group="receipt_log",
+            ),
+        ]
+
+    expected_services = {"policy-api", "test-receiver"}
+    rows: list[dict[str, Any]] = []
+    reason = "not queried"
+    deadline = time.monotonic() + receipt_wait
+    while True:
+        window = (window_start, datetime.now(UTC))
+        rows, reason = query_receipts_for_run(log, app_names, run_id, window)
+        seen = {str(r.get("service")) for r in rows}
+        if expected_services <= seen or time.monotonic() >= deadline:
+            break
+        time.sleep(10)
+
+    seen = {str(r.get("service")) for r in rows}
+    missing = sorted(expected_services - seen)
+    window = (window_start, datetime.now(UTC))
+    evidence = {
+        "demo_run_id": run_id,
+        "table": RECEIPT_TABLE,
+        "source": "docs/telemetry-map.md section 3.2 / Q1",
+        "container_apps": app_names,
+        "query_reason": reason,
+        "window_start": window_start.isoformat(),
+        "receipts": [
+            {
+                "service": str(r.get("service")),
+                "received_at": str(r.get("received_at")),
+                "path": str(r.get("path")) if r.get("path") else None,
+                "bytes": r.get("bytes"),
+            }
+            for r in rows
+        ],
+    }
+    if reason != "ok":
+        a6 = Check(
+            id="a6-receipt-log-retrievability",
+            title="Receipts for this run are retrievable from the platform log store",
+            status=Status.INCONCLUSIVE,
+            run_kind=LOCAL,
+            detail=f"the receipt query did not run: {reason}",
+            evidence=evidence,
+            group="receipt_log",
+        )
+    elif not missing:
+        a6 = Check(
+            id="a6-receipt-log-retrievability",
+            title="Receipts for this run are retrievable from the platform log store",
+            status=Status.PASS,
+            run_kind=LOCAL,
+            detail=(
+                f"{len(rows)} receipt(s) read back from {RECEIPT_TABLE} for this run, from "
+                "both services. Receipt logging was demonstrably working during this "
+                "window, so an absent receipt in this window would carry meaning."
+            ),
+            evidence=evidence,
+            group="receipt_log",
+        )
+    else:
+        a6 = Check(
+            id="a6-receipt-log-retrievability",
+            title="Receipts for this run are retrievable from the platform log store",
+            status=Status.INCONCLUSIVE,
+            run_kind=LOCAL,
+            detail=(
+                f"no receipt read back for {', '.join(missing)} within {receipt_wait:g}s, "
+                "though the request itself was acknowledged over HTTP. Ingestion lag and a "
+                "broken pipeline are indistinguishable at this moment, so this is not a "
+                "failure and not a pass."
+            ),
+            evidence=evidence | {"missing_services": missing},
+            group="receipt_log",
+        )
+
+    # A7 — telemetry-map Q2a. A receipt with an empty demo_run_id was observed in this
+    # very table, so an unattributed arrival in our window would undermine any later
+    # absence claim about the same window.
+    unattributed, unattributed_reason = query_unattributed_receipts(log, app_names, window)
+    a7_evidence = {
+        "source": "docs/telemetry-map.md Q2a",
+        "query_reason": unattributed_reason,
+        "unattributed_rows": [
+            {
+                "service": str(r.get("service")),
+                "received_at": str(r.get("received_at")),
+                "bytes": r.get("bytes"),
+            }
+            for r in unattributed
+        ],
+    }
+    if unattributed_reason != "ok":
+        a7 = Check(
+            id="a7-unattributed-arrivals",
+            title="No unattributed receipts landed at the endpoints during this run",
+            status=Status.INCONCLUSIVE,
+            run_kind=LOCAL,
+            detail=f"the unattributed-arrival query did not run: {unattributed_reason}",
+            evidence=a7_evidence,
+            group="receipt_log",
+        )
+    elif unattributed:
+        a7 = Check(
+            id="a7-unattributed-arrivals",
+            title="No unattributed receipts landed at the endpoints during this run",
+            status=Status.INCONCLUSIVE,
+            run_kind=LOCAL,
+            detail=(
+                f"{len(unattributed)} receipt(s) in this window carry an empty demo_run_id. "
+                "Something arrived that cannot be attributed, so 'no receipt for our run "
+                "id' would not mean 'nothing arrived'."
+            ),
+            evidence=a7_evidence,
+            group="receipt_log",
+        )
+    else:
+        a7 = Check(
+            id="a7-unattributed-arrivals",
+            title="No unattributed receipts landed at the endpoints during this run",
+            status=Status.PASS,
+            run_kind=LOCAL,
+            detail=(
+                "no receipts with an empty demo_run_id in this window, so every arrival "
+                "here is attributable."
+            ),
+            evidence=a7_evidence,
+            group="receipt_log",
+        )
+
+    return [a6, a7]
+
+
+def section_a(
+    endpoints: Endpoints,
+    run_id: str,
+    timeout: float,
+    receipt_wait: float = DEFAULT_RECEIPT_WAIT_SECONDS,
+) -> list[Check]:
     """The independent baseline.
 
     Its only job is to make a later hosted denial *attributable*. If the receiver is
@@ -431,6 +854,9 @@ def section_a(endpoints: Endpoints, run_id: str, timeout: float) -> list[Check]:
     full, even when the first one is dead.
     """
     checks: list[Check] = []
+    # Bound the log query to this run. A wider window would let somebody else's
+    # traffic answer our question.
+    window_start = datetime.now(UTC)
     with _client(timeout) as client:
         checks += _health_check(
             client,
@@ -511,11 +937,20 @@ def section_a(endpoints: Endpoints, run_id: str, timeout: float) -> list[Check]:
         # the egress proxy denies with HTTP 403, and a destination can return 403 too. If
         # this endpoint ever answers 401/403/407 by itself, a 403 seen from inside the
         # sandbox stops being attributable to the platform.
+        #
+        # It carries NO credential — that is the thing being tested — but it does carry the
+        # run marker. An unmarked probe lands in the receipt log as an unattributed arrival
+        # (telemetry-map §3.2 recorded exactly that defect), and this harness must not
+        # manufacture the ambiguity that A7 exists to detect.
         bare_call = attempt(
             client,
             "POST",
             ingest_url,
-            json_body={"note": "No run marker, no credentials. Synthetic."},
+            headers={"X-Demo-Run-Id": run_id},
+            json_body={
+                "demo_run_id": run_id,
+                "note": "No credentials, marker only. Synthetic baseline probe.",
+            },
         )
         a5_status, a5_detail = judge_own_rejection(bare_call)
         checks.append(
@@ -530,29 +965,13 @@ def section_a(endpoints: Endpoints, run_id: str, timeout: float) -> list[Check]:
             )
         )
 
-    # A6 — receipt markers in the services' own logs.
+    # A6 / A7 — receipt evidence in the platform log store.
     #
-    # The HTTP acknowledgements above prove the request arrived *and* that the service
-    # read the marker. They do NOT prove the receipt is retrievable from Log Analytics,
-    # which is the signal the Enforced run depends on: "no receipt appeared" is only
-    # meaningful if receipt logging was known healthy. The table and field names for that
-    # query are not yet confirmed (docs/telemetry-map.md), and inventing them is
-    # forbidden, so this is reported as missing evidence rather than assumed.
-    checks.append(
-        Check(
-            id="a6-receipt-log-retrievability",
-            title="Receipts for this run are retrievable from the platform log store",
-            status=Status.INCONCLUSIVE,
-            run_kind=LOCAL,
-            detail=(
-                "NOT CHECKED. The log-store query for Container Apps console receipts is not "
-                "confirmed yet (docs/telemetry-map.md). Absence of a receipt cannot be used as "
-                "evidence until this check passes. Missing signal: receipt-log retrievability."
-            ),
-            evidence={"demo_run_id": run_id, "missing_signal": "receipt_log_query"},
-            group="receipt_log",
-        )
-    )
+    # A3 and A4 proved the requests arrived and that each service read the marker. That
+    # is not the signal the Enforced run needs. That run turns on "no receipt appeared",
+    # which is only meaningful if receipts for traffic we KNOW was sent can be read back
+    # out of the log store during the same window. This is that positive control.
+    checks += _receipt_checks(endpoints, run_id, window_start, receipt_wait)
 
     return checks
 
@@ -568,7 +987,12 @@ _NOT_IMPLEMENTED_REASON = (
 )
 
 
-def section_b(endpoints: Endpoints, run_id: str, timeout: float) -> list[Check]:
+def section_b(
+    endpoints: Endpoints,
+    run_id: str,
+    timeout: float,
+    receipt_wait: float = DEFAULT_RECEIPT_WAIT_SECONDS,
+) -> list[Check]:
     """Hosted **Audit** run — PLAN Phase 5 §B. Deliberately unimplemented."""
     return [
         Check(
@@ -589,7 +1013,12 @@ def section_b(endpoints: Endpoints, run_id: str, timeout: float) -> list[Check]:
     ]
 
 
-def section_c(endpoints: Endpoints, run_id: str, timeout: float) -> list[Check]:
+def section_c(
+    endpoints: Endpoints,
+    run_id: str,
+    timeout: float,
+    receipt_wait: float = DEFAULT_RECEIPT_WAIT_SECONDS,
+) -> list[Check]:
     """Hosted **Enforced** run — PLAN Phase 5 §C. Deliberately unimplemented."""
     return [
         Check(
@@ -606,6 +1035,12 @@ def section_c(endpoints: Endpoints, run_id: str, timeout: float) -> list[Check]:
                     "after confirming receipt logging is healthy",
                 ],
                 "three_signal_rule": "docs/egress-control.md section 6",
+                "absence_logic": (
+                    "classify_receipt_absence() in this module already implements the "
+                    "receipt leg: arrived-for-this-run, arrived-unattributed, "
+                    "no-rows-in-window, and query-unavailable are kept distinct, and only "
+                    "no-rows plus proven same-window retrievability can support a block."
+                ),
             },
         )
     ]
@@ -768,6 +1203,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Correlation marker for this run. Defaults to a fresh one.",
     )
     parser.add_argument(
+        "--receipt-wait",
+        type=float,
+        default=DEFAULT_RECEIPT_WAIT_SECONDS,
+        help=(
+            "Seconds to wait for this run's receipts to appear in the log store. "
+            "Ingestion lags; a miss inside this window is inconclusive, never a pass."
+        ),
+    )
+    parser.add_argument(
         "--no-terraform",
         action="store_true",
         help="Resolve endpoints from the environment only; do not shell out to terraform.",
@@ -792,7 +1236,7 @@ def main(argv: list[str] | None = None) -> int:
     runners = {"a": section_a, "b": section_b, "c": section_c}
     checks: list[Check] = []
     for name in sections:
-        checks += runners[name](endpoints, args.run_id, args.timeout)
+        checks += runners[name](endpoints, args.run_id, args.timeout, args.receipt_wait)
 
     summary = build_summary(checks, endpoints, args.run_id, sections)
     print(render(summary, checks))
