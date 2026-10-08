@@ -817,12 +817,40 @@ definitions.
 * `azure.core.pipeline.policies.http_logging_policy` turned down to WARNING so it stops
   burying our own lines.
 
-#### Still UNKNOWN
+#### RESOLVED — observed 2026-10-08 19:35Z
 
-**The verbatim status string this service returns for a ready version has still not been
-observed by us.** `running` is accepted on the strength of the reference implementation and
-the portal; the next run will log the real value on every poll, which settles it. Record the
-observed string here when it lands.
+**The service returns `active`.** Observed directly, on our own account, with the fixed
+poller logging every poll:
+
+```
+containment-demo-audit:    created version 2 (status='active')  ready after 0.0s
+containment-demo-enforced: created version 1 (status='active')  ready after 0.0s
+```
+
+Both versions matched on **attempt 1 of 40, at elapsed 0.0s**. Total wall clock for both
+agents: ~4 seconds.
+
+Consequences, stated plainly because the earlier entries in this section guessed wrong:
+
+* `active` — the SDK enum value — was correct all along. The enum is **not** incomplete for
+  the ready state, contrary to what B9b asserted above. Those paragraphs are superseded by
+  this measurement; they were written from the reference implementation and a portal label,
+  neither of which is this service's wire value.
+* The portal's `Running` is a **display label**, not an API status. A portal string is not
+  an API contract — that caution was right even though the conclusion drawn from it was not.
+* `running` remains in `_READY_STATUSES`. It has never been observed by us and is retained
+  only because the reference implementation accepts it in production. It is defensive, not
+  evidence-backed. Do not cite it as observed behaviour.
+* The 45-minute hang was **entirely** the `str(enum)` defect — `'agentversionstatus.active'`
+  never equals `'active'`, so the poller could not terminate on success under any status
+  vocabulary. Widening the accepted set would not have fixed it. The status vocabulary was a
+  red herring we spent a day on.
+
+**The generalisable lesson.** Three separate theories — ACR pull permissions, an incomplete
+status enum, a broken timeout — were each constructed to explain a *silence*. All three were
+wrong. One log line of the observed value would have ended it in seconds. This repository's
+own evidence rule says missing evidence is **inconclusive, never a signal**; that rule
+applies to debugging this demo, not only to the demo's findings.
 
 Sources: `briandenicola/banking-agent-foundry-orchestrator`
 `src/agents/deployer/deploy.py` lines 15–21 and 417–433, fetched 2026-10-08; Azure portal
