@@ -279,6 +279,10 @@ app.add_route(path, route, methods=[...])  # used for our diagnostic route
 
 ## B. Network egress controls
 
+> This section is the terse evidence record. For the explanatory treatment — enforcement
+> point, evaluation semantics, denial classification, TLS consequences, and what the
+> control does *not* cover — see **[`egress-control.md`](egress-control.md)**.
+
 ### B1. Status and regions
 
 **Preview. No preview SLA. Not intended for production.** Configured using the

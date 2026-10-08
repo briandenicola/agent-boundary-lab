@@ -74,6 +74,11 @@ harness works; that is Phase 10 and remains deferred.
 
 ### Private endpoints are not egress containment
 
+> How the outbound control actually works — the RAI policy's nested `egressPolicy`, the
+> sandbox egress proxy, rule evaluation, Audit vs Enforced, and how to tell a real platform
+> denial from a destination's own 403 — is documented in depth in
+> **[`egress-control.md`](egress-control.md)**.
+
 The Foundry account is inbound-private: `publicNetworkAccess` is `Disabled` and
 `networkAcls.defaultAction` is `Deny`. A containment demo whose platform answers from the
 public internet undercuts itself before the first tool call.
@@ -238,6 +243,8 @@ tests/
   unit/
   integration/
 docs/
+  compatibility.md
+  egress-control.md
   demo-runbook.md
   telemetry-map.md
   evidence-template.md
