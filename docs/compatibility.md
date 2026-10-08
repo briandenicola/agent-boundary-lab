@@ -5,8 +5,11 @@
 under [Unverified — must be tested empirically](#unverified--must-be-tested-empirically).
 Nothing in this document was inferred from a plausible-sounding guess.
 
-Target region: **East US 2**. Target subscription: from the ambient `az login` context
-(matching the `online-banking-demo` convention).
+Target region: **East US 2** for the containment environment, which is deployed and
+verified there. **Sweden Central** was spiked on 2026-10-08 and passed the same check (A2a);
+it is the preferred region for the Phase 8 workflow environment because it also permits
+PostgreSQL Flexible Server, which East US 2 does not (A2b). Target subscription: from the
+ambient `az login` context (matching the `online-banking-demo` convention).
 
 > **Preview status.** Network egress controls are preview, carry **no preview SLA**, and are
 > **not intended for production use**. This repository is a demonstration, not a compliance
@@ -56,6 +59,80 @@ coverage for those two specific sub-features is *inferred from the general table
 independently stated. Confirm by attempting a deployment before relying on it.
 
 - https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/limits-quotas-regions
+
+### A2a. Region — Sweden Central, tested rather than inferred
+
+**Spiked and passed, 2026-10-08.** The caveat in A2 applies to every region: there is no
+published table scoped to hosted agents or to the egress preview. East US 2 was only
+trusted because the Phase 0 spike confirmed it empirically, so Sweden Central was held to
+the same standard rather than accepted from the general Agents table.
+
+The spike created a Foundry account there and read the configuration back from ARM:
+
+| Checked | Result |
+| --- | --- |
+| `networkInjections` retained | Yes — `scenario: agent`, `useMicrosoftManagedNetwork: true` |
+| `publicNetworkAccess` | `Disabled` |
+| `egress-audit` policy stored | Yes — `defaultAction: Deny`, `mode: Audit`, one Fqdn allow rule |
+| `egress-enforced` policy stored | Yes — identical but `mode: Enforced` |
+
+Provisioning took roughly 10 minutes, nearly all of it in the Microsoft-managed agent
+network. A long `Creating` state is expected here and is not a failure signal.
+
+**This is control-plane acceptance only.** It establishes that ARM stores the managed VNet
+and both egress policies in Sweden Central. It establishes nothing about enforcement,
+about which layer takes precedence, or about attribution of a denied request — the same
+limits recorded for East US 2 in D1–D3.
+
+From the general region table (re-accessed 2026-10-08), Sweden Central also reports Yes for
+Responses API, Agents and Private VNet, and `gpt-4o-mini` `2024-07-18` is available there
+with the `GlobalStandard` SKU the module deploys.
+
+### A2b. Region — PostgreSQL Flexible Server restrictions
+
+**The subscription is restricted from provisioning Flexible Server in East US 2.** The
+capabilities API returns `restricted: Enabled` with every supported version list empty,
+which the server reports as the misleading `The value of the 'Version' should be in: []`.
+The version is not the problem; the region is.
+
+Checked 2026-10-08 against
+`/providers/Microsoft.DBforPostgreSQL/locations/{region}/capabilities?api-version=2024-08-01`:
+
+| Unrestricted | Restricted |
+| --- | --- |
+| `swedencentral`, `centralus`, `westus3`, `northcentralus`, `canadacentral` | `eastus`, `eastus2`, `westus2`, `southcentralus` |
+
+Sweden Central reports supported major versions 11–18, covering the module default of 16.
+
+Flexible Server uses **VNet injection rather than a private endpoint**, so the server is
+pinned to its subnet's region. This is why the restriction forces a region decision instead
+of a configuration change, and why `enable_state_store` defaults to `false`: nothing before
+Phase 8 reads from the store, and creating it unconditionally would drag the containment
+environment out of a region where it is already working.
+
+Note: `az postgres flexible-server list-supported-versions` does not exist, and `list-skus`
+returns a shape that does not surface the restriction. The REST capabilities endpoint is
+the reliable check.
+
+### A2c. State store capability constraint
+
+**Dapr Workflow is built on actors, and that is the binding constraint on store choice** —
+not durability, which is what it looks like at first. Dapr's rule: *"State stores can be
+used for actors if it supports both transactional operations and ETag."*
+
+| Candidate | Backs Dapr actors |
+| --- | --- |
+| PostgreSQL | Yes |
+| Azure Cosmos DB | Yes |
+| Redis | Yes |
+| Azure Table Storage | **No** — no transactional support |
+| Azure Blob Storage | **No** — no transactional support |
+
+PostgreSQL satisfies the constraint, so the regional restriction in A2b was resolved by
+choosing a region rather than by swapping the component. Confirm the specific Dapr
+component version during Phase 8; this table is a capability check, not a version pin.
+
+- https://docs.dapr.io/reference/components-reference/supported-state-stores/
 
 ### A3. Container contract
 
@@ -646,8 +723,9 @@ one-off spike, and each must be recorded here with its result before any claim d
    `publicNetworkAccess = "Disabled"` **and** an attached egress RAI policy at all (D1).
 7. Which layer governs when managed-VNet isolation mode and the egress policy are both
    configured (D2, D3).
-8. Hosted-agent- and egress-specific region support for East US 2, as opposed to the general
-   Agents region table (A2, B1).
+8. Hosted-agent- and egress-specific region support in general: still no published table
+   (A2, B1). East US 2 and Sweden Central are each backed by a spike rather than by
+   documentation (A2a); any further region needs its own spike.
 9. Whether ADK remains functional against `opentelemetry-api` 1.43+ at **runtime** under real
    load, not just at import (Blocker 0). The smoke test covers import and agent construction
    only.
@@ -662,6 +740,9 @@ one-off spike, and each must be recorded here with its result before any claim d
 | Who configures OpenTelemetry (E3) | The Foundry host, on construction | Observed log line |
 | LiteLLM rotating Entra token (E2) | **Supported** via `azure_ad_token_provider` | Source of installed 1.104.0 |
 | ADK + agent server co-install (Blocker 0) | Conflict confirmed; override tested working on otel 1.44.0 | Install + smoke test |
+| Sweden Central viability (A2a) | **Passed** — managed VNet and both egress policies stored | Spike + ARM read-back, 2026-10-08 |
+| Postgres region restriction (A2b) | East US 2 restricted; Sweden Central clear | Capabilities API, 2026-10-08 |
+| State store must back actors (A2c) | PostgreSQL qualifies; Table/Blob do not | Dapr component reference, 2026-10-08 |
 
 ---
 
@@ -686,3 +767,5 @@ one-off spike, and each must be recorded here with its result before any claim d
 | [LiteLLM Azure provider](https://docs.litellm.ai/docs/providers/azure) | 2026-10-07 |
 | [Enable an agent-to-agent (A2A) endpoint](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint) | 2026-10-08 |
 | [Connect agents to MCP server endpoints](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/tools/model-context-protocol) | 2026-10-08 |
+| [Limits, quotas and regions](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/limits-quotas-regions) (re-accessed for Sweden Central) | 2026-10-08 |
+| [Dapr supported state stores](https://docs.dapr.io/reference/components-reference/supported-state-stores/) | 2026-10-08 |

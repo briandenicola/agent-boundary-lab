@@ -311,15 +311,21 @@ Surveyed 2026-10-08:
 | --- | --- |
 | `centralus`, `westus3`, `northcentralus`, `canadacentral` | `eastus`, `eastus2`, `westus2`, `southcentralus` |
 
-**Phase 8 sets `enable_state_store = true` and deploys in an unrestricted region.** That
-environment is separate from the containment environment, and before building it, confirm
-the egress preview works there: there is no published region list for hosted agents or for
-the network egress preview (see `compatibility.md` A2 and B1). `eastus2` support was
-*inferred* from the general Agents table and then confirmed empirically by the Phase 0
-spike; another region has neither. Run `task spike:up -- <region>` first — it creates only
-a Foundry account and two RAI policies and answers in minutes. If the egress policy is
-rejected there, record a blocker rather than quietly falling back to an application-level
-check.
+**Phase 8 sets `enable_state_store = true` and deploys in `swedencentral`.** That region
+was chosen because it satisfies both constraints at once, and both were tested rather than
+inferred (`compatibility.md` A2a and A2b): PostgreSQL Flexible Server is unrestricted there
+with major versions 11–18, and a spike on 2026-10-08 confirmed that ARM stores the
+Microsoft-managed agent network and both egress policies, with `publicNetworkAccess`
+`Disabled`. `gpt-4o-mini` `2024-07-18` is available there on `GlobalStandard`.
+
+That testing was not optional. There is **no published region list** for hosted agents or
+for the network egress preview — `eastus2` is trusted only because the Phase 0 spike
+confirmed it. Any further region needs the same treatment: run `task spike:up -- <region>`,
+which creates only a Foundry account and two RAI policies. If the egress policy is rejected
+there, record a blocker rather than quietly falling back to an application-level check.
+
+Note that the spike's Foundry account sits in `Creating` for around ten minutes, almost
+entirely in the managed agent network. That is expected and is not a failure signal.
 
 Validate the chosen version against the selected Dapr runtime and Python Workflow SDK for
 actor-state requirements, transactions, concurrency and durability configuration before
