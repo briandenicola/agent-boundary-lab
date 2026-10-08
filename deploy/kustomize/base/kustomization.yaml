@@ -1,0 +1,27 @@
+# Kubernetes workloads are applied with kubectl + kustomize, NOT terraform.
+#
+# They used to live in an `infra/k8s` terraform root module. hashicorp/kubernetes 2.38.0
+# on terraform 1.16.4 tainted `kubernetes_deployment_v1.harness` with a null `identity`
+# block after its first apply timed out on the rollout wait, and every refresh afterwards
+# returned the real identity and failed with `Unexpected Identity Change`. The module
+# could not be planned again without surgery on the state file. Manifests plus a
+# stream-substituted apply have no state to corrupt, and the same objects can be adopted
+# by a later apply without being recreated.
+#
+# ORDER MATTERS. The namespace must exist before anything in it, and the Secret must
+# exist before the Deployment's pods try to resolve `secretKeyRef`. kustomize emits
+# resources in a sorted order that puts Namespace and Secret ahead of Deployment, and a
+# single `kubectl apply -f -` of the whole stream applies them in that order.
+#
+# NOTHING HERE HOLDS A REAL VALUE. Every environment-specific string is a REPLACE_WITH_*
+# placeholder, substituted in the pipe at apply time from `terraform output -raw` against
+# infra/cloud. The files on disk are never mutated, so a half-finished apply cannot leave
+# a credential in the working tree.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - secret.yaml
+  - deployment.yaml

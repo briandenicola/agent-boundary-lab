@@ -1,0 +1,13 @@
+# One namespace holds the harness today and the Dapr workflow app from Phase 8.
+#
+# The name is NOT free. The same string is baked into the workload-identity federated
+# credential subject in infra/cloud/identity.tf (`system:serviceaccount:<ns>:<sa>`). If
+# the two drift apart the token exchange fails with a subject mismatch, and the only
+# symptom is an AADSTS70021 buried in the init container's log. That is why it arrives
+# here as a substituted output of infra/cloud rather than as a literal.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: REPLACE_WITH_NAMESPACE
+  labels:
+    app.kubernetes.io/part-of: agent-boundary-lab

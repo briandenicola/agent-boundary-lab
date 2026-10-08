@@ -180,3 +180,38 @@ This is a Ripley/Brett observation, Phase 4 Blocker 1.
   is already in ARM metadata and in git.
 - **Rule for this repo:** no plan-time-varying function — `timestamp()`, `uuid()`,
   `bcrypt()` — in any attribute of a persistent resource. Recorded as compatibility.md §C6.
+
+### 2026-10-08 — cluster workloads left terraform for kubectl + kustomize
+
+- **`hashicorp/kubernetes` 2.38.0 on terraform 1.16.4 can write a resource into state
+  tainted with a NULL `identity` block.** `kubernetes_deployment_v1.harness` failed on the
+  rollout wait on first apply; the namespace, Secret and ServiceAccount from the same
+  apply all persisted populated identities, the one that errored did not. Every refresh
+  after that read back the real identity and core refused with `Unexpected Identity
+  Change`. Unfixable without hand-editing state. Nothing in our config caused it and
+  nothing in our config would have prevented it.
+- **`infra/k8s` is deleted.** Manifests live in `deploy/kustomize/base/` with committed
+  `REPLACE_WITH_*` placeholders; `cloud:harness-up` streams
+  `kustomize build | sed | kubectl apply --server-side --force-conflicts -f -` with values
+  from `terraform output -raw`. Files on disk are never mutated, so a half-finished apply
+  cannot leave a credential in the tree.
+- **Deleting the state file IS the adoption mechanism.** `terraform destroy` would have
+  deleted the live objects Brian wants kept. No destroy was run.
+- **Server-side apply is required for adoption, not a preference.** Terraform-created
+  objects carry no `kubectl.kubernetes.io/last-applied-configuration`, so a client-side
+  apply has nothing to three-way-merge against. SSA reads real `managedFields` and
+  `--force-conflicts` moves ownership from the `Terraform` field manager to `kubectl`.
+  Kept in the steady-state command too: a first-run-only flag is a flag someone forgets on
+  the one run where it matters.
+- **`kubectl diff` is the wrong dry run here.** It would print the Secret's contents to
+  the terminal and into any captured demo log. `harness-plan` uses
+  `apply --dry-run=server`, and says plainly that it validates acceptance, not field
+  convergence.
+- **All 18 `local.cloud.*` values were already real outputs of `infra/cloud`.** Verified
+  one by one before deleting the module. None had to be added.
+- **New lint target `lint:manifests`.** Builds the base, runs `kubectl apply
+  --dry-run=client --validate=ignore` (offline — schema validation would reach for the API
+  server's OpenAPI), and fails if any `REPLACE_WITH_*` token in the manifests has no
+  substitution in `Taskfile.cloud.yml`. A placeholder nobody substitutes reaches the
+  cluster as a literal. `deploy/` was added to the no-az scan: manifests run in the
+  cluster and are as shipped as `src/`.

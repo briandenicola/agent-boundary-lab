@@ -15,12 +15,11 @@ silent: true
 
 env:
   CLOUD_DIR: infra/cloud
-  K8S_DIR: infra/k8s
   # The agent image digest both agent versions must pin. Read the current value with
   # `task build:agent-digest`. Override with AGENT_IMAGE_DIGEST=sha256:... if you rebuild.
   #
-  # A tag will be rejected by a variable validation in infra/k8s. That is deliberate:
-  # tags are mutable, and two agent versions running different code makes the egress
+  # A tag is rejected by a check in `_harness-stream`. That is deliberate: tags are
+  # mutable, and two agent versions running different code makes the egress
   # policy no longer the only variable between them.
   # These are read from the environment at the point of use, not declared here.
   # A top-level `env:` entry of the form `VAR: '{{default X .VAR}}'` cannot see a
@@ -180,6 +179,7 @@ tasks:
   kubeconfig:
     desc: Fetch AKS credentials for the workflow app
     cmds:
+      - task: _require-kubelogin
       - |
         set -eu
         RG=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw resource_group_name)
@@ -227,60 +227,79 @@ tasks:
         echo "Confirm actual evidence with the KQL in docs/demo-runbook.md after a run."
 
   #############################################
-  # Client harness on AKS (infra/k8s)
+  # Client harness on AKS (deploy/kustomize/base)
   #
-  # A separate terraform root module with its own state. It reads infra/cloud's outputs,
-  # so the cloud module must be applied first. Kept separate so that `cloud:plan` on an
-  # empty subscription still works: a kubernetes provider pointed at a cluster that does
-  # not exist yet cannot be configured at plan time.
+  # kubectl + kustomize, NOT terraform.
   #
-  # Needs `kubelogin` on PATH. The cluster has local accounts disabled, so there is no
-  # admin kubeconfig to fall back on. This is operator authentication only — nothing
-  # inside the pod uses a CLI.
+  # WHY IT MOVED. The cluster workloads used to be an `infra/k8s` terraform root module.
+  # hashicorp/kubernetes 2.38.0 on terraform 1.16.4 wrote `kubernetes_deployment_v1.harness`
+  # into state TAINTED and with a null `identity` block, after its first apply failed on the
+  # rollout wait. Every refresh afterwards read back the real identity
+  # (apps/v1 Deployment agent-harness) and terraform core rejected the delta with
+  # `Unexpected Identity Change`. The module could not be planned again without editing the
+  # state file by hand. Manifests have no state to corrupt.
+  #
+  # HOW VALUES GET IN. The manifests carry committed REPLACE_WITH_* placeholders and are
+  # NEVER mutated on disk. Each task streams `kustomize build` through `sed` into kubectl,
+  # substituting from `terraform output -raw` against infra/cloud. The two secrets — the
+  # diagnostics token and the App Insights connection string — exist only inside that pipe.
+  #
+  # Needs a kubeconfig: `task cloud:kubeconfig` once, which needs kubelogin because the
+  # cluster has local accounts disabled. That is operator authentication; nothing inside a
+  # container uses a CLI.
+  #
+  # SERVER-SIDE APPLY, ALWAYS. See _harness-stream for why, and read it before the first
+  # run against objects terraform created.
   #############################################
 
-  harness-init:
-    desc: Initialise terraform for the AKS client harness
-    cmds:
-      - terraform -chdir=./{{.K8S_DIR}} init -upgrade
-
-  harness-validate:
-    desc: Validate the harness terraform without contacting Azure or the cluster
-    cmds:
-      - terraform -chdir=./{{.K8S_DIR}} init -backend=false -input=false
-      - terraform -chdir=./{{.K8S_DIR}} validate
-
   harness-plan:
-    desc: Show what the client harness would create (creates nothing)
+    desc: Show what applying the client harness would do (changes nothing)
     cmds:
-      - task: _require-kubelogin
-      - task: harness-init
-      - terraform -chdir=./{{.K8S_DIR}} plan -compact-warnings -var "agent_image_digest=${AGENT_IMAGE_DIGEST:-sha256:0e4b5019cee0022d0892787bb09bb3f22465183e136a7b77e5866742161a4803}"
+      - task: _require-kubectl
+      # Server-side dry run: the API server runs admission and reports created / configured
+      # / unchanged per object, without persisting anything.
+      #
+      # Deliberately NOT `kubectl diff`. A diff of this stream prints the Secret's contents
+      # to the terminal and into any captured demo log. A dry-run apply tells you whether
+      # the apply will be accepted, which is the question this task is for. It does NOT
+      # prove field-level convergence — it will not tell you that a field is about to
+      # change, only that the object is about to be written.
+      - task: _harness-stream
+        vars:
+          KUBECTL_ARGS: apply --server-side --force-conflicts --dry-run=server
 
   harness-up:
     desc: CHANGES THE CLUSTER. Apply the client harness pod and its deploy init container
     prompt: This creates the harness pod, whose init container publishes BOTH agent versions to the Foundry data plane. Continue?
     cmds:
-      # The init container is what actually creates the agent versions, so this is the
-      # step that makes the policies apply to something. Until it has run, both RAI
-      # policies exist but are attached to nothing and nothing is enforced.
-      - task: _require-kubelogin
-      - task: harness-init
-      - terraform -chdir=./{{.K8S_DIR}} apply -auto-approve -compact-warnings -var "agent_image_digest=${AGENT_IMAGE_DIGEST:-sha256:0e4b5019cee0022d0892787bb09bb3f22465183e136a7b77e5866742161a4803}"
+      # The init container is what actually creates the agent versions, so this is the step
+      # that makes the policies apply to something. Until it has run, both RAI policies
+      # exist but are attached to nothing and nothing is enforced.
+      - task: _require-kubectl
+      - task: _harness-stream
+        vars:
+          KUBECTL_ARGS: apply --server-side --force-conflicts
       - task: harness-status
 
   harness-status:
     desc: Show the harness pod and the deploy init container's result
     cmds:
       # Needs a kubeconfig: run `task cloud:kubeconfig` once first.
+      #
+      # The deployment is found BY LABEL, not by a name rebuilt here. The name lives in
+      # deploy/kustomize/base/deployment.yaml and in exactly one place.
       - |
         set -eu
-        NS=$(terraform -chdir=./{{.K8S_DIR}} output -raw namespace)
-        DEP=$(terraform -chdir=./{{.K8S_DIR}} output -raw harness_deployment)
-        kubectl -n "$NS" get pods -l "app.kubernetes.io/name=${DEP}" -o wide
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        DEP=$(kubectl -n "$NS" get deployment -l "app.kubernetes.io/name=agent-harness" -o name | head -1)
+        if [ -z "$DEP" ]; then
+          echo "No harness deployment in namespace $NS. Run 'task cloud:harness-up'."
+          exit 0
+        fi
+        kubectl -n "$NS" get pods -l "app.kubernetes.io/name=agent-harness" -o wide
         echo
         echo "=== agent-deploy init container ==="
-        kubectl -n "$NS" logs "deployment/${DEP}" -c agent-deploy --tail=200 || \
+        kubectl -n "$NS" logs "$DEP" -c agent-deploy --tail=200 || \
           echo "No init container logs yet. If the pod is stuck in Init:0/1, describe it."
         echo
         echo "An init container that exited 0 means a version was ACCEPTED. It does not"
@@ -290,8 +309,120 @@ tasks:
     desc: Removes the harness pod and its namespace. Leaves the cluster and the agent versions alone.
     prompt: This deletes the harness namespace. Agent versions already published stay published. Continue?
     cmds:
-      - task: _require-kubelogin
-      - terraform -chdir=./{{.K8S_DIR}} destroy -auto-approve -var "agent_image_digest=${AGENT_IMAGE_DIGEST:-sha256:0e4b5019cee0022d0892787bb09bb3f22465183e136a7b77e5866742161a4803}"
+      # Deleting the namespace removes the Deployment, the Secret and the ServiceAccount
+      # with it. There is no state file to clean up afterwards, which is the point.
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        kubectl delete namespace "$NS" --ignore-not-found --wait=false
+        echo "Namespace $NS deleted. Published agent versions are untouched."
+
+  _harness-stream:
+    internal: true
+    # Renders the manifests and pipes them into kubectl. Nothing is written to disk.
+    #
+    # SERVER-SIDE APPLY, with --force-conflicts, on purpose and in both directions:
+    #
+    #   First run against the objects terraform created. Those objects were written by the
+    #   field manager `Terraform` and carry NO
+    #   `kubectl.kubernetes.io/last-applied-configuration` annotation. A client-side
+    #   `kubectl apply` would have no prior state to three-way-merge against and would
+    #   behave unpredictably on fields terraform set. Server-side apply reads the real
+    #   managedFields, and --force-conflicts transfers ownership of every field in this
+    #   stream from `Terraform` to `kubectl`. That is the adoption step. The objects keep
+    #   running; only the ownership metadata changes.
+    #
+    #   Steady state. Once ownership has transferred, --force-conflicts is a no-op for this
+    #   stream, because nothing else manages these fields. It is left in so the flags do not
+    #   differ between the first run and every later one — a first-run-only flag is a flag
+    #   someone will forget, on the one run where it matters.
+    #
+    # The sed delimiter is `|` because ARM resource IDs and URLs contain `/`. A value
+    # containing a literal `|` or `&` would corrupt the substitution; none of these can
+    # (ARM IDs, GUIDs, hostnames, an App Insights connection string, a hex token).
+    cmds:
+      - |
+        set -eu
+
+        TF="terraform -chdir=./{{.CLOUD_DIR}} output -raw"
+
+        # The experiment's control. A tag here would let the two agent versions run
+        # different code, so it is validated before anything is rendered.
+        DIGEST="${AGENT_IMAGE_DIGEST:-sha256:0e4b5019cee0022d0892787bb09bb3f22465183e136a7b77e5866742161a4803}"
+        case "$DIGEST" in
+          sha256:*) ;;
+          *) echo "AGENT_IMAGE_DIGEST must be sha256:<64 hex>, got '$DIGEST'." >&2
+             echo "Tags are mutable; two agent versions running different code would make" >&2
+             echo "the RAI policy no longer the only variable. Read the current digest with" >&2
+             echo "'task build:agent-digest'." >&2
+             exit 1 ;;
+        esac
+
+        ACR=$($TF acr_login_server)
+        AGENT_IMAGE="${ACR}/${AGENT_IMAGE_REPOSITORY:-containment-demo-agent}@${DIGEST}"
+
+        NAMESPACE=$($TF kubernetes_namespace)
+        SERVICE_ACCOUNT=$($TF agent_deployer_service_account)
+        CLIENT_ID=$($TF agent_deployer_client_id)
+        FOUNDRY_ACCOUNT=$($TF foundry_account_name)
+        FOUNDRY_PROJECT=$($TF project_name)
+        FOUNDRY_ENDPOINT=$($TF foundry_endpoint)
+        AGENT_AUDIT=$($TF agent_name_audit)
+        AGENT_ENFORCED=$($TF agent_name_enforced)
+        RAI_AUDIT=$($TF rai_policy_audit_id)
+        RAI_ENFORCED=$($TF rai_policy_enforced_id)
+        POLICY_API_URL=$($TF policy_api_url)
+        TEST_RECEIVER_URL=$($TF test_receiver_url)
+        MODEL_DEPLOYMENT=$($TF model_deployment_name)
+
+        # Secrets. Read into shell variables and never written anywhere else.
+        DIAG_TOKEN=$($TF diagnostics_token)
+        APPINSIGHTS=$($TF application_insights_connection_string)
+
+        # Kubernetes does not restart pods when a Secret changes. This annotation does,
+        # exactly when one of the two secret values is different from last time.
+        CONFIG_HASH=$(printf '%s\n%s' "$DIAG_TOKEN" "$APPINSIGHTS" | sha256sum | cut -d' ' -f1)
+
+        kustomize build deploy/kustomize/base \
+          | sed -e "s|REPLACE_WITH_NAMESPACE|${NAMESPACE}|g" \
+                -e "s|REPLACE_WITH_SERVICE_ACCOUNT|${SERVICE_ACCOUNT}|g" \
+                -e "s|REPLACE_WITH_AGENT_DEPLOYER_CLIENT_ID|${CLIENT_ID}|g" \
+                -e "s|REPLACE_WITH_AGENT_IMAGE|${AGENT_IMAGE}|g" \
+                -e "s|REPLACE_WITH_FOUNDRY_ACCOUNT_NAME|${FOUNDRY_ACCOUNT}|g" \
+                -e "s|REPLACE_WITH_FOUNDRY_PROJECT_NAME|${FOUNDRY_PROJECT}|g" \
+                -e "s|REPLACE_WITH_FOUNDRY_ENDPOINT|${FOUNDRY_ENDPOINT}|g" \
+                -e "s|REPLACE_WITH_AGENT_NAME_AUDIT|${AGENT_AUDIT}|g" \
+                -e "s|REPLACE_WITH_AGENT_NAME_ENFORCED|${AGENT_ENFORCED}|g" \
+                -e "s|REPLACE_WITH_RAI_POLICY_AUDIT_ID|${RAI_AUDIT}|g" \
+                -e "s|REPLACE_WITH_RAI_POLICY_ENFORCED_ID|${RAI_ENFORCED}|g" \
+                -e "s|REPLACE_WITH_POLICY_API_URL|${POLICY_API_URL}|g" \
+                -e "s|REPLACE_WITH_TEST_RECEIVER_URL|${TEST_RECEIVER_URL}|g" \
+                -e "s|REPLACE_WITH_MODEL_DEPLOYMENT|${MODEL_DEPLOYMENT}|g" \
+                -e "s|REPLACE_WITH_CONFIG_HASH|${CONFIG_HASH}|g" \
+                -e "s|REPLACE_WITH_DIAGNOSTICS_TOKEN|${DIAG_TOKEN}|g" \
+                -e "s|REPLACE_WITH_APPINSIGHTS_CONNECTION_STRING|${APPINSIGHTS}|g" \
+          | kubectl {{.KUBECTL_ARGS}} -f -
+
+        # A placeholder that survived substitution would reach the cluster as a literal.
+        # Caught here rather than as a pod that cannot pull `REPLACE_WITH_AGENT_IMAGE`.
+        REMAINING=$(kustomize build deploy/kustomize/base | grep -c 'REPLACE_WITH_' || true)
+        echo "rendered ${REMAINING} placeholders from infra/cloud outputs"
+
+  _require-kubectl:
+    internal: true
+    cmds:
+      - |
+        for TOOL in kubectl kustomize; do
+          command -v "$TOOL" >/dev/null 2>&1 || {
+            echo "$TOOL not found on PATH. The cluster workloads are applied with"
+            echo "kubectl + kustomize; there is no terraform module for them."
+            exit 1
+          }
+        done
+        kubectl config current-context >/dev/null 2>&1 || {
+          echo "No kubeconfig context. Run 'task cloud:kubeconfig' first."
+          exit 1
+        }
 
   _require-kubelogin:
     internal: true
@@ -299,8 +430,8 @@ tasks:
       - |
         command -v kubelogin >/dev/null 2>&1 || {
           echo "kubelogin not found on PATH."
-          echo "The cluster runs with local accounts disabled, so terraform cannot reach"
-          echo "the API server without it. Install it and retry."
+          echo "The cluster runs with local accounts disabled, so there is no admin"
+          echo "kubeconfig to fall back on. Install it and retry."
           exit 1
         }
 
@@ -313,6 +444,5 @@ tasks:
       # still cleans up. The tag is the demo's own, never the spike's.
       - az group list --tag Application="{{.TITLE}}" --query "[].name" -o tsv | xargs --no-run-if-empty -ot -n 1 az group delete -y --no-wait -n || true
       - rm -rf terraform.tfstate.d .terraform.lock.hcl .terraform terraform.tfstate terraform.tfstate.backup .terraform.tfstate.lock.info terraform.tfstate.* || true
-      # The harness state describes objects inside a cluster that no longer exists. Left
-      # behind, the next `harness-plan` tries to refresh against a dead API server.
-      - rm -rf ../k8s/terraform.tfstate ../k8s/terraform.tfstate.backup ../k8s/.terraform ../k8s/.terraform.lock.hcl ../k8s/.terraform.tfstate.lock.info || true
+      # Nothing to clean up for the cluster workloads. They are manifests applied with
+      # kubectl and hold no state; the objects die with the cluster.

@@ -1,0 +1,180 @@
+# THE CLIENT HARNESS POD
+#
+# What this is for: the Foundry data plane is inbound-private (publicNetworkAccess
+# Disabled), so creating an agent version has to originate from inside the VNet. This pod
+# is that inside-the-VNet place. It is also where the A2A client loop will live later —
+# the harness stands in for an on-premises caller. It sits in the VNet deliberately and is
+# NOT actually on premises; nothing should describe it as if it were.
+#
+# WHY AN INIT CONTAINER AND NOT A JOB. A Job would be a second thing to schedule, a second
+# identity binding to keep in step, and it would disappear between runs — so the agent
+# versions would silently depend on whether someone remembered to run it. As an init
+# container, the harness cannot serve a request until the versions it is going to call
+# actually exist. The deploy module must therefore be idempotent: the pod restarts for
+# ordinary reasons, and every restart runs it again.
+#
+# ONE REPLICA, ALWAYS. A second replica would race the first one's init container for the
+# same agent-version names.
+#
+# Every DEMO_ name below is a CONTRACT with src/containment_demo/deploy.py. Each is a
+# field on DeploySettings or Settings, both of which read the DEMO_ prefix. FOUNDRY_ and
+# AGENT_ are reserved by the platform and are never used for our own settings.
+#
+# AZURE_CLIENT_ID, AZURE_TENANT_ID and AZURE_FEDERATED_TOKEN_FILE are NOT set here. The
+# workload-identity webhook injects them when the pod carries the
+# `azure.workload.identity/use` LABEL, and DefaultAzureCredential picks them up. Setting
+# them by hand shadows the webhook and is a common way to get a confusing auth failure.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-harness
+  namespace: REPLACE_WITH_NAMESPACE
+  labels:
+    app.kubernetes.io/part-of: agent-boundary-lab
+    app.kubernetes.io/name: agent-harness
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-harness
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: agent-boundary-lab
+        app.kubernetes.io/name: agent-harness
+        # Without this the webhook does not mutate the pod, no projected token is mounted,
+        # and DefaultAzureCredential silently falls back to something else. It is a LABEL,
+        # not an annotation.
+        azure.workload.identity/use: "true"
+      annotations:
+        # Kubernetes does not restart pods when a Secret's contents change. Without a
+        # changing annotation, a rotated diagnostics token would be picked up only at the
+        # next unrelated restart. The task computes this from the substituted values.
+        agent-boundary-lab/config-hash: REPLACE_WITH_CONFIG_HASH
+    spec:
+      serviceAccountName: REPLACE_WITH_SERVICE_ACCOUNT
+      securityContext:
+        runAsNonRoot: true
+      initContainers:
+        - name: agent-deploy
+          # The SAME image as the hosted agent, pinned by digest and invoked with a
+          # different entrypoint. The digest matters twice over: the deploy module that
+          # publishes the agent version is byte-identical to the agent code it publishes,
+          # and the digest is also the experiment's control.
+          image: REPLACE_WITH_AGENT_IMAGE
+          # The image's own ENTRYPOINT is the Foundry protocol adapter; this overrides it.
+          #
+          # The interpreter is an ABSOLUTE path, not `python`. The Dockerfile installs the
+          # agent's dependencies with `uv pip install --system` and the deploy extra
+          # (azure-ai-projects) into the separate venv at /opt/deploy-venv only. That venv
+          # is never activated and is not on PATH, so a bare `python` resolves to the
+          # system interpreter and the init container dies at import time with
+          # ModuleNotFoundError: azure.ai.projects. An absolute path is also immune to a
+          # later `ENV PATH` edit in the Dockerfile.
+          command: ["/opt/deploy-venv/bin/python", "-m", "containment_demo.deploy"]
+          env:
+            # Where to publish to.
+            - name: DEMO_FOUNDRY_ACCOUNT_NAME
+              value: REPLACE_WITH_FOUNDRY_ACCOUNT_NAME
+            - name: DEMO_FOUNDRY_PROJECT_NAME
+              value: REPLACE_WITH_FOUNDRY_PROJECT_NAME
+            # What to publish. One digest, two agents.
+            - name: DEMO_AGENT_IMAGE
+              value: REPLACE_WITH_AGENT_IMAGE
+            - name: DEMO_AGENT_NAME_AUDIT
+              value: REPLACE_WITH_AGENT_NAME_AUDIT
+            - name: DEMO_AGENT_NAME_ENFORCED
+              value: REPLACE_WITH_AGENT_NAME_ENFORCED
+            # The only experimental variable. These must be FULL ARM resource IDs — a bare
+            # policy name is rejected by the data plane. See docs/compatibility.md B4.
+            - name: DEMO_RAI_POLICY_AUDIT_ID
+              value: REPLACE_WITH_RAI_POLICY_AUDIT_ID
+            - name: DEMO_RAI_POLICY_ENFORCED_ID
+              value: REPLACE_WITH_RAI_POLICY_ENFORCED_ID
+            # Agent runtime settings, passed through into the hosted agent's
+            # definition.environment_variables. Both destinations are set for BOTH agents:
+            # the agent never knows which host is allowlisted and must not find out.
+            - name: DEMO_POLICY_API_URL
+              value: REPLACE_WITH_POLICY_API_URL
+            - name: DEMO_TEST_RECEIVER_URL
+              value: REPLACE_WITH_TEST_RECEIVER_URL
+            - name: DEMO_MODEL_DEPLOYMENT
+              value: REPLACE_WITH_MODEL_DEPLOYMENT
+            - name: DEMO_AZURE_OPENAI_ENDPOINT
+              value: REPLACE_WITH_FOUNDRY_ENDPOINT
+            - name: DEMO_DIAGNOSTICS_ENABLED
+              value: "true"
+            - name: DEMO_DIAGNOSTICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: agent-harness-config
+                  key: DEMO_DIAGNOSTICS_TOKEN
+            - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: agent-harness-config
+                  key: APPLICATIONINSIGHTS_CONNECTION_STRING
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: harness
+          image: REPLACE_WITH_AGENT_IMAGE
+          # PLACEHOLDER BODY, ON PURPOSE. This pod exists today to give the deploy init
+          # container a home and to prove the workload-identity and ACR-pull paths. The A2A
+          # client loop replaces this command; nothing else in this file changes when it
+          # does. Running the agent image rather than a generic base image means the pull
+          # path exercised here is the same one the real harness will use.
+          command: ["sleep", "infinity"]
+          env:
+            - name: DEMO_FOUNDRY_ACCOUNT_NAME
+              value: REPLACE_WITH_FOUNDRY_ACCOUNT_NAME
+            - name: DEMO_FOUNDRY_PROJECT_NAME
+              value: REPLACE_WITH_FOUNDRY_PROJECT_NAME
+            - name: DEMO_AGENT_IMAGE
+              value: REPLACE_WITH_AGENT_IMAGE
+            - name: DEMO_AGENT_NAME_AUDIT
+              value: REPLACE_WITH_AGENT_NAME_AUDIT
+            - name: DEMO_AGENT_NAME_ENFORCED
+              value: REPLACE_WITH_AGENT_NAME_ENFORCED
+            - name: DEMO_RAI_POLICY_AUDIT_ID
+              value: REPLACE_WITH_RAI_POLICY_AUDIT_ID
+            - name: DEMO_RAI_POLICY_ENFORCED_ID
+              value: REPLACE_WITH_RAI_POLICY_ENFORCED_ID
+            - name: DEMO_POLICY_API_URL
+              value: REPLACE_WITH_POLICY_API_URL
+            - name: DEMO_TEST_RECEIVER_URL
+              value: REPLACE_WITH_TEST_RECEIVER_URL
+            - name: DEMO_MODEL_DEPLOYMENT
+              value: REPLACE_WITH_MODEL_DEPLOYMENT
+            - name: DEMO_AZURE_OPENAI_ENDPOINT
+              value: REPLACE_WITH_FOUNDRY_ENDPOINT
+            - name: DEMO_DIAGNOSTICS_ENABLED
+              value: "true"
+            - name: DEMO_DIAGNOSTICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: agent-harness-config
+                  key: DEMO_DIAGNOSTICS_TOKEN
+            - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: agent-harness-config
+                  key: APPLICATIONINSIGHTS_CONNECTION_STRING
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

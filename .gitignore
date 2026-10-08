@@ -33,3 +33,18 @@ terraform.tfstate.d
 
 # Verification output. Evidence summaries are run artifacts, not source.
 evidence/
+
+# Rendered Kubernetes manifests. The committed manifests under deploy/kustomize/ carry
+# REPLACE_WITH_* placeholders and are never mutated; the real values — including the
+# diagnostics token and the App Insights connection string — exist only inside the
+# `kustomize build | sed | kubectl` pipe. If anyone ever redirects that pipe to a file
+# instead, this stops the file from being committed. Do not "fix" a lint failure by
+# writing a rendered manifest into the tree.
+deploy/**/rendered/
+*.rendered.yaml
+*.rendered.yml
+
+# Kubeconfigs. Carry cluster credentials.
+kubeconfig
+kubeconfig.*
+*.kubeconfig

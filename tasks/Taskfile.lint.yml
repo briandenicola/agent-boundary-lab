@@ -21,6 +21,7 @@ tasks:
       - task: types
       - task: test
       - task: terraform
+      - task: manifests
       - task: no-az
 
   format:
@@ -51,11 +52,8 @@ tasks:
 
   terraform:
     desc: Validate and format-check the terraform
-    # infra/k8s is a separate root module with its own state. It is validated here
-    # because `fmt -recursive infra` already covers its formatting, and a module that
-    # is formatted but never validated is the one that breaks on the day you need it.
     vars:
-      MODULES: spike cloud k8s
+      MODULES: spike cloud
     cmds:
       - terraform fmt -check -recursive infra
       - |
@@ -65,11 +63,43 @@ tasks:
           terraform -chdir="./infra/$M" validate -no-color | head -1
         done
 
+  manifests:
+    desc: Build the kustomize base and check every placeholder is substituted by a task
+    # The cluster workloads are manifests, not terraform, so `lint:terraform` cannot see
+    # them. Two things are checked here, both of which have a real failure mode:
+    #
+    #   1. The base builds and kubectl accepts the result. `--validate=ignore` keeps this
+    #      offline: schema validation would reach for the API server's OpenAPI document,
+    #      and no local check in this repo is allowed to need a cluster.
+    #   2. Every REPLACE_WITH_* token in the manifests has a matching substitution in
+    #      tasks/Taskfile.cloud.yml. A placeholder nobody substitutes reaches the cluster
+    #      as a literal string — a pod that cannot pull `REPLACE_WITH_AGENT_IMAGE`, or
+    #      worse, an empty-looking value that applies cleanly and is wrong.
+    cmds:
+      - |
+        set -eu
+        command -v kustomize >/dev/null 2>&1 || { echo "kustomize not on PATH"; exit 1; }
+        kustomize build deploy/kustomize/base \
+          | sed -e 's|REPLACE_WITH_[A-Z_]*|lint-placeholder|g' \
+          | kubectl apply --dry-run=client --validate=ignore -f - >/dev/null
+        MISSING=""
+        for TOKEN in $(grep -ohE 'REPLACE_WITH_[A-Z_]+' deploy/kustomize/base/*.yaml | sort -u); do
+          grep -q "$TOKEN" tasks/Taskfile.cloud.yml || MISSING="$MISSING $TOKEN"
+        done
+        if [ -n "$MISSING" ]; then
+          echo "Placeholders with no substitution in tasks/Taskfile.cloud.yml:$MISSING"
+          exit 1
+        fi
+        echo "manifests build; every placeholder is substituted"
+
   no-az:
     desc: Fail if the Azure CLI is invoked from anything that ships
     # Deployment is Terraform or SDK only, because that is what the client uses.
     # Read-only az at a terminal is fine; it must not land in a shipped artifact.
     # tasks/ is deliberately not scanned: Taskfiles are operator tooling.
+    # deploy/ IS scanned. It holds the cluster manifests, which run inside the cluster
+    # and are as shipped as anything under src/. kubectl and kustomize live in tasks/,
+    # which is the operator's side of the line; `az` has no business in either.
     # grep -n emits path:line:content, so stripping from the first '#' drops both
     # whole-line and trailing comments while leaving the line number intact.
     cmds:
@@ -78,7 +108,7 @@ tasks:
           --include='*.py' --include='*.tf' --include='*.yml' \
           --include='*.yaml' --include='*.sh' --include='Dockerfile*' \
           -E '(^|[^[:alnum:]_.-])az[[:space:]]+[a-z]' \
-          src services infra tests scripts samples 2>/dev/null \
+          src services infra tests scripts samples deploy 2>/dev/null \
           | sed 's/#.*$//' \
           | grep -E '(^|[^[:alnum:]_.-])az[[:space:]]+[a-z]' || true)
         if [ -n "$HITS" ]; then

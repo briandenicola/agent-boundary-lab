@@ -680,6 +680,50 @@ ever wanted back it must come from a variable the operator sets deliberately, or
 `bcrypt()`) belongs in any attribute of a persistent resource in this repo. Treat a
 non-empty plan on an unchanged configuration as a defect, not as background noise.
 
+### C7. Cluster workloads are kubectl + kustomize, not terraform — CHANGED 2026-10-08
+
+The harness pod, its ServiceAccount, its Secret and its namespace used to be an
+`infra/k8s` terraform root module. That module is deleted.
+
+**What happened.** `hashicorp/kubernetes` 2.38.0 on terraform 1.16.4 wrote
+`kubernetes_deployment_v1.harness` into state **tainted**, with
+`identity = {api_version: null, kind: null, name: null, namespace: null}`, after the first
+apply failed on the rollout wait. The namespace, Secret and ServiceAccount in the same
+apply all persisted populated identities; only the resource that errored did not. Every
+refresh afterwards read back the real `apps/v1 / Deployment / agent-harness /
+<namespace>` and terraform core rejected the delta with `Unexpected Identity Change`. The
+module could not be planned or applied again without editing the state file by hand.
+
+This was not a configuration error, and nothing in the module would have prevented it. The
+general shape — a provider that must talk to a data plane which may be slow, holding state
+that must stay consistent with that data plane — is the same shape as the Foundry data
+plane problem in §B9. Where a resource is a long-lived cluster object rather than an Azure
+resource, manifests have no state to corrupt and are the cheaper failure mode.
+
+**The replacement.** `deploy/kustomize/base/` holds the four manifests with committed
+`REPLACE_WITH_*` placeholders. `task cloud:harness-up` streams
+`kustomize build | sed | kubectl apply --server-side --force-conflicts -f -`, substituting
+from `terraform output -raw` against `infra/cloud`. The files on disk are never mutated,
+so a half-finished apply cannot leave a credential in the working tree. `lint:manifests`
+fails if any placeholder in the manifests has no substitution in the task.
+
+**Adoption, and why `--server-side --force-conflicts`.** The four objects already running
+in the cluster were created by terraform's field manager (`Terraform`) and carry no
+`kubectl.kubernetes.io/last-applied-configuration` annotation. A client-side
+`kubectl apply` three-way-merges against that annotation; with no annotation there is no
+prior state to merge against, and the result on fields terraform set is not reliably
+predictable. Server-side apply reads the real `managedFields` instead, and
+`--force-conflicts` transfers ownership of every field in the stream from `Terraform` to
+`kubectl`. **The objects keep running — adoption changes ownership metadata, not the
+workload.** Expect the first apply to report `configured` rather than `created`, and
+expect a pod restart only if a substituted value genuinely differs from what terraform
+applied. After the first run `--force-conflicts` is a no-op for this stream; the flag is
+left in so the first run and every later run use identical flags.
+
+`terraform destroy` was NOT run against the old module, deliberately — that would have
+deleted the live objects. Deleting `infra/k8s/terraform.tfstate` along with the module is
+the adoption mechanism.
+
 
 ---
 
