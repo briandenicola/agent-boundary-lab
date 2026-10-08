@@ -190,3 +190,52 @@ Decision: `.squad/decisions/inbox/brett-deploy-poller.md`.
 - **Unit tests:** `tests/unit/test_deploy.py` covers all pollin scenarios including the original stringification bug as tamper test
 - **Next:** First invocation closes GATE 0 with Q0 query; both agents run and emit telemetry
 
+
+## Learnings — 2026-10-08, the un-awaited entry point
+
+**`context.get_input_text()` is `async def`.** Verified against the installed
+azure-ai-agentserver-responses 2.2.0: all four `ResponseContext` variants
+(`_response_context`, `hosting._endpoint_handler`, `hosting._execution_context`,
+`hosting._routing`) report `coroutine=True`, signature
+`(self, *, resolve_references: bool = True) -> str`. `protocol_adapter.py:70` dropped the
+`await`, so `user_text` was a coroutine object. The model never saw the prompt and
+**neither business tool could be reached on the deployed digest.** Every invocation result
+from that digest is inconclusive — no egress was ever attempted.
+
+**The entry point had zero tests, and that is why it shipped.** `tests/unit/` covered the
+tools thoroughly and covered the function that calls the tools not at all. Coverage had
+been allocated by what was easy to test offline rather than by what is fatal if wrong.
+`tests/unit/test_protocol_adapter.py` now exists: handler registration, the await, the
+host-before-agent ordering, no collision with `PLATFORM_ROUTES`, the cancellation contract,
+and the diagnostics wiring.
+
+**A lazily imported SDK boundary is a hazard class.** `build_host` imports the SDK inside
+the function (deliberately — the host must configure OpenTelemetry before ADK imports), so
+there is no import-time signature for mypy, ruff or a reader to check the call against.
+`context: Any` means the type checker sees nothing. Only a test with an `async def`
+stand-in catches it. **A fake must match the real object's async-ness, and that match must
+itself be asserted** — `test_the_fake_context_matches_the_real_sdk_shape` does that, because
+a sync fake would make the regression test worthless.
+
+**Offline technique worth reusing:** `monkeypatch.setitem(sys.modules, "a.b.c", fake)`.
+`sys.modules` is consulted for the full dotted name before parent packages are imported, so
+the real `azure.ai.agentserver.responses` and `google.adk` are never loaded. No Azure
+package, no credentials, no network.
+
+**Same root cause as the deploy poller, two days running.** That one trusted an SDK enum
+over a running service; this one trusted an SDK signature that was never read. Where SDK
+behaviour drives correctness, verify it against the installed package or a running service
+and pin the verification in a test.
+
+**Watch the working tree.** My first application of the `await` fix was reverted under me
+mid-session (other agents are editing in parallel). The new tests caught it immediately,
+which is the point — but re-grep the file after editing when others are active.
+
+Tamper results: removing the `await` failed `test_handler_passes_a_real_str_to_the_agent_turn`
+and `test_get_input_text_is_actually_called`; making cancellation raise failed all three
+cancellation tests; registering diagnostics unconditionally failed
+`test_route_is_not_registered_when_disabled`; re-implementing a tool in `_RUNNERS` failed
+`test_diagnostics_reuses_the_two_tool_implementations`; the no-op control stayed green.
+
+Decision: `.squad/decisions/inbox/brett-adapter-await.md`. 244 unit tests pass, lint green.
+**Both agent versions need a rebuild and redeploy — the digest changes.**

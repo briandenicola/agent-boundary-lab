@@ -66,8 +66,15 @@ def build_host(settings: Settings) -> Any:
         Cancellation and shutdown are distinct signals in this runtime; only
         cancellation is observed here, and a cancelled turn returns what it has rather
         than raising, so a partial result is still attributable to its run marker.
+
+        ``get_input_text`` is a **coroutine function** on every ``ResponseContext``
+        variant in ``azure-ai-agentserver-responses`` 2.2.0 — signature
+        ``(self, *, resolve_references: bool = True) -> str``. Without the ``await``
+        this binds a coroutine object, the model never sees the prompt, and neither
+        business tool is ever called. Covered by
+        ``tests/unit/test_protocol_adapter.py::TestInputTextIsAwaited``.
         """
-        user_text = context.get_input_text()
+        user_text = await context.get_input_text()
         reply = await _run_agent_turn(
             runner=runner,
             settings=settings,
