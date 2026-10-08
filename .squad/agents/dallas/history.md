@@ -252,3 +252,15 @@ passed, 1 skipped).
   running.
 - Evidence template now records the AKS context, the control-plane URL, and where the
   harness was applied from — so a later reader can tell which cluster the run touched.
+
+### 2026-10-08 — cluster-context pre-flight gate and kustomize harness documentation (Commit 217e5b7)
+
+- **Orchestration log created; session log 2026-10-08T18:32:44Z-kustomize-migration.md**
+- **Runbook §3.0 added:** Six-step bring-up order with three pre-flight gates that must pass before any cluster operation.
+  - P0a: `kubelogin` on `PATH`
+  - P0b: `task cloud:kubeconfig` (acquires credentials)
+  - P0c: active context string-matches `terraform -chdir=infra/cloud output -raw aks_cluster_name`, confirmed live with `kubectl cluster-info`
+- **Recorded the failure signature** for wrong/dead context: `tls: unrecognized name` means "wrong or dead kubeconfig context", **not** auth or network policy. Observed it against a dead AKS FQDN from an unrelated project. **A live wrong cluster would accept the apply,** so this check must run before applying.
+- **Evidence template §8:** Added mandatory row preventing a server-side dry run from being presented as containment evidence. The dry run proves API server acceptance; it proves nothing about egress policy enforcement.
+- **Kustomize mechanics documented:** placeholders, stream substitution, secrets-only-in-pipe pattern, `--server-side --force-conflicts` adoption, expect `configured` not `created` on first apply, `kubectl diff` prints secrets into logs (wrong tool).
+

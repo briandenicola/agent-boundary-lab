@@ -188,3 +188,16 @@ is then denied too is now a Phase 6 item. **A risk without a test is a sentence.
 - GATE 0 and every acceptance criterion untouched. The only GATE 0 edit was removing the
   dangling pointer to a defect that no longer exists; the gate's branch table and the
   "procedural control" caveat are unchanged.
+
+### 2026-10-08 — Verified the kustomize migration for drift, phase numbers, and scope
+
+- **Orchestration log created; session log 2026-10-08T18:32:44Z-kustomize-migration.md (Commit 2f5a086)**
+- **PLAN.md corrections:**
+  - Removed all references to `infra/k8s/harness.tf` (deleted by Parker)
+  - Clarified that cluster workloads are `kubectl` + kustomize, not Terraform
+  - Corrected phase numbering: Dapr Workflow is Phase 8, not Phase 9
+  - Phase 8 no longer calls for `infra/aks/` and `infra/dapr/` Terraform roots — they are now kustomize overlays
+  - Moved "Init-container interpreter defect" from Blocked → Resolved; defect was fixed in the manifest before it was ever observed to run
+- **Scope finalized:** Future phases (8–10) use kustomize overlays exclusively. No new Terraform root modules for Dapr or on-premises harness.
+- **All acceptance criteria and GATE 0 remain intact.** The cutovers were organizational, not technical.
+

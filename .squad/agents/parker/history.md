@@ -215,3 +215,13 @@ This is a Ripley/Brett observation, Phase 4 Blocker 1.
   substitution in `Taskfile.cloud.yml`. A placeholder nobody substitutes reaches the
   cluster as a literal. `deploy/` was added to the no-az scan: manifests run in the
   cluster and are as shipped as `src/`.
+
+### 2026-10-08 — kustomize migration completed; two defects found in review
+
+- **Orchestration logs created; session log 2026-10-08T18:32:44Z-kustomize-migration.md**
+- **Commits:** e672247 (migration), f533ea8 (Coordinator defect A fix), b52d58c (Coordinator defect B fix)
+- **What was done:** Moved `infra/k8s/` entirely to `deploy/kustomize/base/` with stream-substituted placeholders. State file deleted; no `terraform destroy` run. Adopted live cluster objects with first `--server-side --force-conflicts` apply.
+- **Defect A (found by Coordinator):** Placeholder guard ran on **unsubstituted** source after apply, could never fail. Fixed to render once into a variable, check that stream, and refuse before apply. Commit f533ea8.
+- **Defect B (found by Coordinator):** Hardcoded fallback image digest (control-variable drift risk). Fixed to resolve live from ACR. This also exposed the fourth instance of the az auto-upgrade chatter bug (see Decision #30). Commit b52d58c.
+- **No breaking changes:** Task names, accept criteria, GATE 0 all intact.
+

@@ -318,6 +318,59 @@
 - **Brett:** Deterministic diagnostic route is documented trigger; model refusal proves nothing
 - **Everyone:** Local runs and hosted runs never share verdict; run class filled in before execution; strict-serial rule labeled as procedural stand-in (enforced by operator reading, nothing else)
 
+### Cluster Context Is a Pre-Flight Gate, Not an Assumption
+
+**By:** Dallas (found by Brian)  
+**Date:** 2026-10-08  
+**Status:** Implemented in `docs/demo-runbook.md` §3.0 and `docs/evidence-template.md` §3
+
+- No one applies anything to the cluster until three checks pass, in this order:
+  P0a `kubelogin` on `PATH`, P0b `task cloud:kubeconfig`, P0c active context string-matches `terraform -chdir=infra/cloud output -raw aks_cluster_name`, confirmed live with `kubectl cluster-info` naming the cluster and **canadacentral**.
+- Observed failure when P0b was skipped: `Unable to connect to the server: remote error: tls: unrecognized name` against a dead AKS FQDN from an unrelated project (`model-osprey-…swedencentral`). That message means **wrong/dead kubeconfig context**. It is not auth, not network policy, not our cluster.
+- `kubelogin` is mandatory: the cluster has local accounts disabled with Entra RBAC, so there is no admin kubeconfig fallback. A missing binary looks like an auth failure.
+- Rationale for checking *before* the apply rather than reading the error after: a dead wrong cluster fails loudly, a **live** wrong cluster would accept the apply.
+- A step that exists only in a Taskfile is not a procedure. If an operator must run it, the runbook names it.
+
+### A Harness Dry Run Is Not Containment Evidence
+
+**By:** Dallas  
+**Date:** 2026-10-08  
+**Status:** Implemented (evidence template §8 mandatory row)
+
+- `task cloud:harness-plan` is a **server-side dry run**. It establishes that the API server would accept the apply. It does **not** establish which fields are about to change, and it establishes **nothing** about egress — it is a statement about a Kubernetes API server in a cluster the Foundry egress policy does not govern.
+- It is deliberately not `kubectl diff`: a diff of the rendered stream prints the Secret's contents into any captured demo log.
+- Related mechanics now documented: `infra/k8s/` is deleted; manifests live in `deploy/kustomize/base/` with committed `REPLACE_WITH_*` placeholders, substituted only inside the apply pipe, never on disk. Every apply uses `--server-side --force-conflicts` to adopt Terraform-owned objects, so the **first apply reports `configured`, not `created`**, and the workload keeps running.
+
+### Kubernetes workloads move from terraform to kubectl + kustomize
+
+**By:** Brian (call), Parker (implementation), Coordinator (review fixes)  
+**Date:** 2026-10-08  
+**Status:** Implemented — supersedes "Kubernetes Cluster in Separate Terraform Root"
+
+- `infra/k8s` is DELETED, state file included. `hashicorp/kubernetes` 2.38.0 tainted `kubernetes_deployment_v1.harness` with a null `identity` after a rollout-wait failure, and every later refresh failed with `Unexpected Identity Change`.
+- Manifests now live in `deploy/kustomize/base/` (namespace, serviceaccount, secret, deployment, kustomization) with committed `REPLACE_WITH_*` placeholders.
+- Task names are UNCHANGED — `cloud:harness-plan`, `cloud:harness-up`, `cloud:harness-status`, `cloud:harness-down` — so `docs/demo-runbook.md` and `docs/evidence-template.md` need no edits. `harness-init` and `harness-validate` are gone; nothing referenced them.
+- Apply order is unchanged: `cloud:up` → `build:agent` → `cloud:kubeconfig` → `cloud:harness-up`.
+- **Adoption:** the first `harness-up` runs against objects terraform created. It uses `--server-side --force-conflicts`, which moves field ownership from the `Terraform` field manager to `kubectl`. The objects keep running; expect `configured`, not `created`.
+- **Secrets never touch disk.** The diagnostics token and App Insights connection string are placeholders in git and exist only inside the apply pipe. `.gitignore` blocks rendered manifests and kubeconfigs.
+- **Technical context:** Coordinator found two defects in the migration: (a) placeholder guard ran on unsubstituted source after apply (commit f533ea8), (b) hardcoded fallback image digest risked control-variable drift; resolve live from ACR instead (commit b52d58c). The second defect also identified the fourth instance of the az auto-upgrade chatter bug.
+
+### Every `az` Read Routes Through `tasks/Taskfile.arm.yml` (Azure CLI Output Parsing Bug)
+
+**By:** Coordinator  
+**Date:** 2026-10-08  
+**Status:** Policy — enforce on all future `az` calls
+
+- The Azure CLI outputs tool upgrade notices to stdout, making simple `az … | xargs` or `az … -o tsv` pipelines fragile.
+- Example: `az acr show --query ".* loginServer"` returned `"WARNING: defaulting to X for ..." + value`, breaking digest resolution.
+- Fourth instance of this bug class found in recent work:
+  1. Taskfile arm:account-lookup: `az account show -o tsv`
+  2. Taskfile arm:foundry-account: `az provider show -o tsv`
+  3. Taskfile build:agent-digest: `az acr repository show -o tsv`
+  4. Coordinator defect B review: `az acr …` capturing chatter into deploy digest variable
+- **Fix:** Encapsulate all `az` reads in `tasks/Taskfile.arm.yml` with filtering (grep/jq/sed). Callers invoke the task, never the CLI directly. Proven patterns keep this class of defect local to one file.
+- **Enforcement:** `scripts/check_no_az.sh` must reject raw `az` commands in all Taskfiles except `tasks/Taskfile.arm.yml`.
+
 ## Known Risks / Unverified Assumptions
 
 ### Server-Side Digest Acceptance
