@@ -40,9 +40,29 @@ locals {
   pe_subnet_cidr            = cidrsubnet(local.vnet_cidr, 8, 2)
   containerapps_subnet_cidr = cidrsubnet(local.vnet_cidr, 8, 3)
 
+  # No DeployedOn tag, deliberately.
+  #
+  # It used to be `timestamp()`, which re-evaluates on every plan. That made the whole
+  # map unknown and marked every tagged resource for in-place update forever: a clean
+  # subscription planned as "0 to add, 24 to change, 0 to destroy" with 22 of those being
+  # nothing but the rewritten timestamp.
+  #
+  # That is not cosmetic here. The demo's claim is that the RAI policy is the ONLY
+  # variable between the Audit and the Enforced run, and the mechanical way to show it is
+  # `No changes. Your infrastructure matches the configuration.` between the two runs.
+  # A tag that always drifts makes that check impossible to pass, so the answer to "what
+  # else changed between your two runs?" was permanently "24 resources, unknown".
+  #
+  # It also forced an in-place update of `azapi_resource.foundry` -- a PREVIEW resource we
+  # already know drops configuration silently -- on every apply, purely to rewrite a
+  # string, and pushed `foundry_endpoint` to (known after apply) with it.
+  #
+  # The deploy time is already recorded in the resource's own ARM metadata and in git. A
+  # timestamp that lies on every plan is worth less than no timestamp. If one is ever
+  # wanted back, it must come from a variable the operator sets deliberately, never from
+  # a function that re-evaluates at plan time.
   common_tags = {
     Application = var.tags
-    DeployedOn  = timestamp()
     AppName     = local.resource_name
   }
 }

@@ -21,9 +21,12 @@ resource "azurerm_resource_group" "this" {
   name     = local.resource_group_name
   location = var.region
 
+  # No DeployedOn tag. `timestamp()` re-evaluates on every plan, so the tag map goes
+  # unknown and every tagged resource is marked for in-place update forever -- which
+  # destroys plan cleanliness as a drift check. See infra/cloud/locals.tf for the full
+  # reasoning; this module matches it so the two cannot diverge.
   tags = {
     Application = var.tags
-    DeployedOn  = timestamp()
     AppName     = local.resource_name
     Purpose     = "Throwaway composability probe. Safe to delete at any time."
   }

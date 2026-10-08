@@ -642,6 +642,44 @@ Implemented in `infra/cloud/project-connections.tf`. Confirm after applying with
 `task cloud:app-insights-connection` — which also fails if the auth type is not `ApiKey`,
 for trap 1 above.
 
+### C6. A clean plan is the drift control — no `timestamp()` in tags — FIXED 2026-10-08
+
+The experimental claim is that the RAI policy is the **only** difference between the
+Audit run and the Enforced run. The mechanical way to demonstrate that is to run
+`task cloud:plan` between the two runs and get
+`No changes. Your infrastructure matches the configuration.` Anything that makes the plan
+permanently dirty removes that check, and there is no substitute for it.
+
+`infra/cloud/locals.tf` and `infra/spike/locals.tf` both set `DeployedOn = timestamp()`
+in their tag maps. `timestamp()` re-evaluates on every plan, so the tag map became unknown
+and every tagged resource was marked for in-place update on every run. Observed against
+the live subscription on 2026-10-08: `Plan: 0 to add, 24 to change, 0 to destroy`, of
+which 22 were tag-only churn, rendered as the whole map being removed and replaced by
+`(known after apply)`. The `Application` tag was never actually dropped — that is just how
+Terraform renders an unknown map — but `tasks/Taskfile.arm.yml` looks the Foundry account
+up by that tag, so its stability matters.
+
+Two specific costs beyond the noise:
+
+1. **Preview-resource risk for nothing.** It forced an in-place update of
+   `azapi_resource.foundry` on every apply purely to rewrite a string. Section B and
+   Blocker 1 record that this preview resource accepts and silently drops configuration;
+   re-PUTting it with no intended change is gratuitous exposure. Its `output` and the
+   `foundry_endpoint` output both went to `(known after apply)` as a result.
+2. **The control could never pass.** An auditor asking "what else changed between your
+   two runs?" got "24 resources, unknown."
+
+**Fixed by removing the `DeployedOn` tag from both modules** rather than stabilising it.
+Nothing consumes it — not `tasks/`, not `scripts/`, not any KQL in `docs/telemetry-map.md`
+— and the deploy time is already in the resource's own ARM metadata and in git history. A
+timestamp that lies on every plan is worth less than no timestamp. If a deploy marker is
+ever wanted back it must come from a variable the operator sets deliberately, or be
+`lifecycle`-ignored; never from a function that re-evaluates at plan time.
+
+**General rule:** no plan-time-varying function (`timestamp()`, `uuid()`,
+`bcrypt()`) belongs in any attribute of a persistent resource in this repo. Treat a
+non-empty plan on an unchanged configuration as a defect, not as background noise.
+
 
 ---
 

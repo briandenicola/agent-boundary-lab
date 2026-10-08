@@ -159,3 +159,24 @@ This is a Ripley/Brett observation, Phase 4 Blocker 1.
   purpose: PATH resolution would also make the pod silently sensitive to any future
   `ENV PATH` edit in the Dockerfile, and that failure would look identical to a missing
   dependency.
+
+### 2026-10-08 — `timestamp()` in tags destroyed plan cleanliness
+
+- **`DeployedOn = timestamp()` made every plan permanently dirty.** `timestamp()`
+  re-evaluates at plan time, so the whole tag map went unknown and every tagged resource
+  was marked for in-place update. Live plan: 24 changes, 22 of them tag-only churn.
+  Confirmed in both `infra/cloud/locals.tf` and `infra/spike/locals.tf`.
+- **Plan cleanliness IS the drift control for this demo.** The claim is that the RAI
+  policy is the only variable between the Audit and the Enforced run, and the only
+  mechanical way to show it is `No changes.` between them. A tag that always drifts does
+  not just add noise, it removes the evidence. Treat a non-empty plan on an unchanged
+  configuration as a defect.
+- **It also re-PUT the preview Foundry account on every apply to rewrite a string.** The
+  one resource we know silently drops configuration was being touched for no reason, and
+  `foundry_endpoint` went to (known after apply) with it.
+- **Removed the tag rather than stabilising it.** Nothing read it — not tasks, not
+  scripts, not any KQL. `Application` and `AppName` ARE read (`arm:_account-id` and the
+  teardown targets look resource groups up by `Application`), so those stay. Deploy time
+  is already in ARM metadata and in git.
+- **Rule for this repo:** no plan-time-varying function — `timestamp()`, `uuid()`,
+  `bcrypt()` — in any attribute of a persistent resource. Recorded as compatibility.md §C6.
