@@ -131,9 +131,18 @@ variable "aks_node_size" {
 }
 
 variable "kubernetes_version" {
-  description = "Kubernetes version."
+  description = <<-EOT
+    Kubernetes version. NULL BY DEFAULT, which resolves to the region's latest
+    non-preview version at plan time.
+
+    Left unpinned on purpose. A pinned version silently rots: AKS eventually moves it to
+    Long-Term-Support-only and the apply fails with K8sVersionNotSupported on a
+    configuration that worked the month before. The cluster is not an experimental
+    variable in this demo, so there is nothing to gain from freezing it. Set it only to
+    reproduce a specific historical run.
+  EOT
   type        = string
-  default     = "1.32"
+  default     = null
 }
 
 variable "kubernetes_namespace" {
@@ -148,30 +157,3 @@ variable "workflow_service_account" {
   default     = "workflow-workload-identity"
 }
 
-#############################################
-# POSTGRES — Dapr workflow state store
-#############################################
-
-variable "postgres_sku_name" {
-  description = "Flexible Server SKU. The workflow state store holds a handful of orchestration rows, so the smallest burstable tier is sufficient."
-  type        = string
-  default     = "B_Standard_B1ms"
-}
-
-variable "postgres_storage_mb" {
-  description = "Flexible Server storage in MB."
-  type        = number
-  default     = 32768
-}
-
-variable "postgres_version" {
-  description = "PostgreSQL major version."
-  type        = string
-  default     = "16"
-}
-
-variable "postgres_admin_username" {
-  description = "Administrator login for the Flexible Server. The password is generated, never supplied."
-  type        = string
-  default     = "pgadmin"
-}

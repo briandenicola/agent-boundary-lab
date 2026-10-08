@@ -98,7 +98,7 @@ output "log_analytics_workspace_id" {
 }
 
 output "diagnostics_token" {
-  description = "Bearer token for the agent's authenticated diagnostic route. Also stored in Key Vault."
+  description = "Bearer token for the agent's authenticated diagnostic route."
   value       = random_password.diagnostics_token.result
   sensitive   = true
 }
@@ -115,16 +115,6 @@ output "aks_cluster_name" {
 output "workflow_identity_client_id" {
   description = "Client ID to annotate the workflow service account with for workload identity."
   value       = azurerm_user_assigned_identity.workflow.client_id
-}
-
-output "postgres_fqdn" {
-  description = "Private FQDN of the Dapr workflow state store."
-  value       = azurerm_postgresql_flexible_server.main.fqdn
-}
-
-output "key_vault_name" {
-  description = "Vault holding the generated diagnostics token and Postgres password."
-  value       = azurerm_key_vault.main.name
 }
 
 #############################################

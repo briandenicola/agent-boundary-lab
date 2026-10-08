@@ -2,7 +2,7 @@
 # PRIVATE ENDPOINTS — subnet, DNS zones, links and endpoints
 #
 # Private paths for the Foundry account under test and the backing resources the workload
-# uses: the registry it pulls from and the vault it reads secrets from.
+# uses: the registry it pulls from.
 #
 # These endpoints govern INBOUND reach. None of them constrains the agent's outbound
 # traffic; that is the egress policy's job. Keep the two ideas apart.
@@ -12,8 +12,9 @@
 # and the demo could no longer attribute the denial to the egress policy. See
 # var.test_endpoints_public.
 #
-# Postgres is also absent: Flexible Server uses VNet injection rather than a private
-# endpoint, and is handled in postgres.tf.
+# There is no Key Vault. The subscription forces Key Vault endpoints to be private, so
+# Terraform could never write a secret from an operator workstation -- and nothing read
+# from the vault anyway. Generated values are surfaced as sensitive outputs instead.
 #############################################
 
 resource "azurerm_subnet" "private_endpoints" {
@@ -25,7 +26,6 @@ resource "azurerm_subnet" "private_endpoints" {
 
 locals {
   private_dns_zones = {
-    keyvault    = "privatelink.vaultcore.azure.net"
     acr         = "privatelink.azurecr.io"
     cogservices = "privatelink.cognitiveservices.azure.com"
     openai      = "privatelink.openai.azure.com"
@@ -96,31 +96,6 @@ resource "azurerm_private_endpoint" "foundry" {
       azurerm_private_dns_zone.zones["openai"].id,
       azurerm_private_dns_zone.zones["services_ai"].id,
     ]
-  }
-
-  tags = local.common_tags
-}
-
-#############################################
-# Key Vault
-#############################################
-
-resource "azurerm_private_endpoint" "keyvault" {
-  name                = "${local.resource_name}-kv-pe"
-  location            = azurerm_resource_group.this.location
-  resource_group_name = azurerm_resource_group.this.name
-  subnet_id           = azurerm_subnet.private_endpoints.id
-
-  private_service_connection {
-    name                           = "${local.resource_name}-kv-psc"
-    private_connection_resource_id = azurerm_key_vault.main.id
-    subresource_names              = ["vault"]
-    is_manual_connection           = false
-  }
-
-  private_dns_zone_group {
-    name                 = "keyvault-dns"
-    private_dns_zone_ids = [azurerm_private_dns_zone.zones["keyvault"].id]
   }
 
   tags = local.common_tags

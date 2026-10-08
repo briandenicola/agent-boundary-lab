@@ -1,14 +1,28 @@
 #############################################
-# AKS — host for the Phase 8/9 Dapr workflow app
+# AKS — host for the agentic harness, and for the Phase 8/9 Dapr workflow app
 #
 # The workflow app invokes the UNCHANGED Foundry agent from an activity, waits on an
 # authenticated approval event with a durable deadline, and must survive a workflow-pod
 # restart. Durable Task Scheduler and its SDK are explicitly NOT dependencies: the
-# durability comes from Dapr Workflow over the Postgres state store in postgres.tf.
+# durability comes from Dapr Workflow over a persistent state store.
+#
+# The harness also runs here. It is the client, and it sits inside the VNet deliberately
+# so it reaches the inbound-private Foundry account over the private endpoint rather than
+# the internet. It stands in for an on-premises environment; it is not actually on
+# premises, and nothing should describe it as if it were.
 #
 # Provisioned unconditionally rather than behind a toggle. A cluster that only exists for
 # some applies is a cluster whose restart test has never been run on a clean environment.
 #############################################
+
+# Resolved at plan time rather than pinned. A hardcoded version rots: AKS moves versions
+# into Long-Term-Support-only status and the apply then fails with K8sVersionNotSupported
+# on a config that worked last month. The cluster is not an experimental variable here,
+# so tracking the region's current default is the correct behaviour.
+data "azurerm_kubernetes_service_versions" "current" {
+  location        = azurerm_resource_group.this.location
+  include_preview = false
+}
 
 resource "azurerm_kubernetes_cluster" "main" {
   depends_on = [azurerm_subnet_network_security_group_association.aks]
@@ -24,7 +38,7 @@ resource "azurerm_kubernetes_cluster" "main" {
   location            = azurerm_resource_group.this.location
   resource_group_name = azurerm_resource_group.this.name
   node_resource_group = local.aks_node_rg_name
-  kubernetes_version  = var.kubernetes_version
+  kubernetes_version  = coalesce(var.kubernetes_version, data.azurerm_kubernetes_service_versions.current.latest_version)
   dns_prefix          = local.aks_name
   sku_tier            = "Standard"
 

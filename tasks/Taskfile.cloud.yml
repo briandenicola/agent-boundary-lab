@@ -2,9 +2,9 @@ version: '3'
 
 # The full demo environment.
 #
-# This creates real, billable Azure resources including an AKS cluster and a PostgreSQL
-# Flexible Server. It is considerably more expensive than the spike, so nothing here
-# applies as a side effect of planning or reading output, and `cloud:up` always prompts.
+# This creates real, billable Azure resources including an AKS cluster and a Foundry
+# account. It is considerably more expensive than the spike, so nothing here applies as a
+# side effect of planning or reading output.
 #
 # Tear it down with `task cloud:down` when you are finished.
 
@@ -50,7 +50,7 @@ tasks:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
 
   up:
-    desc: CREATES BILLABLE RESOURCES including AKS and PostgreSQL. Apply the environment
+    desc: CREATES BILLABLE RESOURCES including an AKS cluster. Apply the environment
     cmds:
       - task: init
       - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name={{.RAI_BASE_POLICY}}"
@@ -160,7 +160,7 @@ tasks:
 
   down:
     desc: DELETES EVERYTHING this module created, and removes local state
-    prompt: This deletes the entire demo environment including the AKS cluster and the PostgreSQL server. Continue?
+    prompt: This deletes the entire demo environment including the AKS cluster and the Foundry account. Continue?
     dir: '{{.CLOUD_DIR}}'
     cmds:
       # Deleted by tag rather than by terraform destroy, so a partial or failed apply

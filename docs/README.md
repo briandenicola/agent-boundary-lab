@@ -291,6 +291,17 @@ approval gates and restart survival around that same unchanged agent. Keeping th
 separate means the workflow extension can never be blamed for, or credited with, a
 containment result.
 
+**The state store is not provisioned yet, and the region matters.** `infra/cloud/` does
+not create a database: nothing consumes one until Phase 8, and the demo subscription is
+**restricted from provisioning PostgreSQL Flexible Server in `eastus2`** — the capabilities
+API returns `restricted: Enabled` with every supported version list empty, which surfaces
+as the misleading error `The value of the 'Version' should be in: []`. Checked 2026-10-08:
+`centralus`, `westus3`, `northcentralus` and `canadacentral` were unrestricted; `eastus`,
+`eastus2`, `westus2` and `southcentralus` were not. Flexible Server VNet injection requires
+the server and subnet in the same region, so Phase 8 must either move the environment to an
+unrestricted region or choose a different state store. Verify availability before writing
+any Terraform for it.
+
 Use PostgreSQL as the candidate state store. Validate compatibility with the selected Dapr runtime/SDK, actor-state requirements, transactions, concurrency, and durability configuration before adoption. Demo storage must survive pod restart; an ephemeral database is not a recovery proof. Pin a mutually compatible runtime, Python Workflow SDK, AKS extension or Helm release, and state-store component. Pick one installation method; do not install overlapping Dapr control planes.
 
 Proposed case flow:

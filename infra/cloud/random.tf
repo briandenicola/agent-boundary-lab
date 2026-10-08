@@ -43,9 +43,3 @@ resource "random_password" "diagnostics_token" {
   special = false
 }
 
-# PostgreSQL administrator password for the Dapr workflow state store.
-resource "random_password" "postgres_admin" {
-  length           = 32
-  special          = true
-  override_special = "!#$%&*()-_=+[]{}<>:?"
-}
