@@ -134,3 +134,55 @@ replaced (not softened). Pre-committed outcome branches written in advance.
   - **Parker's action:** Add connection in Terraform (completed; see parker-appinsights-connection-and-endpoint-images.md).
 - **Pre-run validation checklist (§7):** Treat query failures as INCONCLUSIVE, never fail. Q2 always paired with Q2a. Use in-payload `received_at`, not `TimeGenerated`.
 - **Standing rule:** §2.1 stays blank until real observation. Platform telemetry audit cannot invent column names.
+
+### 2026-10-08 (second pass) — GATE 0: does demo_run_id reach the platform egress layer?
+
+**Verdict: INCONCLUSIVE, not a fail. The sink exists and is correctly wired; it has received
+zero telemetry because no invocation has happened yet.**
+
+- **Sink exists (VERIFIED).** Project connection `appinsights-connection`, category
+  `AppInsights`, `authType: ApiKey`, `isDefault: true`, target `humble-phoenix-46689-ai`,
+  created 2026-10-08T17:29:49Z. Satisfies both assertions in
+  `tasks/Taskfile.cloud.yml :: cloud:app-insights-connection`. Supersedes my earlier
+  "project has no connections" finding.
+- **Watch item:** that connection carries a non-null `error` — *"Connection subresourceTarget
+  is not supported for PE creation"*, with `peRequirement`/`peStatus` = `NotApplicable`.
+  Probably benign (telemetry egresses outbound), but NOT VERIFIED. If Q0 returns nothing
+  after a confirmed invocation, this is suspect #1.
+- **Sink is receiving nothing (VERIFIED).** `union AppTraces, AppRequests, AppDependencies,
+  AppExceptions, AppEvents | where TimeGenerated > ago(7d)` → empty. The component has never
+  received a record.
+- **New: a `ManagedNetworkEvent` diagnostic log category DOES exist on the Foundry account**
+  (account scope only; project scope has only Audit/Trace/AllMetrics). Table is
+  `AMLManagedNetworkEvent`, schema VERIFIED: TenantId, TimeGenerated, OperationName,
+  **CorrelationId**, Category, ResultType, Level, Properties, SourceSystem. This partially
+  revises the "NOT FOUND" in compatibility C1 — proposed correction written into
+  telemetry-map §6, for Ripley/owner to apply (compatibility is the verified-facts file, I
+  don't edit it unilaterally).
+- **But it has never produced data:** 0 rows in 30 days. Proven by control test — a bogus
+  table name errors with `SEM0100: Failed to resolve table`, while `AMLManagedNetworkEvent`
+  returns `[]`. So: *exists, zero rows*, not *missing*. Meanwhile the same account's
+  `allLogs` pipeline delivered 483 `RequestResponse` + 54 `Audit` rows in 24h to the
+  governance workspace. The pipeline works; this category is simply silent.
+- **No diagnostic setting routes anything to OUR workspace.** The only setting on the account
+  is `setByPolicy-MCAPSGovernance` → `mcaps4b5e8cc21dda18f2382e-la` in RG `McapsGovernance`.
+  I have read access to that workspace, which is useful.
+- **Primary doc re-read (add-hosted-agent-guardrails, accessed 2026-10-08):** egress decisions
+  go to the **project's Application Insights**, `traces`, `message == "Network egress
+  decision"`. It is described as **a span** that "appears next to the request that triggered
+  it" — that phrasing is the basis for the OperationId join being candidate #1.
+- **Rejected correlation idea, recorded so it isn't re-proposed:** using a `Transform` rule's
+  `action.headers` to stamp a correlation header. Values are static or managed-identity-token
+  only (no per-invocation value), it writes into the *outbound request* not the decision
+  record, and changing a rule's actionType would alter the single experimental variable.
+- **Asymmetry worth remembering:** `get_servicing_policy` carries `demo_run_id` in BOTH the
+  URL query string and a header; `send_to_external_processor` carries it in a **header only**.
+  If the platform logs the URL but not headers, we'd correlate the allowed call and not the
+  denied one — a half-correlation, which is a partial result, not a pass.
+- **Data plane is unreachable from outside the VNet** (HTTP 403 on
+  `…services.ai.azure.com/api/projects/…/agents`). So I cannot read back
+  `definition.rai_config` to confirm the policy is actually attached. The doc warns a bad
+  policy ID fails open silently while still reporting `active`. Someone in-cluster must
+  verify this.
+- Control-plane policies confirmed correct: `egress-audit` (Audit/Deny/allow-policy-api),
+  `egress-enforced` (Enforced/Deny/allow-policy-api).

@@ -1,6 +1,6 @@
 # Telemetry and evidence map
 
-**Owner:** Lambert (telemetry / evidence). **Last validation pass: 2026-10-08.**
+**Owner:** Lambert (telemetry / evidence). **Last validation pass: 2026-10-08 (second pass, GATE 0).**
 
 Every row below is exactly one of:
 
@@ -24,25 +24,154 @@ no query at all, because the audience concludes the platform did nothing.
 
 ---
 
-## 0. Blocking finding — platform egress evidence has nowhere to land today
+## 0. GATE 0 — does `demo_run_id` reach the platform egress decision layer?
 
-**VERIFIED 2026-10-08.** The Foundry project has **no connections at all**:
+**Verdict as of 2026-10-08 19:5xZ: INCONCLUSIVE. Not a fail.**
+
+The sink **exists** and is **correctly wired**. It has **received zero telemetry**, because
+no agent invocation has happened yet. The joinable-field question is therefore unanswerable
+today and is exactly one invocation away from a definitive answer. Run **Q0** (§4) the
+moment Dallas's first invocation completes.
+
+Follow the three-way distinction required by the constitution. Each finding below is
+labelled with which of the three it is.
+
+### 0.1 Does the sink exist? — YES, VERIFIED 2026-10-08
+
+Superseding the earlier "no connections" finding in this file: the project connection now
+exists.
 
 ```
 GET .../accounts/humble-phoenix-46689-foundry/projects/humble-phoenix-46689-project
     /connections?api-version=2025-06-01
-→ {"value": []}
 ```
 
-`docs/compatibility.md` C1/C4 establish that egress-decision visibility is tied to the
-**project's** Application Insights, and that no separate diagnostic-settings category was
-found. The App Insights component `humble-phoenix-46689-ai` exists and is healthy, but it
-is **not linked to the project**. Until it is, Layer 2 of the evidence model produces
-nothing, and a run would be **inconclusive by construction** — not a pass, not a fail.
+| Field | Observed value |
+| --- | --- |
+| `name` | `appinsights-connection` |
+| `properties.category` | `AppInsights` |
+| `properties.authType` | `ApiKey` |
+| `properties.isDefault` | `true` |
+| `properties.target` | `/subscriptions/…/providers/Microsoft.Insights/components/humble-phoenix-46689-ai` |
+| `systemData.createdAt` | `2026-10-08T17:29:49.4312478Z` |
 
-Fix is Parker's (Terraform, project connection of category `AppInsights`). Flagged in the
-decision inbox. Do not schedule a demo run before this is done and a decision row is
-observed.
+This satisfies both conditions asserted by `tasks/Taskfile.cloud.yml :: cloud:app-insights-connection`
+(a connection of category `AppInsights`, with `authType == ApiKey`). The path exists.
+
+**WATCH ITEM, VERIFIED 2026-10-08 — the connection carries a non-null `error`:**
+
+```
+"error": "Connection subresourceTarget is not supported for PE creation:
+          /subscriptions/.../Microsoft.Insights/components/humble-phoenix-46689-ai"
+"peRequirement": "NotApplicable",  "peStatus": "NotApplicable"
+```
+
+Read literally this says a private endpoint was not created for the App Insights target and
+is not applicable. Telemetry egresses *outbound* from the agent sandbox, so this is
+**probably** benign — but "probably" is not a finding. **NOT VERIFIED** whether this
+suppresses ingestion. Q0 settles it: if Q0 returns rows, the error is cosmetic; if Q0
+returns nothing after a confirmed invocation, this line is the first suspect.
+
+### 0.2 Is the sink receiving? — NO. VERIFIED 2026-10-08. "Exists, zero rows."
+
+```kusto
+union AppTraces, AppRequests, AppDependencies, AppExceptions, AppEvents
+| where TimeGenerated > ago(7d)
+| summarize c = count() by Type
+```
+
+→ **empty**. Not a table-resolution error (see the control test in §0.4) — the tables exist
+and hold **no rows at all over 7 days**. App Insights `humble-phoenix-46689-ai` has never
+received a record.
+
+This is the **second** of the three findings: *the table exists but has no rows for this
+window*. Consequence: inconclusive, and the cause is almost certainly that no invocation
+has occurred. The data plane is not reachable from outside the VNet (§0.5), so only
+Dallas's in-cluster invocation path can produce the first row.
+
+### 0.3 Is there a joinable field? — UNANSWERABLE TODAY
+
+Zero rows means zero observed fields. Per the constitution this stays **NOT VERIFIED**;
+§2.1 remains blank. What is known about candidates is in §2.2, and the one query that
+answers it is Q0.
+
+### 0.4 Second candidate sink: `ManagedNetworkEvent` — exists, never received data
+
+This partially **revises** an earlier "NOT FOUND" in this file and in
+`docs/compatibility.md` C1. A relevant diagnostic-settings **log category does exist** on
+the Foundry account.
+
+**VERIFIED 2026-10-08**, `az monitor diagnostic-settings categories list` on the account —
+full category list: `Audit`, `RequestResponse`, `AzureOpenAIRequestUsage`, `Trace`,
+**`ManagedNetworkEvent`**, `AllMetrics`. At **project** scope the list is only `Audit`,
+`Trace`, `AllMetrics` — `ManagedNetworkEvent` is **account-scope only**.
+
+**VERIFIED 2026-10-08** — the Log Analytics table is `AMLManagedNetworkEvent`, and its
+schema in workspace `humble-phoenix-46689-logs` is exactly:
+
+| Column | Type |
+| --- | --- |
+| `TenantId` | guid |
+| `TimeGenerated` | datetime |
+| `OperationName` | string |
+| `CorrelationId` | string |
+| `Category` | string |
+| `ResultType` | string |
+| `Level` | string |
+| `Properties` | dynamic |
+| `SourceSystem` | string |
+
+`CorrelationId` is a **candidate** join column. It is **NOT VERIFIED** that it carries
+anything related to our run — see §2.2.
+
+**VERIFIED 2026-10-08 — no diagnostic setting routes this to our workspace.** The only
+diagnostic setting on the account is `setByPolicy-MCAPSGovernance` (`categoryGroup:
+allLogs`, enabled), shipping to a **different** workspace:
+`…/resourceGroups/McapsGovernance/providers/…/workspaces/mcaps4b5e8cc21dda18f2382e-la`.
+
+I have read access to that governance workspace and queried it:
+
+| Query (governance workspace, 2026-10-08) | Result |
+| --- | --- |
+| `AMLManagedNetworkEvent \| where TimeGenerated > ago(30d) \| summarize count()` | **0** |
+| `AzureDiagnostics` for our Foundry account, 24 h, by Category | `RequestResponse` 483, `Audit` 54 |
+| `AzureDiagnostics` whole workspace, 7 d, by Category | `RequestResponse` 2365, `AzureOpenAIRequestUsage` 162, `Audit` 132 |
+| **Control:** `AMLManagedNetworkEventZZZ \| take 1` | error `SEM0100: Failed to resolve table…` |
+
+The control test is the point: a nonexistent table **errors**, so `AMLManagedNetworkEvent`
+returning `[]` means **exists, zero rows** — not "missing". And the `allLogs` pipeline from
+this exact resource is demonstrably alive (hundreds of `RequestResponse` rows in 24 h) while
+`AMLManagedNetworkEvent` has **never** received a row in 30 days.
+
+**Finding:** `ManagedNetworkEvent` is a real category that has produced no data on this
+account. It is **NOT VERIFIED** that it carries RAI network-egress-policy decisions at all —
+the primary guardrails doc (below) names only Application Insights. The name and the
+`AML` table prefix suggest it belongs to the **managed VNet / AML managed network** feature,
+which is a different mechanism (`docs/compatibility.md` §D). **Do not present
+`AMLManagedNetworkEvent` as the egress sink.** Treat it as a secondary candidate to check
+opportunistically after the first invocation.
+
+**If Brian wants it covered** (his decision — I did not create it), the change is a new
+diagnostic setting on the **account** `humble-phoenix-46689-foundry` with log category
+`ManagedNetworkEvent` enabled, destination workspace `humble-phoenix-46689-logs`, added to
+`infra/cloud` as an `azurerm_monitor_diagnostic_setting`. It does **not** touch
+`networkInjections`. It is additive and cheap. **It is not required for GATE 0** and should
+not delay the first invocation.
+
+### 0.5 Supporting state, VERIFIED 2026-10-08
+
+- Both egress policies are correct on the control plane
+  (`raiPolicies?api-version=2026-05-15-preview`):
+  `egress-audit` → `mode=Audit, defaultAction=Deny, rules=[allow-policy-api]`;
+  `egress-enforced` → `mode=Enforced, defaultAction=Deny, rules=[allow-policy-api]`.
+- The Foundry **data plane is unreachable from outside the VNet**: an authenticated
+  `GET …/agents?api-version=v1` against
+  `humble-phoenix-46689-foundry.services.ai.azure.com` returned **HTTP 403**. Expected —
+  the account is inbound-private. Consequence: I **cannot** read back
+  `definition.rai_config` from here to confirm the policy is attached to each agent version.
+  **NOT VERIFIED from my side.** The guardrails doc warns that an agent referencing a
+  nonexistent policy is created successfully, reports `active`, and **fails open silently**.
+  Whoever has in-VNet access must run the verification `GET` from the doc and record it.
 
 **VERIFIED 2026-10-08:** App Insights `IngestionMode` is `LogAnalytics` and its
 `WorkspaceResourceId` points at `humble-phoenix-46689-logs`. Consequence for every query
@@ -147,7 +276,7 @@ This layer is produced by the Foundry platform. We do not control any of its fie
 | Events include destination host, matched rule, decision, enforcement mode (as *concepts*) | VERIFIED (primary doc, 2026-10-08) | same |
 | **The sub-field / `Properties` key names** | **NOT VERIFIED** | Undocumented. Must be read off a live row. See procedure below. |
 | Portal UI labels: Decision, Reason, Matched rule, Rule source, Enforcement, Destination, Default action | VERIFIED as *UI labels* (primary doc, 2026-10-08) | **These are not confirmed to be Log Analytics column or property names.** Do not type them into KQL. |
-| A separate `Microsoft.CognitiveServices` diagnostic-settings category for egress | **NOT FOUND** (searched, 2026-10-08) | `docs/compatibility.md` C1. Project-linked App Insights is the only known path. |
+| A separate `Microsoft.CognitiveServices` diagnostic-settings category for egress | **REVISED 2026-10-08 — see §0.4** | A `ManagedNetworkEvent` log category **does exist** on the account (table `AMLManagedNetworkEvent`). It has **never received a row** (0 in 30 d) and is **NOT VERIFIED** to carry RAI egress decisions. Project-linked App Insights remains the only *documented* path. |
 | Whether egress decisions reach a custom `OTEL_EXPORTER_OTLP_ENDPOINT` | **NOT VERIFIED** | `docs/compatibility.md` C4 — the telemetry how-to scopes hosted telemetry to the protocol runtime and agent code and never mentions egress. **Do not claim an OTLP pipeline carries platform decisions.** |
 | Audit mode emits the same record with enforcement showing audit | VERIFIED (primary doc, 2026-10-08) | `docs/compatibility.md` C2 |
 
@@ -172,6 +301,32 @@ from the portal labels above.
 | Property key (as seen in `Properties`) | Example value | Date observed |
 | --- | --- | --- |
 | *(discover during run)* | | |
+
+### 2.2 Candidate join fields — all NOT VERIFIED
+
+This is the GATE 0 shortlist. Nothing here is established; each row says what would prove
+it. Checked in this order by **Q0** (§4).
+
+| # | Candidate | Why it is plausible | Why it may fail | Status |
+| --- | --- | --- | --- | --- |
+| 1 | `OperationId` / `ParentId` on the egress `AppTraces` row matching our tool-span's `OperationId` | The guardrails doc (accessed 2026-10-08) says it is **"a span named Network egress decision"** that **"appears next to the request that triggered it"** in the Trajectories timeline. A span nested in the same trace normally shares the App Insights operation id. | *Normally* is doing the work. Generic App Insights behaviour, **not a documented Foundry guarantee** (`docs/compatibility.md` C3 / Blocker 4). The span may be emitted by the sandbox proxy under its own trace. | **NOT VERIFIED — strongest candidate. Check first.** |
+| 2 | A key inside the egress row's `Properties` bag echoing a request header or URL | The decision is made on the outbound request, and the portal shows a **Destination** field described as *"the method and URL of the outbound request"*. Our `demo_run_id` travels in the URL as a `demo_run_id` query param on `get_servicing_policy`. | The doc describes Destination as method + URL at the *portal* layer; whether the logged property retains the query string is unknown, and query strings are commonly stripped. The `send_to_external_processor` call carries the id in a **header only**, not the URL — so even if this works it would only correlate the *allowed* call. | **NOT VERIFIED.** |
+| 3 | `AMLManagedNetworkEvent.CorrelationId` | A real column (§0.4) literally named for correlation. | The table has never received a row, is not routed to our workspace, and is not documented to carry RAI egress decisions at all. Two unknowns stacked. | **NOT VERIFIED — weak.** |
+| 4 | Time window + destination host + agent version | Always available. | Not a join. Fully analysed in §5. | **This is the fallback, not a candidate.** |
+
+**Explicitly rejected — a Transform rule injecting our run id as a header.** The guardrails
+doc (accessed 2026-10-08) documents `action.headers` with `Set` / `Insert` / `Remove` on
+`Transform` and `Rewrite` rules. Someone will propose using it to stamp a correlation
+header. It does not work for us, for three independent reasons:
+
+1. Values are **static** (`value`) or a **managed-identity token** (`valueRef`). There is no
+   per-invocation value, so it cannot carry a per-run `demo_run_id`.
+2. It writes **into the outbound request**, not into the decision record. It is the wrong
+   direction entirely.
+3. Changing a rule's `actionType` from `Allow` to `Transform` alters the experimental
+   variable. The RAI policy must stay the *only* difference between the two agent versions.
+
+Recorded here so it is rejected once, with reasons, rather than re-proposed.
 
 ---
 
@@ -261,6 +416,77 @@ component is workspace-based (§0). If a query returns empty, re-try the classic
 at App Insights resource scope before concluding anything.
 
 Replace `<RUN_ID>` with the `demo_run_id` for the run.
+
+---
+
+### Q0 — **THE GATE 0 QUERY.** Run this first, after the first invocation.
+
+**BLOCKED on one real invocation. Runnable the instant Dallas's first call completes.**
+**Unverified columns:** none in Q0a/Q0b — `AppTraces.Message`, `Properties`, `OperationId`,
+`ParentId` are all confirmed columns of this workspace's `AppTraces` table (§1.3), and the
+literal `"Network egress decision"` is from the primary doc (accessed 2026-10-08). What is
+unverified is whether any **rows** exist and what is **inside** `Properties`.
+
+Run the four steps in order and stop at the first one that gives a definitive answer.
+Record the outcome in §2.1 and §5 with the date, whichever way it goes.
+
+```kusto
+// Q0a — Does the platform emit anything at all? Answers "exists / rows / no rows".
+AppTraces
+| where TimeGenerated > ago(1h)
+| where Message == "Network egress decision"
+| project TimeGenerated, Message, Properties, OperationId, ParentId, AppRoleName, AppRoleInstance
+| order by TimeGenerated asc
+```
+
+```kusto
+// Q0b — THE GATE. Does the egress decision share an OperationId with our tool span?
+// Candidate 1 in §2.2. This single result decides the evidence model.
+let app_ops =
+    AppTraces
+    | where TimeGenerated > ago(1h)
+    | where tostring(Properties) has "<RUN_ID>"
+    | distinct OperationId;
+AppTraces
+| where TimeGenerated > ago(1h)
+| where Message == "Network egress decision"
+| extend joined = OperationId in (app_ops)
+| summarize decisions = count() by joined
+```
+
+```kusto
+// Q0c — Candidate 2. Does our run id appear ANYWHERE in the decision row, in any form?
+// Deliberately a blunt substring scan across the whole row. No column is assumed.
+AppTraces
+| where TimeGenerated > ago(1h)
+| where Message == "Network egress decision"
+| extend whole_row = strcat(tostring(Properties), "|", OperationId, "|", ParentId,
+                            "|", OperationName, "|", AppRoleName)
+| extend carries_run_id = whole_row has "<RUN_ID>"
+| summarize rows = count() by carries_run_id
+```
+
+```kusto
+// Q0d — Candidate 3, opportunistic. Only meaningful if a ManagedNetworkEvent diagnostic
+// setting has been applied to our workspace (it has NOT been, as of 2026-10-08 — §0.4).
+// Expect a table that resolves and returns nothing.
+AMLManagedNetworkEvent
+| where TimeGenerated > ago(1h)
+| project TimeGenerated, OperationName, CorrelationId, Category, ResultType, Level, Properties
+```
+
+**How to read Q0 — the three-way rule, not negotiable:**
+
+| Observation | Finding | Consequence |
+| --- | --- | --- |
+| Q0a errors with `SEM0100: Failed to resolve table` | **Table does not exist** | Schema is wrong. Re-run at App Insights resource scope as `traces` (Q5b). If both fail → **BLOCKED**, stop. |
+| Q0a returns zero rows, and `union AppTraces, AppRequests, AppDependencies` is also empty | **Nothing ingested at all** | The invocation didn't happen, or ingestion is broken. First suspect: the connection `error` in §0.1. **INCONCLUSIVE.** |
+| Q0a returns zero rows, but our own tool spans ARE present for this run | **Platform emitted no decision** | Genuinely interesting, and still **INCONCLUSIVE** — primary guidance: *"Do not treat a missing event as proof that a call was allowed."* |
+| Q0a returns rows, Q0b `joined == true` | **GATE 0 PASS** | Strong correlation. Fill §2.1 and update §5 the same day. |
+| Q0a returns rows, Q0b all `false`, Q0c `carries_run_id == true` | **GATE 0 PASS, weaker** | Correlation by embedded id. Record the exact field in §2.1. |
+| Q0a returns rows, Q0b all `false`, Q0c all `false` | **GATE 0 FAIL** | No joinable field. Evidence model degrades to the §5 fallback. Report immediately; this changes the demo narrative, not just the queries. |
+
+A FAIL is a legitimate outcome and must be reported as fast as a PASS.
 
 ---
 
@@ -393,9 +619,10 @@ AppTraces
 
 ### Q5 — Platform egress decision records
 
-**BLOCKED — needs a deployed agent version with a policy attached, and §0 fixed.**
+**BLOCKED — needs one real invocation.** Q0a supersedes Q5a; keep Q5b, the resource-scope
+fallback, which is the form the primary doc publishes.
 **Unverified columns:** every property key. `Message` and the literal string are verified
-from the primary doc; nothing inside the bag is.
+from the primary doc (accessed 2026-10-08); nothing inside the bag is.
 
 ```kusto
 // Q5a — raw. This is the only safe form until §2.1 is filled in.
@@ -421,7 +648,12 @@ Do **not** write a `Q5c` that projects named sub-fields until §2.1 has real key
 
 ---
 
-### Q6 — Correlation attempt: egress decision ↔ application trace
+### Q6 — SUPERSEDED BY Q0
+
+Q6 was the original correlation probe. **Q0b is its replacement** and is the version to
+run. Kept here only so references to "Q6" in earlier notes resolve. Do not run both.
+
+---
 
 **BLOCKED, and expected to fail. This query exists to *test* the correlation gap, not to
 rely on it.** **Unverified:** that `OperationId` is shared between the two layers at all —
@@ -527,12 +759,14 @@ It is weaker in four specific ways. State all four; do not soften them:
 
 In preference order:
 
-1. **Q6 returns `joined == true`.** Cheapest possible fix — it may already work via generic
-   App Insights `operation_Id` propagation. **Run Q6 first, immediately after the first
-   successful deployed run.** Do not build anything else until Q6 has been answered.
-2. **A property key in the decision record that echoes a request header.** Inspect raw
-   `Properties` (Q5a) for anything resembling our run id. If the sandbox proxy records
-   request headers, we may get the join for free. Unknown; check, do not assume.
+1. **Q0b returns `joined == true`.** Cheapest possible fix — it may already work via generic
+   App Insights `OperationId` propagation. **Run Q0 first, immediately after the first
+   successful deployed run.** Do not build anything else until Q0 has been answered.
+2. **A property key in the decision record that echoes our run id** (Q0c). Inspect the raw
+   row for anything resembling it. Note the asymmetry recorded in §2.2 candidate 2: the
+   allowed call carries the id in the URL query string, the denied call carries it in a
+   header only. If Q0c passes for one tool and not the other, say so — a half-correlation
+   is a partial result, not a pass.
 3. **Distinct hostnames per run.** Expensive, and changes the egress allowlist — which is
    the experimental variable. Rejected: it contaminates the experiment.
 4. **Accept the fallback and label it.** Acceptable, *if* labelled. "Correlated by time
@@ -569,12 +803,30 @@ it. Q6 is written specifically to test C3 empirically and record the answer.
 **C4** (OTel export probably does not carry egress decisions) — §2 restates it. No query in
 this file depends on an OTLP path carrying platform decisions.
 
-**§D — managed VNet composability, blocking gap.** No telemetry conflict. One consequence
-worth naming: if the managed-VNet path is ever adopted and outbound traffic ends up
-governed by managed-VNet outbound rules instead of the egress policy, the decision record
-in §2 may not be produced at all, and every Layer-2 query here goes silent. That would be a
-**change of evidence source**, not a pass. Re-verify §2 end to end if §D is resolved in the
-VNet direction.
+3. **C1's "NOT FOUND: any `Microsoft.CognitiveServices` diagnostic-settings resource-log
+   category for egress decisions" needs a correction.** A `ManagedNetworkEvent` log category
+   **does exist** on this account (VERIFIED 2026-10-08, §0.4), with Log Analytics table
+   `AMLManagedNetworkEvent`. C1's underlying claim still holds — that category has **never
+   received a row** (0 in 30 days, in a workspace where the same resource's `allLogs`
+   pipeline is demonstrably delivering hundreds of `RequestResponse` rows), the primary
+   guardrails doc names only Application Insights, and the `AML` prefix points at the
+   managed-VNet feature rather than RAI egress. **Proposed edit to `docs/compatibility.md`
+   C1:** change "NOT FOUND: any … category" to "A `ManagedNetworkEvent` category exists on
+   the account but has produced no data and is NOT VERIFIED to carry RAI egress decisions;
+   project-linked Application Insights remains the only documented path." Compatibility is
+   the verified-facts file, so **Ripley or the owner makes that edit** — I am recording the
+   evidence, not editing it unilaterally.
+
+**§D — managed VNet composability, blocking gap.** No telemetry conflict, and §0.4 adds a
+data point that cuts **against** the managed-VNet path being active: Foundry here runs with
+`networkInjections` / `useMicrosoftManagedNetwork = true`, and the managed-network event
+category has produced nothing. That is consistent with D's finding that the two features
+are undocumented together — it is **not** evidence either way, because nothing has been
+invoked yet. One consequence worth naming: if the managed-VNet path is ever adopted and
+outbound traffic ends up governed by managed-VNet outbound rules instead of the egress
+policy, the decision record in §2 may not be produced at all, and every Layer-2 query here
+goes silent. That would be a **change of evidence source**, not a pass. Re-verify §2 end to
+end if §D is resolved in the VNet direction.
 
 ---
 
@@ -582,11 +834,16 @@ VNet direction.
 
 1. §0 fixed — project has an App Insights connection, verified by re-running the
    `connections` GET and seeing a non-empty `value`.
-2. Q8 green — both container apps logging from our ACR images (**confirmed 2026-10-08**,
+1. **GATE 0 answered** — Q0 run after the first real invocation, outcome recorded in §2.1
+   and §5 with the date. **Nothing downstream is built before this.**
+2. §0.1 confirmed — project App Insights connection present with `authType: ApiKey`
+   (**confirmed 2026-10-08**); re-check if anything is redeployed.
+3. `rai_config.rai_policy_name` read back from **inside the VNet** for both agent versions.
+   Not verifiable from outside (§0.5), and the primary doc warns a bad policy ID fails open
+   silently while still reporting `active`.
+4. Q8 green — both container apps logging from our ACR images (**confirmed 2026-10-08**,
    revisions `…--0000001`), recent rows.
-3. Q1 green for a throwaway run id — Layer 3 proven live before the agent is involved.
-4. Q3a run — the table and real `Properties` keys for our spans recorded in §1.3 with a date.
-5. Q5a run — at least one raw decision row observed, §2.1 filled in with real keys and a date.
-6. Q6 run — correlation answer recorded in §5 with a date, either way.
+5. Q1 green for a throwaway run id — Layer 3 proven live before the agent is involved.
+6. Q3a run — the table and real `Properties` keys for our spans recorded in §1.3 with a date.
 7. Q2 and Q2a both zero for the un-allowlisted receiver.
 8. Only then does a run produce a result. Before that, every run is **inconclusive**.
