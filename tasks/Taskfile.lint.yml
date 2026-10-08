@@ -16,6 +16,7 @@ tasks:
       - task: types
       - task: test
       - task: terraform
+      - task: no-az
 
   format:
     desc: Check formatting
@@ -51,6 +52,11 @@ tasks:
       - terraform -chdir=./infra/spike validate
       - terraform -chdir=./infra/cloud init -backend=false -upgrade >/dev/null
       - terraform -chdir=./infra/cloud validate
+
+  no-az:
+    desc: Fail if the Azure CLI is invoked from anything that ships
+    cmds:
+      - ./scripts/check_no_az.sh
 
   venv:
     desc: Create the virtualenv and install dependencies
