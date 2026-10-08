@@ -169,6 +169,49 @@ variable "workflow_service_account" {
   default     = "workflow-workload-identity"
 }
 
+variable "endpoint_image_tag" {
+  description = <<-EOT
+    Tag of the two controlled-endpoint images in ACR, published by `task build:services`.
+
+    Leave EMPTY on a first apply. The images do not exist yet at that point, and a
+    Container App pointed at an absent image fails to provision a revision. Empty means
+    "run the placeholder image"; `task build:deploy-endpoints` then applies the real tag.
+
+    Once you have deployed real images, put ENDPOINT_IMAGE_TAG=latest in your .env.
+    The root Taskfile loads it, so `task cloud:up` will keep the endpoints on their real
+    images instead of rolling them back to the placeholder.
+
+    ONE TAG FOR BOTH ENDPOINTS, deliberately. Both images come out of one
+    services/Dockerfile in one `build:services` run. The policy API's success is only a
+    usable control for the receiver's silence if the two cannot drift apart in base layer
+    or dependency version, and a single tag makes that divergence impossible to express.
+
+    These two images are the demo's WITNESSES, not its subject — the agent image is the
+    thing that must be digest-pinned (infra/k8s var.agent_image_digest). A tag is
+    acceptable here.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "agent_deployer_service_account" {
+  description = "Kubernetes service account used by the one-shot Job that creates agent versions. Separate from the workflow account so deploy rights and invoke rights are independently revocable."
+  type        = string
+  default     = "agent-deployer"
+}
+
+variable "agent_name_audit" {
+  description = "Hosted agent carrying the Audit egress policy. Audit and Enforced are deployed as two separately named agents rather than two versions of one, so both can be invoked without a switchover step that could be forgotten mid-demo."
+  type        = string
+  default     = "containment-demo-audit"
+}
+
+variable "agent_name_enforced" {
+  description = "Hosted agent carrying the Enforced egress policy. Must run the SAME image digest as the Audit agent."
+  type        = string
+  default     = "containment-demo-enforced"
+}
+
 #############################################
 # POSTGRES — Dapr workflow state store (Phase 8)
 #############################################

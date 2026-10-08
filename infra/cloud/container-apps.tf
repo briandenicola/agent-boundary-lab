@@ -27,10 +27,25 @@ locals {
   policy_api_host    = azurerm_container_app.policy_api.ingress[0].fqdn
   test_receiver_host = azurerm_container_app.test_receiver.ingress[0].fqdn
 
-  # Placeholder published while the environment is built. Terraform cannot know the real
-  # digest at plan time, so the first apply runs this and `task cloud:deploy-endpoints`
-  # replaces it. `ignore_changes` below stops a later apply from reverting the real image.
+  # Published while the environment is built, and only then. Terraform cannot point a
+  # Container App at an image that ACR does not have yet, so the first apply runs this.
   placeholder_image = "mcr.microsoft.com/k8se/quickstart:latest"
+
+  # The real images, once var.endpoint_image_tag is set.
+  #
+  # Built here from the registry login server and the repository names, NOT from the
+  # Container App resource names. Those two are different strings: Container Apps cap at
+  # 32 characters so `policy_api_name` is truncated, while the ACR repository is not.
+  # `task build:deploy-endpoints` used to rebuild the app name by concatenation and
+  # addressed an app that does not exist — "The containerapp does not exist". Terraform
+  # already knows both names; nothing should reconstruct either.
+  endpoint_images = {
+    policy_api    = "${azurerm_container_registry.main.login_server}/containment-demo-policy-api:${var.endpoint_image_tag}"
+    test_receiver = "${azurerm_container_registry.main.login_server}/containment-demo-test-receiver:${var.endpoint_image_tag}"
+  }
+
+  policy_api_image    = var.endpoint_image_tag == "" ? local.placeholder_image : local.endpoint_images.policy_api
+  test_receiver_image = var.endpoint_image_tag == "" ? local.placeholder_image : local.endpoint_images.test_receiver
 }
 
 resource "azurerm_container_app_environment" "main" {
@@ -90,18 +105,19 @@ resource "azurerm_container_app" "policy_api" {
 
     container {
       name   = "policy-api"
-      image  = local.placeholder_image
+      image  = local.policy_api_image
       cpu    = 0.25
       memory = "0.5Gi"
     }
   }
 
-  lifecycle {
-    # The real image is published by `task cloud:deploy-endpoints` against a digest that
-    # does not exist at plan time. Without this, every later apply would roll the endpoint
-    # back to the placeholder mid-demo.
-    ignore_changes = [template[0].container[0].image]
-  }
+  # NO `ignore_changes` on the image.
+  #
+  # It used to be ignored here because `az containerapp update --image` set the image out
+  # of band. That meant terraform owned the app but not what it ran, so the two could
+  # disagree forever and nothing would say so. The image is now var.endpoint_image_tag and
+  # terraform owns it outright: if a plan shows this reverting to the placeholder, your
+  # ENDPOINT_IMAGE_TAG is unset, and the plan telling you that is the point.
 
   tags = local.common_tags
 }
@@ -149,15 +165,13 @@ resource "azurerm_container_app" "test_receiver" {
 
     container {
       name   = "test-receiver"
-      image  = local.placeholder_image
+      image  = local.test_receiver_image
       cpu    = 0.25
       memory = "0.5Gi"
     }
   }
 
-  lifecycle {
-    ignore_changes = [template[0].container[0].image]
-  }
+  # See the policy API above: the image is terraform's, not a CLI's.
 
   tags = local.common_tags
 }

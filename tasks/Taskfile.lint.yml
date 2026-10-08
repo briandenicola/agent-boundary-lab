@@ -21,18 +21,18 @@ tasks:
   format:
     desc: Check formatting
     cmds:
-      - .venv/bin/python -m ruff format --check src services tests
+      - .venv/bin/python -m ruff format --check src services tests scripts
 
   fix:
     desc: Apply formatting and safe lint fixes
     cmds:
-      - .venv/bin/python -m ruff format src services tests
-      - .venv/bin/python -m ruff check --fix src services tests
+      - .venv/bin/python -m ruff format src services tests scripts
+      - .venv/bin/python -m ruff check --fix src services tests scripts
 
   ruff:
     desc: Lint
     cmds:
-      - .venv/bin/python -m ruff check src services tests
+      - .venv/bin/python -m ruff check src services tests scripts
 
   types:
     desc: Type-check
@@ -52,6 +52,11 @@ tasks:
       - terraform -chdir=./infra/spike validate
       - terraform -chdir=./infra/cloud init -backend=false -upgrade >/dev/null
       - terraform -chdir=./infra/cloud validate
+      # infra/k8s is a separate root module with its own state. It is validated here
+      # because `fmt -recursive infra` already covers its formatting, and a module that
+      # is formatted but never validated is the one that breaks on the day you need it.
+      - terraform -chdir=./infra/k8s init -backend=false -upgrade >/dev/null
+      - terraform -chdir=./infra/k8s validate
 
   no-az:
     desc: Fail if the Azure CLI is invoked from anything that ships

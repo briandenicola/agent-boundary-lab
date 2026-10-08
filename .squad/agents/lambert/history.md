@@ -57,3 +57,32 @@ and `docs/compatibility.md` §B9 for the deployment API.
 ## Learnings
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
+
+### 2026-10-08 — telemetry-map.md first validation pass
+
+- **The Foundry project has zero connections** (`GET .../projects/.../connections?api-version=2025-06-01`
+  → `{"value": []}`). App Insights `humble-phoenix-46689-ai` exists but is **not linked to the
+  project**. Per compatibility C1/C4 that is the only known path for egress decision records,
+  so Layer 2 currently produces nothing. Any run today is inconclusive by construction.
+- **App Insights is workspace-based** (`IngestionMode: LogAnalytics`, workspace
+  `humble-phoenix-46689-logs` / `def03e45-a400-4fed-957f-25d133ab1993`). So at workspace scope
+  the tables are `AppTraces`/`AppDependencies`/`AppRequests`/`AppExceptions`, not the classic
+  `traces`/`dependencies`. Compatibility C1 quotes `traces`, which is correct at App Insights
+  *resource* scope. Not a contradiction — a scope difference. Always try both and record which
+  one returned rows.
+- Workspace table schemas read directly (not guessed): `AppTraces` has `Message`, `Properties`,
+  `OperationId`, `ParentId`, `AppRoleName`; `AppDependencies` has `Target`, `DependencyType`,
+  `Success`, `ResultCode`, `DurationMs`.
+- **Layer 3 is fully verified.** Real receipts observed in `ContainerAppConsoleLogs_CL` from
+  both Container Apps on our ACR images, carrying `demo_run_id` end to end. JSON arrives as a
+  string in `Log_s`; parse with `parse_json(Log_s)`. `Stream_s == "stdout"` on real receipts
+  (older placeholder-image rows were `stderr`) — do not filter on it.
+- **Hygiene defect found:** a `test-receiver` receipt with `demo_run_id == ""` exists in the
+  log. "Zero receipts for our run id" therefore is not "nothing arrived". Added Q2a as a
+  required companion query.
+- **Measured ingestion lag ≈1.5 s** for Container Apps console logs. Use in-payload
+  `received_at`, never `TimeGenerated`, for ordering arguments.
+- Evidence strength today: Layer 1 verified from source but unverified in the sink; Layer 2
+  unobservable; Layer 3 fully verified. The correlation Layer 1↔2 remains NOT FOUND — Q6 is
+  written to test it empirically the moment an agent version exists, and must be the first
+  query run.

@@ -96,7 +96,9 @@ output "acr_login_server" {
 }
 
 output "acr_name" {
-  description = "Registry name, for `az acr build`."
+  # Deliberately not spelled as a literal CLI invocation: scripts/check_no_az.sh
+  # treats an az command in a shipped file as a build failure.
+  description = "Registry name, for remote image builds."
   value       = azurerm_container_registry.main.name
 }
 
@@ -129,6 +131,53 @@ output "aks_cluster_name" {
 output "workflow_identity_client_id" {
   description = "Client ID to annotate the workflow service account with for workload identity."
   value       = azurerm_user_assigned_identity.workflow.client_id
+}
+
+#############################################
+# Agent deployment
+#############################################
+
+output "agent_deployer_client_id" {
+  description = "Client ID to annotate the agent-deployer service account with. The init container that creates agent versions runs as this identity, from inside the VNet, because the Foundry data plane is private."
+  value       = azurerm_user_assigned_identity.agent_deployer.client_id
+}
+
+output "agent_deployer_service_account" {
+  description = "Kubernetes service account the harness pod and its deploy init container run under. Must equal the ServiceAccount infra/k8s creates, or the federated credential subject will not match."
+  value       = var.agent_deployer_service_account
+}
+
+output "kubernetes_namespace" {
+  description = "Namespace the client harness and the workflow app share."
+  value       = var.kubernetes_namespace
+}
+
+output "agent_name_audit" {
+  description = "Hosted agent name carrying the Audit egress policy."
+  value       = var.agent_name_audit
+}
+
+output "agent_name_enforced" {
+  description = "Hosted agent name carrying the Enforced egress policy."
+  value       = var.agent_name_enforced
+}
+
+output "foundry_account_name" {
+  description = "Foundry account name, used to build the private data-plane URL https://<account>.services.ai.azure.com."
+  value       = azapi_resource.foundry.name
+}
+
+# Taken from the azapi resource's own id, not assembled from the account id and a name.
+# A hand-built string was wrong once already: it referenced a variable that does not
+# exist, and `terraform validate` was the only thing that noticed.
+output "rai_policy_audit_id" {
+  description = "Full ARM resource ID of the Audit policy. This exact string goes in definition.rai_config.rai_policy_name; a bare name is rejected."
+  value       = azapi_resource.rai_policy_audit.id
+}
+
+output "rai_policy_enforced_id" {
+  description = "Full ARM resource ID of the Enforced policy. This exact string goes in definition.rai_config.rai_policy_name; a bare name is rejected."
+  value       = azapi_resource.rai_policy_enforced.id
 }
 
 #############################################

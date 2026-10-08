@@ -57,3 +57,49 @@ and `docs/compatibility.md` §B9 for the deployment API.
 ## Learnings
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
+
+### 2026-10-08 — Agent deployment module (`src/containment_demo/deploy.py`)
+
+**The real SDK surface, verified by reading source, not docs.** `azure-ai-projects` is not
+in this repo's `.venv`. The newest copy on this machine is **2.8.0** at
+`/home/brian/code/foundry-infrastructure-design/src/hosted_agents/simple/.venv/lib/python3.14/site-packages/azure/ai/projects/`.
+Everything below is recorded in `docs/compatibility.md` §B9a with line numbers:
+
+- `AIProjectClient(endpoint, credential, allow_preview=True)` — `_client.py:40`.
+  Default credential scope `https://ai.azure.com/.default` (`_configuration.py:57`), and
+  `api_version` defaults to `"v1"`, *not* an explicit `2025-11-15-preview` string.
+- `client.agents.create_version(name, definition=, description=, metadata=)` →
+  `AgentVersionDetails` (`operations/_operations.py:5441`); `get_version` at `:5891`;
+  `list_versions` at `:6042`.
+- `HostedAgentDefinition(cpu=, memory=, rai_config=, environment_variables=,
+  container_configuration=, protocol_versions=)` — `models/_models.py:12344`.
+- `RaiConfig(rai_policy_name=...)` — `models/_models.py:16765`. Plain `rest_field` with no
+  `name=` override, so the wire name is snake_case. **B4 confirmed in code.**
+- `ContainerConfiguration(image=, registry_connection_id=)` — `models/_models.py:7230`.
+- `ProtocolVersionRecord(protocol=, version=)` — `models/_models.py:16657`.
+- `AgentVersionStatus`: creating / active / failed / deleting / deleted — `_enums.py:380`.
+
+**Three places the SDK differs from the az CLI shape recorded in B9.** The CLI speaks
+`2025-11-15-preview`; the SDK is what ships, so the SDK wins: the image is nested under
+`container_configuration`, protocols are `protocol_versions` (not
+`container_protocol_versions`), and **there is no container start operation at all** — no
+`containers/default:start` equivalent on `AgentsOperations`. Readiness is polled via
+`get_version(...).status`.
+
+**Digest pinning.** `ContainerConfiguration.image` is an unvalidated `str`. The SDK does
+none of the CLI's `_validate_image_tag` work, so a digest passes client-side and the
+service assigns the version name. Server-side acceptance is still unverified and cannot be
+verified from outside the VNet. The module requires a digest, has no tag fallback, and
+raises `DigestRejectedError` with a STOP instruction.
+
+**Packaging.** `azure-ai-projects` went in an optional `deploy` extra, not base
+dependencies: it needs `openai>=3` and the agent image must not change because the deployer
+gained a dependency. The agent image digest is the control. The SDK is imported lazily in
+`build_client()` only, which is why `pytest tests/unit` needs no Azure package, no
+credentials and no network — 124 passing, 1 skipped (the real-SDK model check, which
+`importorskip`s).
+
+**Pattern worth keeping:** the deployer verifies by read-back, never by assuming the write
+landed. An Enforced agent with a silently-unattached policy looks exactly like a working
+Enforced agent that allows everything — that is the most dangerous way this demo could
+lie, so it is a loud `DriftError`.

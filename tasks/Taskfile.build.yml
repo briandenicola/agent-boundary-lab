@@ -23,6 +23,9 @@ version: '3'
 env:
   CLOUD_DIR: infra/cloud
   IMAGE_TAG: '{{default "latest" .IMAGE_TAG}}'
+  # Passed through to terraform on deploy-endpoints. Confirm the real value for your
+  # account with `task cloud:base-policies`.
+  RAI_BASE_POLICY: '{{default "Microsoft.DefaultV2" .RAI_BASE_POLICY}}'
 
 tasks:
   default:
@@ -96,36 +99,40 @@ tasks:
         echo "which makes the egress policy no longer the only variable between them."
 
   deploy-endpoints:
-    desc: CHANGES AZURE. Point both Container Apps at their built images
-    prompt: This updates both controlled endpoints in Azure. Continue?
+    desc: CHANGES AZURE. Point both Container Apps at their built images, via terraform
+    prompt: This runs `terraform apply` with the endpoint image tag set, updating both controlled endpoints. Continue?
     cmds:
-      # Terraform created these with a placeholder image and ignores later image changes,
-      # because the real image does not exist at plan time. This is the step that puts
-      # the real code behind them.
+      # TERRAFORM, NOT `az containerapp update`. Two reasons, and the second is the one
+      # that actually bit us.
+      #
+      # 1. Terraform owns these Container Apps. Setting --image out of band meant it owned
+      #    the app but not what the app ran, so the next `cloud:up` either reverted the
+      #    image or showed drift forever.
+      # 2. The old task rebuilt the app name as "${RESOURCE_NAME}-policy-api". Container
+      #    App names cap at 32 characters, so the real name is truncated —
+      #    `humble-phoenix-466-policy-api`, not `humble-phoenix-46689-policy-api` — and
+      #    the update failed with "The containerapp does not exist". Terraform already
+      #    knows both names. Nothing here concatenates one.
+      #
+      # This is a FULL apply, not a targeted one. A targeted apply would skip the ACR role
+      # assignments the apps need in order to pull, and "idempotent" has to mean the whole
+      # module, not a corner of it.
       - |
         set -eu
-        RG=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw resource_group_name)
-        SERVER=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_login_server)
-
-        # Read the app names from terraform. Container Apps cap names at 32 characters, so
-        # the module truncates the prefix and the names are NOT resource_name plus a
-        # suffix. Rebuilding them here looked right and addressed an app that never
-        # existed.
-        POLICY_APP=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw policy_api_app_name)
-        RECEIVER_APP=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw test_receiver_app_name)
-
-        for PAIR in "policy-api:${POLICY_APP}" "test-receiver:${RECEIVER_APP}"; do
-          IMG=${PAIR%%:*}
-          APP=${PAIR#*:}
-          IMAGE="${SERVER}/containment-demo-${IMG}:{{.IMAGE_TAG}}"
-          echo "updating ${APP} -> ${IMAGE}"
-          az containerapp update \
-            --name "$APP" \
-            --resource-group "$RG" \
-            --image "$IMAGE" \
-            --output none
-        done
+        echo "applying endpoint_image_tag={{.IMAGE_TAG}} to {{.CLOUD_DIR}}"
+        terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings \
+          -var "region={{.REGION}}" \
+          -var "rai_base_policy_name={{.RAI_BASE_POLICY}}" \
+          -var "endpoint_image_tag={{.IMAGE_TAG}}"
+      - |
+        echo
+        echo "Put this in your .env so a later 'task cloud:up' does not roll the endpoints"
+        echo "back to the placeholder image:"
+        echo
+        echo "    ENDPOINT_IMAGE_TAG={{.IMAGE_TAG}}"
       - task: check-endpoints
+    vars:
+      REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
 
   check-endpoints:
     desc: Confirm both endpoints are live before trusting any run that uses them

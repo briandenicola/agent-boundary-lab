@@ -10,9 +10,22 @@ version: '3'
 
 env:
   CLOUD_DIR: infra/cloud
+  K8S_DIR: infra/k8s
+  # The agent image digest both agent versions must pin. Read the current value with
+  # `task build:agent-digest`. Override with AGENT_IMAGE_DIGEST=sha256:... if you rebuild.
+  #
+  # A tag will be rejected by a variable validation in infra/k8s. That is deliberate:
+  # tags are mutable, and two agent versions running different code makes the egress
+  # policy no longer the only variable between them.
+  AGENT_IMAGE_DIGEST: '{{default "sha256:0e4b5019cee0022d0892787bb09bb3f22465183e136a7b77e5866742161a4803" .AGENT_IMAGE_DIGEST}}'
   # Confirm the real value for your account with `task cloud:base-policies` before
   # applying. A custom RAI policy must derive from a base policy that actually exists.
   RAI_BASE_POLICY: '{{default "Microsoft.DefaultV2" .RAI_BASE_POLICY}}'
+  # Tag of the two controlled-endpoint images. EMPTY means "run the placeholder", which
+  # is correct on a first apply because the images do not exist in ACR yet. After
+  # `task build:deploy-endpoints`, set ENDPOINT_IMAGE_TAG=latest in your .env — the root
+  # Taskfile loads it — or `cloud:up` will roll both endpoints back to the placeholder.
+  ENDPOINT_IMAGE_TAG: '{{default "" .ENDPOINT_IMAGE_TAG}}'
 
 tasks:
   default:
@@ -45,7 +58,7 @@ tasks:
     desc: Show what would be created (creates nothing)
     cmds:
       - task: init
-      - terraform -chdir=./{{.CLOUD_DIR}} plan -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name={{.RAI_BASE_POLICY}}"
+      - terraform -chdir=./{{.CLOUD_DIR}} plan -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name={{.RAI_BASE_POLICY}}" -var "endpoint_image_tag={{.ENDPOINT_IMAGE_TAG}}"
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
 
@@ -53,7 +66,7 @@ tasks:
     desc: CREATES BILLABLE RESOURCES including an AKS cluster. Apply the environment
     cmds:
       - task: init
-      - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name={{.RAI_BASE_POLICY}}"
+      - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name={{.RAI_BASE_POLICY}}" -var "endpoint_image_tag={{.ENDPOINT_IMAGE_TAG}}"
       - task: endpoints
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
@@ -158,6 +171,125 @@ tasks:
         AKS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw aks_cluster_name)
         az aks get-credentials --resource-group "$RG" --name "$AKS" --overwrite-existing
 
+  app-insights-connection:
+    desc: Confirm the project is connected to Application Insights. Run this BEFORE trusting any run.
+    cmds:
+      # Read-only. Without this connection the platform layer is SILENT: docs/compatibility.md
+      # C1/C4 establish that a project connection to Application Insights is the only path
+      # egress decision records take. A run with no connection is inconclusive by
+      # construction, and it looks exactly like "the policy did nothing".
+      #
+      # Read from ARM rather than from terraform state: state is what terraform believes
+      # it wrote.
+      - |
+        set -eu
+        ACCOUNT_ID=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw foundry_account_id)
+        PROJECT=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw project_name)
+
+        FOUND=$(az rest --method get \
+          --url "https://management.azure.com${ACCOUNT_ID}/projects/${PROJECT}/connections?api-version=2026-05-15-preview" \
+          --query "value[?properties.category=='AppInsights'].{name:name, category:properties.category, authType:properties.authType, target:properties.target}" \
+          -o json)
+
+        echo "$FOUND"
+        echo
+
+        if [ "$(echo "$FOUND" | jq 'length')" -eq 0 ]; then
+          echo "NO APPLICATION INSIGHTS CONNECTION ON THIS PROJECT."
+          echo "Platform egress evidence will not be produced. Any run is INCONCLUSIVE."
+          echo "Apply infra/cloud and re-check."
+          exit 1
+        fi
+
+        if [ "$(echo "$FOUND" | jq -r '.[0].authType')" != "ApiKey" ]; then
+          echo "The connection exists but does not use ApiKey auth."
+          echo "azure/ai/projects/_patch_telemetry.py rejects anything else, so the"
+          echo "platform will not resolve a connection string. Treat as NOT connected."
+          exit 1
+        fi
+
+        echo "Connected, with ApiKey auth. The credential itself is not readable here and"
+        echo "does not need to be: this confirms the path exists, not that a record landed."
+        echo "Confirm actual evidence with the KQL in docs/demo-runbook.md after a run."
+
+  #############################################
+  # Client harness on AKS (infra/k8s)
+  #
+  # A separate terraform root module with its own state. It reads infra/cloud's outputs,
+  # so the cloud module must be applied first. Kept separate so that `cloud:plan` on an
+  # empty subscription still works: a kubernetes provider pointed at a cluster that does
+  # not exist yet cannot be configured at plan time.
+  #
+  # Needs `kubelogin` on PATH. The cluster has local accounts disabled, so there is no
+  # admin kubeconfig to fall back on. This is operator authentication only — nothing
+  # inside the pod uses a CLI.
+  #############################################
+
+  harness-init:
+    desc: Initialise terraform for the AKS client harness
+    cmds:
+      - terraform -chdir=./{{.K8S_DIR}} init -upgrade
+
+  harness-validate:
+    desc: Validate the harness terraform without contacting Azure or the cluster
+    cmds:
+      - terraform -chdir=./{{.K8S_DIR}} init -backend=false -input=false
+      - terraform -chdir=./{{.K8S_DIR}} validate
+
+  harness-plan:
+    desc: Show what the client harness would create (creates nothing)
+    cmds:
+      - task: _require-kubelogin
+      - task: harness-init
+      - terraform -chdir=./{{.K8S_DIR}} plan -compact-warnings -var "agent_image_digest={{.AGENT_IMAGE_DIGEST}}"
+
+  harness-up:
+    desc: CHANGES THE CLUSTER. Apply the client harness pod and its deploy init container
+    prompt: This creates the harness pod, whose init container publishes BOTH agent versions to the Foundry data plane. Continue?
+    cmds:
+      # The init container is what actually creates the agent versions, so this is the
+      # step that makes the policies apply to something. Until it has run, both RAI
+      # policies exist but are attached to nothing and nothing is enforced.
+      - task: _require-kubelogin
+      - task: harness-init
+      - terraform -chdir=./{{.K8S_DIR}} apply -auto-approve -compact-warnings -var "agent_image_digest={{.AGENT_IMAGE_DIGEST}}"
+      - task: harness-status
+
+  harness-status:
+    desc: Show the harness pod and the deploy init container's result
+    cmds:
+      # Needs a kubeconfig: run `task cloud:kubeconfig` once first.
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.K8S_DIR}} output -raw namespace)
+        DEP=$(terraform -chdir=./{{.K8S_DIR}} output -raw harness_deployment)
+        kubectl -n "$NS" get pods -l "app.kubernetes.io/name=${DEP}" -o wide
+        echo
+        echo "=== agent-deploy init container ==="
+        kubectl -n "$NS" logs "deployment/${DEP}" -c agent-deploy --tail=200 || \
+          echo "No init container logs yet. If the pod is stuck in Init:0/1, describe it."
+        echo
+        echo "An init container that exited 0 means a version was ACCEPTED. It does not"
+        echo "mean the RAI policy on that version is being enforced. Read the version back."
+
+  harness-down:
+    desc: Removes the harness pod and its namespace. Leaves the cluster and the agent versions alone.
+    prompt: This deletes the harness namespace. Agent versions already published stay published. Continue?
+    cmds:
+      - task: _require-kubelogin
+      - terraform -chdir=./{{.K8S_DIR}} destroy -auto-approve -var "agent_image_digest={{.AGENT_IMAGE_DIGEST}}"
+
+  _require-kubelogin:
+    internal: true
+    cmds:
+      - |
+        command -v kubelogin >/dev/null 2>&1 || {
+          echo "kubelogin not found on PATH."
+          echo "The cluster runs with local accounts disabled, so terraform cannot reach"
+          echo "the API server without it. Install it and retry."
+          exit 1
+        }
+
   down:
     desc: DELETES EVERYTHING this module created, and removes local state
     prompt: This deletes the entire demo environment including the AKS cluster and the Foundry account. Continue?
@@ -167,3 +299,6 @@ tasks:
       # still cleans up. The tag is the demo's own, never the spike's.
       - az group list --tag Application="{{.TITLE}}" --query "[].name" -o tsv | xargs --no-run-if-empty -ot -n 1 az group delete -y --no-wait -n || true
       - rm -rf terraform.tfstate.d .terraform.lock.hcl .terraform terraform.tfstate terraform.tfstate.backup .terraform.tfstate.lock.info terraform.tfstate.* || true
+      # The harness state describes objects inside a cluster that no longer exists. Left
+      # behind, the next `harness-plan` tries to refresh against a dead API server.
+      - rm -rf ../k8s/terraform.tfstate ../k8s/terraform.tfstate.backup ../k8s/.terraform ../k8s/.terraform.lock.hcl ../k8s/.terraform.tfstate.lock.info || true

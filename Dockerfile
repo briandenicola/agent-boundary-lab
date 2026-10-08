@@ -29,6 +29,21 @@ COPY src ./src
 
 RUN uv pip install --system --no-cache .
 
+# The agent-version deployer lives in its own interpreter, in this same image.
+#
+# Parker's init container runs the same digest-pinned image as the agent, so the deploy
+# module has to be here. But azure-ai-projects requires openai>=3, and resolving it
+# alongside the agent's dependencies drags litellm from 1.104 down to 1.83 and openai from
+# 2.54 up to 3.26. That would change the agent's own model stack as a side effect of the
+# deployer gaining a dependency, which is exactly the kind of uncontrolled variable this
+# demo exists to avoid.
+#
+# So it goes in a separate venv. One image, one digest, two isolated dependency sets. The
+# init container overrides the entrypoint to use this interpreter:
+#   command: ["/opt/deploy-venv/bin/python", "-m", "containment_demo.deploy"]
+RUN uv venv /opt/deploy-venv \
+    && VIRTUAL_ENV=/opt/deploy-venv uv pip install --no-cache ".[deploy]"
+
 # Run unprivileged. The container has no need to write anywhere outside /tmp.
 RUN useradd --create-home --uid 10001 agent
 USER 10001

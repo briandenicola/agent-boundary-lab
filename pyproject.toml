@@ -27,6 +27,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Only the in-VNet deploy Job needs this. It is kept out of the base dependencies on
+# purpose: azure-ai-projects requires openai>=3, the agent image does not need it, and
+# the agent image's digest is the experiment's control — it must not change because the
+# deployer gained a dependency.
+deploy = [
+    "azure-ai-projects>=2.8.0,<3",
+]
 services = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
@@ -37,7 +44,18 @@ services = [
 telemetry = [
     "azure-monitor-opentelemetry>=1.6",
 ]
+# Only the verification harness needs this: scripts/verify_demo.py reads receipt rows
+# back out of Log Analytics to prove the receipt pipeline was working during the run.
+# Kept out of the agent image for the same reason as `deploy` — the image digest is the
+# experiment's control.
+verify = [
+    "azure-monitor-query>=1.4",
+]
 dev = [
+    # Used by tests/unit/test_dependency_overrides.py to read declared constraints
+    # rather than string-matching them. Transitively present, declared so the guard
+    # does not depend on another package's dependency tree.
+    "packaging>=24",
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "respx>=0.21",
@@ -47,6 +65,9 @@ dev = [
     "uvicorn[standard]>=0.32",
     "starlette>=0.40",
 ]
+
+[project.scripts]
+deploy-agents = "containment_demo.deploy:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/containment_demo", "services"]
@@ -97,4 +118,11 @@ packages = ["containment_demo"]
 mypy_path = "src"
 strict = true
 warn_unused_ignores = true
+
+# azure-ai-projects is an optional extra and is not installed in the default dev
+# environment. Versions before 2.x also ship without a py.typed marker.
+[[tool.mypy.overrides]]
+module = ["azure.ai.projects.*", "azure.ai.projects"]
+ignore_missing_imports = true
+follow_imports = "skip"
 

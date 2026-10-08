@@ -469,6 +469,60 @@ is independent of egress enforcement, but it is a real operational constraint on
 - Verified by source inspection; no Learn page documents this payload.
 - https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/add-hosted-agent-guardrails
 
+### B9a. The Python SDK surface we actually deploy with
+
+Verified 2026-10-08 by reading **azure-ai-projects 2.8.0** source (the newest copy on this
+machine, at
+`/home/brian/code/foundry-infrastructure-design/src/hosted_agents/simple/.venv/lib/python3.14/site-packages/azure/ai/projects/`).
+The package is **not** in this repo's default environment; it is the optional `deploy`
+extra, because it requires `openai>=3` and the agent image must not gain a dependency it
+does not use. Since the agent image digest is the experiment's control, the deployer and
+the agent are deliberately different images.
+
+| Thing | Verified symbol | Source |
+| --- | --- | --- |
+| Client | `AIProjectClient(endpoint, credential, allow_preview=True)` | `_client.py:40`, `_patch.py:157` |
+| Endpoint form | `https://{account}.services.ai.azure.com/api/projects/{project}` | `_configuration.py:26` |
+| Token scope | `https://ai.azure.com/.default` (client default) | `_configuration.py:57` |
+| Create | `client.agents.create_version(agent_name, definition=, description=, metadata=)` → `AgentVersionDetails` | `operations/_operations.py:5441` |
+| Read back | `client.agents.get_version(agent_name, agent_version)` | `operations/_operations.py:5891` |
+| Enumerate | `client.agents.list_versions(agent_name)` | `operations/_operations.py:6042` |
+| Definition | `HostedAgentDefinition(cpu=, memory=, rai_config=, environment_variables=, container_configuration=, protocol_versions=)` | `models/_models.py:12344` |
+| Policy | `RaiConfig(rai_policy_name=<full ARM id>)` | `models/_models.py:16765` |
+| Image | `ContainerConfiguration(image=, registry_connection_id=)` | `models/_models.py:7230` |
+| Protocol | `ProtocolVersionRecord(protocol=, version=)`; protocols include `responses`, `invocations` | `models/_models.py:16657` |
+| Readiness | `AgentVersionDetails.status` ∈ creating / active / failed / deleting / deleted | `models/_enums.py:380` |
+
+**B4 confirmed in code.** `RaiConfig.rai_policy_name` is a plain `rest_field` with no
+`name=` override, so the wire name is snake_case `rai_policy_name`, and it hangs off
+`HostedAgentDefinition`. Setting a policy through the SDK is therefore possible, which the
+CLI cannot do.
+
+**Three corrections to B9, which describes the az CLI's `2025-11-15-preview` shape.** The
+SDK 2.8.0 shape differs and the SDK is what ships:
+
+1. The image is nested: `definition.container_configuration.image`, not a flat
+   `definition.image`.
+2. Protocols are `definition.protocol_versions`, not `container_protocol_versions`.
+3. There is **no container start operation** on `AgentsOperations` — no
+   `containers/default:start` equivalent. Provisioning is observed by polling
+   `get_version(...).status` until `active`. The group exposes `enable` / `disable` on the
+   agent, and session operations, but nothing that starts a container.
+   `AIProjectClientConfiguration.api_version` defaults to `"v1"` with a separate
+   `allow_preview` flag rather than an explicit preview date string.
+
+**Digest question — partially resolved.** `ContainerConfiguration.image` is an unvalidated
+`str`; the SDK applies none of the az CLI's `_validate_image_tag` logic, so a
+`repo@sha256:<64 hex>` reference is accepted client-side and the version name is assigned
+by the service rather than derived from the tag. The CLI's "the tag becomes the version
+name" problem does not exist on this path. **Server-side acceptance is still NOT
+VERIFIED** — it cannot be, without a call from inside the VNet. `containment_demo.deploy`
+requires a digest, has no tag fallback, and raises `DigestRejectedError` telling the
+operator to stop and record the exact error here if the service refuses it.
+
+- Verified by reading installed package source on 2026-10-08; line numbers are for 2.8.0.
+- https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/add-hosted-agent-guardrails
+
 ### C1. Where egress decisions surface
 
 Application Insights **`traces`** table, filtered on a literal message string:
@@ -520,6 +574,74 @@ Consequence: we must not claim an OTLP export carries platform decisions. Projec
 Application Insights must be enabled regardless.
 
 - https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/configure-hosted-agent-telemetry
+
+### C5. Linking Application Insights to the project — VERIFIED SCHEMA
+
+Accessed **2026-10-08**. Read from installed SDK source under
+`/opt/az/lib/python3.14/site-packages`, and cross-checked against a live project
+connection read back from ARM on a sibling Foundry account in the same subscription. No
+Learn page documents this payload.
+
+C1 and C4 establish that a project connection to Application Insights is the only path
+platform egress decision records take. Without it the platform layer is **silent**, which
+is indistinguishable from "the policy did nothing" and makes every run inconclusive by
+construction.
+
+| Item | Verified value | Source |
+| --- | --- | --- |
+| Resource type | `Microsoft.CognitiveServices/accounts/projects/connections` | `azure/mgmt/cognitiveservices/operations/_operations.py:2510` |
+| API version | `2026-05-15-preview` | `azure/mgmt/cognitiveservices/_configuration.py:51` |
+| Scope | child of the **project**, not the account | same URL template |
+| `properties.category` | `"AppInsights"` | `models/_enums.py:481` (`ConnectionCategory.APP_INSIGHTS`) |
+| `properties.authType` | `"ApiKey"` | discriminator on `ApiKeyAuthConnectionProperties`, `models/_models.py:1563` |
+| `properties.credentials` | `{ "key": "<connection string>" }` | `ConnectionApiKey`, `models/_models.py:3207` |
+
+```json
+{
+  "properties": {
+    "category": "AppInsights",
+    "authType": "ApiKey",
+    "target": "<Application Insights ARM resource id>",
+    "isSharedToAll": false,
+    "credentials": { "key": "<Application Insights connection string>" }
+  }
+}
+```
+
+**The "API key" is the Application Insights connection string.** Not an instrumentation
+key, not a resource id. This is settled by the consumer, not by the ARM schema:
+`azure/ai/projects/operations/_patch_telemetry.py:44-66` — the SDK call that resolves a
+project's Application Insights — lists connections of type `AppInsights`, takes the first,
+and then
+
+```python
+if isinstance(connection.credentials, ApiKeyCredentials): ...
+else: raise ValueError("... does not use API Key credentials.")
+self._connection_string = connection.credentials.api_key
+```
+
+with `api_key` serialised as the wire field `key`
+(`azure/ai/projects/models/_models.py:66`).
+
+**Two traps.**
+
+1. **An `AAD` or `ManagedIdentity` connection applies cleanly and then does nothing.** ARM
+   accepts it; the consumer above raises `ValueError` and no connection string is ever
+   resolved. The category being right is not sufficient.
+2. **There can be at most one.** The same file: *"Note: there can't be more than one
+   AppInsights connection."* One resource, no `count`.
+
+**NOT VERIFIED:** what `target` should hold for this category. The SDK docstring gives
+`target` examples for `AzureOpenAI`, `CognitiveService` and `CognitiveSearch` only, and no
+`AppInsights` connection existed anywhere in the subscription to read back. We set the
+Application Insights ARM resource id, mirroring how a live `AzureOpenAI` connection
+carries its resource id in `metadata.ResourceId`. The telemetry read path never touches
+`target`, so a wrong value here cannot silence the evidence.
+
+Implemented in `infra/cloud/project-connections.tf`. Confirm after applying with
+`task cloud:app-insights-connection` — which also fails if the auth type is not `ApiKey`,
+for trap 1 above.
+
 
 ---
 
