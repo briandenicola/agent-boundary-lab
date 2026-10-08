@@ -38,8 +38,15 @@ docs/compatibility.md B9):
 * ``RaiConfig(rai_policy_name=<full ARM resource id>)`` (``models/_models.py:16765``).
 * ``ContainerConfiguration(image=, registry_connection_id=)`` (``models/_models.py:7230``).
 * ``ProtocolVersionRecord(protocol=, version=)`` (``models/_models.py:16657``).
-* ``AgentVersionStatus``: creating / active / failed / deleting / deleted
-  (``models/_enums.py:380``).
+
+**Do not take the status vocabulary from the SDK.** ``AgentVersionStatus``
+(``models/_enums.py:380``) declares creating / active / failed / deleting / deleted and
+is INCOMPLETE relative to the running service, which also returns ``running`` and, per
+the reference implementation, ``starting`` and ``updating``. An earlier revision of this
+file cited that enum here and used it to derive the success condition, and consequently
+polled a healthy agent version for 45 minutes without ever accepting it. The authoritative
+source for status values is observed service behaviour — see ``_READY_STATUSES`` below and
+docs/compatibility.md B9b.
 
 The SDK is imported lazily, in one place, so the unit tests run with no Azure package,
 no credentials, and no network.
@@ -49,6 +56,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import sys
 import time
@@ -75,8 +83,31 @@ _RAI_POLICY_ID = re.compile(
     re.IGNORECASE,
 )
 
-_TERMINAL_OK = "active"
-_TERMINAL_BAD = frozenset({"failed", "deleting", "deleted"})
+# Agent version statuses — taken from OBSERVED LIVE SERVICE BEHAVIOUR, not from a type.
+#
+# PRIMARY SOURCE: Brian's production deployer,
+# briandenicola/banking-agent-foundry-orchestrator, src/agents/deployer/deploy.py
+# lines 20-21, read 2026-10-08:
+#
+#     READY_STATUSES   = {"active", "running"}
+#     PENDING_STATUSES = {"creating", "starting", "updating"}
+#
+# CORROBORATION: the Azure portal showed containment-demo-audit v1 as "Running" on
+# 2026-10-08 while it was in fact healthy and serving.
+#
+# THE SDK ENUM IS INCOMPLETE AND MUST NOT BE TREATED AS AUTHORITATIVE.
+# ``AgentVersionStatus`` (azure-ai-projects 2.8.0, models/_enums.py:380) declares only
+# creating / active / failed / deleting / deleted. It contains no "running", "starting"
+# or "updating". This module previously derived ``_TERMINAL_OK = "active"`` from that
+# enum, and as a result polled a healthy version for 45 minutes without ever accepting
+# it. A generated type definition describes what the SDK was generated against, not what
+# the service returns today. See docs/compatibility.md B9b.
+_READY_STATUSES = frozenset({"active", "running"})
+_PENDING_STATUSES = frozenset({"creating", "starting", "updating"})
+# Stricter than the reference, which fails fast only on "failed". A version being deleted
+# or already deleted can never become ready, so waiting on it is pure dead time.
+_FAILED_STATUSES = frozenset({"failed", "deleting", "deleted"})
+_KNOWN_STATUSES = _READY_STATUSES | _PENDING_STATUSES | _FAILED_STATUSES
 
 
 class DeploymentError(RuntimeError):
@@ -99,6 +130,16 @@ class DriftError(DeploymentError):
     Raised when a deployed version does not carry the policy we asked for, or when the
     two agents reference different images. Either one invalidates the experiment, so it
     must be loud rather than logged.
+    """
+
+
+class UnrecognisedStatusError(DeploymentError):
+    """The service reported a version status we have never seen.
+
+    Not in ``_READY_STATUSES``, ``_PENDING_STATUSES`` or ``_FAILED_STATUSES``.
+    Deliberately not treated as success and deliberately not waited on forever. Record
+    the verbatim value in docs/compatibility.md B9b with the date observed, then decide
+    which set it belongs in.
     """
 
 
@@ -160,14 +201,40 @@ class DeploySettings(BaseSettings):
     # --- Call behaviour -----------------------------------------------------------------
 
     deploy_timeout_seconds: float = Field(
-        default=900.0,
+        default=120.0,
         gt=0,
-        le=3600,
-        description="Bound on waiting for a version to become active. There is no "
-        "unbounded wait; a hung provision is a failure, not a pending success.",
+        le=600,
+        description="Bound on waiting for a version to reach a known-good status. "
+        "120s because an observed healthy hosted-agent version provisioned in well under "
+        "a minute (2026-10-08, containment-demo-audit v1), so 120s is already twice the "
+        "only provisioning time we have measured. The 600s ceiling is five times that "
+        "again and exists only so a genuinely degraded region can be waited out "
+        "deliberately; the previous 3600s ceiling could hide a hang for an hour. There is "
+        "no unbounded wait: a hung provision is a failure, not a pending success.",
     )
-    deploy_poll_seconds: float = Field(default=10.0, gt=0, le=120)
-    deploy_request_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
+    deploy_poll_seconds: float = Field(
+        default=3.0,
+        gt=0,
+        le=30,
+        description="3s gives ~40 observations inside the default 120s budget, which is "
+        "enough resolution to see a status transition rather than infer one.",
+    )
+    deploy_request_timeout_seconds: float = Field(
+        default=15.0,
+        gt=0,
+        le=60,
+        description="Per-request connect and read timeout. Kept well inside the overall "
+        "budget: the poll loop is single-threaded and cannot observe its own deadline "
+        "while blocked inside an HTTP call.",
+    )
+    deploy_retry_total: int = Field(
+        default=2,
+        ge=0,
+        le=5,
+        description="Explicit cap on azure-core's retry policy. The default of 10 with a "
+        "120s backoff ceiling lets a single call absorb many minutes, which is the one "
+        "mechanism in this module that can defer the deadline past its bound.",
+    )
 
     @field_validator("agent_image")
     @classmethod
@@ -294,18 +361,61 @@ def _policy_of(definition: Any) -> str | None:
     return getattr(rai, "rai_policy_name", None) if rai is not None else None
 
 
+def _raw_status(version: Any) -> Any:
+    """The status exactly as the SDK handed it over, untouched.
+
+    Kept separate from the normalised form so that logs and error messages can quote the
+    verbatim value. The verbatim value is the single most important diagnostic this
+    module produces; normalising before logging it is how a 45-minute hang becomes
+    unexplainable.
+    """
+    return getattr(version, "status", None)
+
+
+def _normalise_status(raw: Any) -> str:
+    """Normalise a status to the lowercase wire value for comparison.
+
+    ``AgentVersionDetails.status`` is typed ``Optional[Union[str, AgentVersionStatus]]``
+    and the SDK's behaviour differs by value. Verified 2026-10-08 against
+    azure-ai-projects 2.8.0 by deserialising each case:
+
+    * A value the enum knows is coerced to the enum member. ``"active"`` becomes
+      ``AgentVersionStatus.ACTIVE``, and because that is a ``(str, Enum)`` mixin,
+      ``str(member)`` returns ``'AgentVersionStatus.ACTIVE'``. The previous
+      ``str(status).lower()`` therefore produced ``'agentversionstatus.active'``, which
+      could never equal ``'active'`` — so this poller could not terminate on success even
+      when the service said ``active``.
+    * A value the enum does not know passes through as a plain ``str``, unmangled.
+      ``"Running"`` deserialises to ``'Running'``; the ``CaseInsensitiveEnumMeta`` lookup
+      raises rather than silently mapping it to something else.
+
+    So ``.value`` is read first, with the raw object as the fallback. That is correct for
+    both cases and loses nothing.
+    """
+    if raw is None:
+        return ""
+    value = getattr(raw, "value", raw)
+    return str(value).strip().lower()
+
+
 def _status_of(version: Any) -> str:
-    status = getattr(version, "status", None)
-    return str(status).lower() if status is not None else ""
+    return _normalise_status(_raw_status(version))
 
 
 def find_matching_version(versions: Iterable[Any], image: str, rai_policy_id: str) -> Any | None:
     """Return an existing version that is already exactly what we would create.
 
-    "Matching" means same image digest *and* same policy, and not in a terminal-bad
-    state. A version that differs in either respect is left alone and a new one is
+    "Matching" means same image digest *and* same policy *and* a status that can still
+    become ready. A version that differs in either respect is left alone and a new one is
     created; we never mutate an existing version, because that would make the deployed
     artefact unauditable.
+
+    The status filter is an allowlist of ready-or-pending, matching the reference
+    implementation (``_find_matching_version``, reference lines 333-334 and 371-372),
+    rather than a denylist of bad states. A version in an unrecognised status is
+    therefore not reused: we do not know whether it can ever become ready, and adopting
+    it would hide the unrecognised value instead of surfacing it. A pending version IS
+    reused and then waited on, which is the stuck-``creating`` case.
     """
     for version in versions:
         definition = getattr(version, "definition", None)
@@ -315,7 +425,7 @@ def find_matching_version(versions: Iterable[Any], image: str, rai_policy_id: st
             continue
         if _policy_of(definition) != rai_policy_id:
             continue
-        if _status_of(version) in _TERMINAL_BAD:
+        if _status_of(version) not in _READY_STATUSES | _PENDING_STATUSES:
             continue
         return version
     return None
@@ -362,7 +472,31 @@ def _create_version(client: Any, spec: AgentSpec, definition: Any, run_id: str) 
         ) from exc
 
 
-def wait_until_active(
+def poll_attempts(timeout_seconds: float, poll_seconds: float) -> int:
+    """How many polls fit in the budget.
+
+    Derived from the two configured values so the iteration bound and the time budget
+    cannot disagree with each other. At the defaults this is ceil(120 / 3) = 40.
+
+    ``DeploySettings`` enforces ``poll_seconds > 0``; the guard here exists so that a
+    caller passing zero gets one bounded poll rather than a ZeroDivisionError from inside
+    a deployment.
+    """
+    if poll_seconds <= 0:
+        return 1
+    return max(1, math.ceil(timeout_seconds / poll_seconds))
+
+
+def _service_error_of(version: Any) -> Any:
+    """Whatever the service attached to a failure, for verbatim inclusion in the error."""
+    for attribute in ("error", "last_error", "status_details"):
+        value = getattr(version, attribute, None)
+        if value is not None:
+            return value
+    return None
+
+
+def wait_until_ready(
     client: Any,
     agent_name: str,
     version_id: str,
@@ -372,28 +506,116 @@ def wait_until_active(
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> Any:
-    """Poll until the version is active, or fail.
+    """Poll until the version reports a ready status, or fail. Bounded by iteration count.
 
-    The only success is the literal ``active`` status. A timeout is a failure, not an
-    optimistic pass: an agent still provisioning has not demonstrated anything.
+    Modelled directly on Brian's production deployer
+    (briandenicola/banking-agent-foundry-orchestrator, src/agents/deployer/deploy.py
+    lines 417-433), which is working against this same service.
+
+    Three properties, each one a thing this function previously got wrong:
+
+    **It is a bounded loop, not ``while True``.** A ``for`` over a computed attempt count
+    cannot fail to terminate. The previous version used ``while True`` with a wall-clock
+    deadline and did not terminate for 45 minutes on 2026-10-08 despite a 900s bound, for
+    reasons never established. A bounded loop removes that entire failure class rather
+    than relying on an explanation. The wall-clock deadline is kept as well, as whichever
+    trips first, but the iteration bound is the structural guarantee.
+
+    **It logs the status on every single poll**, flushed, with agent, version, attempt and
+    elapsed time. The previous version computed the status and logged nothing, so a
+    healthy deployment and a hung one produced byte-identical output: silence. The status
+    string is the single most important diagnostic this module produces.
+
+    **Ready means ready as the service reports it**, from ``_READY_STATUSES``, which comes
+    from observed live behaviour rather than from the SDK's incomplete enum.
+
+    A timeout is a FAILURE and never an optimistic pass: a version that has not reported
+    ready has demonstrated nothing.
     """
-    deadline = monotonic() + timeout_seconds
-    while True:
+    started = monotonic()
+    deadline = started + timeout_seconds
+    attempts = poll_attempts(timeout_seconds, poll_seconds)
+    status = ""
+    raw: Any = None
+    unrecognised: str | None = None
+
+    for attempt in range(1, attempts + 1):
         version = client.agents.get_version(agent_name, version_id)
-        status = _status_of(version)
-        if status == _TERMINAL_OK:
+        raw = _raw_status(version)
+        status = _normalise_status(raw)
+        elapsed = monotonic() - started
+
+        # Every poll, unconditionally. This is the line whose absence cost 45 minutes.
+        logger.info(
+            "%s: version %s status=%r attempt=%d/%d elapsed=%.1fs",
+            agent_name,
+            version_id,
+            status,
+            attempt,
+            attempts,
+            elapsed,
+        )
+
+        if status in _READY_STATUSES:
+            logger.info(
+                "%s: version %s is ready (status=%r) after %.1fs",
+                agent_name,
+                version_id,
+                status,
+                elapsed,
+            )
             return version
-        if status in _TERMINAL_BAD:
+
+        if status in _FAILED_STATUSES:
             raise DeploymentError(
-                f"{agent_name} version {version_id} reached terminal status {status!r}. "
+                f"{agent_name}: version {version_id} reached terminal status {status!r} "
+                f"after {elapsed:.1f}s. Service error: {_service_error_of(version)!r}. "
                 "Not retrying: a failed provision is a real result."
             )
-        if monotonic() >= deadline:
-            raise DeploymentError(
-                f"{agent_name} version {version_id} was still {status!r} after "
-                f"{timeout_seconds}s. Treating a timeout as a failure, not a pass."
+
+        if status not in _KNOWN_STATUSES:
+            # Loudly, every time it is seen -- not once and then silently tolerated.
+            unrecognised = status
+            logger.warning(
+                "%s: version %s UNRECOGNISED status %r (verbatim %r) attempt=%d/%d. "
+                "Not in ready %s, pending %s or failed %s. Not treating it as success. "
+                "Record the verbatim value in docs/compatibility.md B9b.",
+                agent_name,
+                version_id,
+                status,
+                raw,
+                attempt,
+                attempts,
+                sorted(_READY_STATUSES),
+                sorted(_PENDING_STATUSES),
+                sorted(_FAILED_STATUSES),
             )
+
+        if monotonic() >= deadline:
+            break
+
         sleep(poll_seconds)
+
+    if unrecognised is not None:
+        raise UnrecognisedStatusError(
+            f"{agent_name}: version {version_id} reported status {unrecognised!r} "
+            f"(verbatim {raw!r}), which is in none of the known sets "
+            f"({sorted(_KNOWN_STATUSES)}), and was still reporting it after "
+            f"{attempts} polls / {timeout_seconds}s. Refusing to guess: widening the "
+            "ready set to make a run pass would invalidate every result from it. Record "
+            "this exact string in docs/compatibility.md B9b with today's date, then "
+            "decide which set it belongs in."
+        )
+    raise DeploymentError(
+        f"{agent_name}: timed out waiting for version {version_id} to become ready. "
+        f"Last status {status!r} after {attempts} polls / {timeout_seconds}s. "
+        "Treating a timeout as a failure, not a pass."
+    )
+
+
+# The old name, kept because the semantics are unchanged for callers: wait for the
+# version to be usable, or raise.
+wait_until_active = wait_until_ready
 
 
 def deploy_agent(
@@ -413,18 +635,27 @@ def deploy_agent(
     if existing is not None:
         version_id = str(existing.version)
         reused = True
+        # %-args, not `extra=`. `extra` populates LogRecord attributes that the default
+        # formatter never renders, so these lines previously printed no agent or version.
         logger.info(
-            "Reusing existing version",
-            extra={"agent": spec.agent_name, "version": version_id},
+            "%s: reusing existing version %s (status=%r)",
+            spec.agent_name,
+            version_id,
+            _status_of(existing),
         )
     else:
         definition = build_definition(models, cfg, settings, spec)
         created = _create_version(client, spec, definition, settings.demo_run_id)
         version_id = str(created.version)
         reused = False
-        logger.info("Created version", extra={"agent": spec.agent_name, "version": version_id})
+        logger.info(
+            "%s: created version %s (status=%r)",
+            spec.agent_name,
+            version_id,
+            _status_of(created),
+        )
 
-    active = wait_until_active(
+    ready = wait_until_ready(
         client,
         spec.agent_name,
         version_id,
@@ -433,7 +664,7 @@ def deploy_agent(
         sleep=sleep,
         monotonic=monotonic,
     )
-    return verify_version(active, cfg, spec, reused=reused)
+    return verify_version(ready, cfg, spec, reused=reused)
 
 
 def verify_version(
@@ -527,6 +758,7 @@ def build_client(cfg: DeploySettings) -> tuple[Any, Any]:
         allow_preview=True,
         connection_timeout=cfg.deploy_request_timeout_seconds,
         read_timeout=cfg.deploy_request_timeout_seconds,
+        retry_total=cfg.deploy_retry_total,
     )
     return client, models
 
@@ -577,11 +809,49 @@ def deploy_all(
     return DeployReport(endpoint=cfg.endpoint, image=cfg.agent_image, results=results)
 
 
+def configure_logging() -> None:
+    """Make our own lines visible and stop the SDK from burying them.
+
+    azure-core's ``http_logging_policy`` logs request and response headers for every
+    call. During the 2026-10-08 incident that filled the init container's log while the
+    one line that mattered — the observed status — was never emitted at all, so the
+    container looked busy and healthy while telling us nothing. Our lines are INFO; the
+    SDK's per-request chatter is turned down to WARNING.
+
+    ``force=True`` because a library import may already have installed a root handler.
+    Output is unbuffered line-by-line so ``kubectl logs -f`` shows progress live, which
+    is what ``flush=True`` buys the reference implementation.
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        stream=sys.stdout,
+        force=True,
+    )
+    for noisy in (
+        "azure.core.pipeline.policies.http_logging_policy",
+        "azure.identity",
+    ):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        reconfigure(line_buffering=True)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Entrypoint for the in-VNet deploy Job / init container."""
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    configure_logging()
     cfg = DeploySettings()  # type: ignore[call-arg]
     settings = Settings()  # type: ignore[call-arg]
+
+    logger.info(
+        "deploying image %s to %s (timeout=%.0fs poll=%.0fs -> %d polls max)",
+        cfg.agent_image,
+        cfg.endpoint,
+        cfg.deploy_timeout_seconds,
+        cfg.deploy_poll_seconds,
+        poll_attempts(cfg.deploy_timeout_seconds, cfg.deploy_poll_seconds),
+    )
 
     client, models = build_client(cfg)
     try:
@@ -589,6 +859,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except DigestRejectedError as exc:
         logger.error("BLOCKED: %s", exc)
         return 3
+    except UnrecognisedStatusError as exc:
+        logger.error("BLOCKED, unrecognised status: %s", exc)
+        return 4
     except DeploymentError as exc:
         logger.error("FAILED: %s", exc)
         return 1
@@ -597,7 +870,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if callable(close):
             close()
 
-    print(report.to_json())
+    print(report.to_json(), flush=True)
     return 0
 
 

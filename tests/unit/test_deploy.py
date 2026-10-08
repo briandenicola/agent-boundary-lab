@@ -10,22 +10,29 @@ then it only constructs model objects in memory.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
 from containment_demo.deploy import (
+    DeploymentError,
     DeploySettings,
     DigestRejectedError,
     DriftError,
+    UnrecognisedStatusError,
+    _normalise_status,
+    _status_of,
     build_definition,
     build_environment,
     deploy_all,
     find_matching_version,
     plan,
-    wait_until_active,
+    poll_attempts,
+    wait_until_ready,
 )
 from containment_demo.settings import PolicyMode, Settings
 
@@ -84,7 +91,11 @@ class FakeModels:
 class FakeVersion:
     version: str
     definition: FakeHostedAgentDefinition | None
-    status: str = "active"
+    status: Any = "active"
+    error: Any = None
+    # Set only for versions the fake itself created: they report creating once and then
+    # reach active, which is what the service does on a healthy deployment.
+    auto_ready: bool = False
 
 
 @dataclass
@@ -93,6 +104,7 @@ class FakeAgentsOperations:
     statuses: dict[str, list[str]] = field(default_factory=dict)
     created: list[tuple[str, FakeHostedAgentDefinition]] = field(default_factory=list)
     create_error: Exception | None = None
+    get_version_calls: int = 0
 
     def list_versions(self, agent_name: str) -> list[FakeVersion]:
         from azure.core.exceptions import ResourceNotFoundError
@@ -108,19 +120,25 @@ class FakeAgentsOperations:
         self.created.append((agent_name, definition))
         siblings = self.existing.setdefault(agent_name, [])
         version = FakeVersion(
-            version=str(len(siblings) + 1), definition=definition, status="creating"
+            version=str(len(siblings) + 1),
+            definition=definition,
+            status="creating",
+            auto_ready=True,
         )
         siblings.append(version)
         return version
 
     def get_version(self, agent_name: str, agent_version: str) -> FakeVersion:
+        self.get_version_calls += 1
         versions = self.existing[agent_name]
         match = next(v for v in versions if v.version == agent_version)
         queued = self.statuses.get(agent_name)
         if queued:
             match.status = queued.pop(0)
-        else:
+        elif match.auto_ready:
             match.status = "active"
+        # Otherwise the last reported status is sticky: a service does not silently
+        # become active just because the test ran out of scripted values.
         return match
 
 
@@ -355,55 +373,159 @@ def test_new_digest_creates_a_new_version() -> None:
     assert len(client.agents.created) == 2
 
 
-# --- waiting ------------------------------------------------------------------------------
+# --- waiting: the 2026-10-08 incident ------------------------------------------------------
+#
+# A healthy version was polled for 45 minutes and never accepted, and the loop emitted
+# nothing about what it saw. Every test here covers one property of that failure.
 
 
-def test_wait_returns_once_active() -> None:
-    client = FakeClient()
-    client.agents.existing["a"] = [FakeVersion("1", None, status="creating")]
-    client.agents.statuses["a"] = ["creating", "creating", "active"]
-    version = wait_until_active(
+def _wait(client: FakeClient, agent: str = "a", *, timeout: float = 12.0, poll: float = 3.0) -> Any:
+    return wait_until_ready(
         client,
-        "a",
+        agent,
         "1",
-        timeout_seconds=100,
-        poll_seconds=0,
+        timeout_seconds=timeout,
+        poll_seconds=poll,
         sleep=lambda _: None,
         monotonic=_FakeClock(),
     )
-    assert version.status == "active"
 
 
-def test_failed_provisioning_is_a_failure() -> None:
+def _version_reporting(*statuses: str) -> FakeClient:
     client = FakeClient()
-    client.agents.existing["a"] = [FakeVersion("1", None, status="creating")]
-    client.agents.statuses["a"] = ["failed"]
-    with pytest.raises(Exception, match="terminal status"):
-        wait_until_active(
-            client,
-            "a",
-            "1",
-            timeout_seconds=100,
-            poll_seconds=0,
-            sleep=lambda _: None,
-            monotonic=_FakeClock(),
-        )
+    client.agents.existing["a"] = [FakeVersion("1", None, status=statuses[0])]
+    client.agents.statuses["a"] = list(statuses)
+    return client
+
+
+@pytest.mark.parametrize("ready", ["active", "running"])
+def test_ready_set_accepts_both_observed_values(ready: str) -> None:
+    """`running` is what the live service returned on 2026-10-08.
+
+    It is NOT in the SDK's AgentVersionStatus enum. Brian's production deployer
+    (banking-agent-foundry-orchestrator, src/agents/deployer/deploy.py:20) has
+    READY_STATUSES = {"active", "running"}. The enum is incomplete; the service is right.
+    """
+    version = _wait(_version_reporting("creating", ready))
+    assert _status_of(version) == ready
+
+
+@pytest.mark.parametrize("ready", ["Running", "ACTIVE"])
+def test_ready_match_is_case_insensitive(ready: str) -> None:
+    """The portal showed `Running` with a capital R."""
+    assert _wait(_version_reporting(ready)) is not None
+
+
+def test_enum_valued_status_is_matched_not_stringified() -> None:
+    """The SDK coerces known values to a (str, Enum) member.
+
+    `str(AgentVersionStatus.ACTIVE)` is 'AgentVersionStatus.ACTIVE', so the original
+    `str(status).lower()` produced 'agentversionstatus.active' and could never match.
+    Verified against azure-ai-projects 2.8.0 on 2026-10-08.
+    """
+
+    # (str, Enum) deliberately, not StrEnum: this must reproduce the SDK's own mixin,
+    # where str(member) returns the qualified name. StrEnum would not show the bug.
+    class StatusEnum(str, Enum):  # noqa: UP042
+        ACTIVE = "active"
+
+    assert str(StatusEnum.ACTIVE).lower() != "active"  # the original bug, reproduced
+    assert _normalise_status(StatusEnum.ACTIVE) == "active"
+    assert _wait(_version_reporting(StatusEnum.ACTIVE)) is not None  # type: ignore[arg-type]
+
+
+def test_pending_statuses_keep_waiting() -> None:
+    for pending in ("creating", "starting", "updating"):
+        assert _wait(_version_reporting(pending, "active")) is not None
+
+
+def test_failed_raises_immediately_without_exhausting_the_bound() -> None:
+    client = _version_reporting("failed")
+    with pytest.raises(DeploymentError, match="terminal status"):
+        _wait(client, timeout=300.0)
+    assert client.agents.get_version_calls == 1
+
+
+def test_failed_includes_the_service_error_payload() -> None:
+    client = _version_reporting("failed")
+    client.agents.existing["a"][0].error = {"code": "ImagePullFailure"}
+    with pytest.raises(DeploymentError, match="ImagePullFailure"):
+        _wait(client)
 
 
 def test_timeout_is_a_failure_not_a_pass() -> None:
-    client = FakeClient()
-    client.agents.existing["a"] = [FakeVersion("1", None, status="creating")]
-    client.agents.statuses["a"] = ["creating"] * 50
-    with pytest.raises(Exception, match="Treating a timeout as a failure"):
-        wait_until_active(
+    with pytest.raises(DeploymentError, match="Treating a timeout as a failure"):
+        _wait(_version_reporting(*["creating"] * 200))
+
+
+def test_the_loop_is_bounded_by_iteration_count() -> None:
+    """A bounded `for` cannot fail to terminate, which `while True` demonstrably did.
+
+    The clock is frozen, so a wall-clock deadline alone would never trip. The loop must
+    still stop.
+    """
+    client = _version_reporting(*["creating"] * 500)
+    with pytest.raises(DeploymentError):
+        wait_until_ready(
             client,
             "a",
             "1",
-            timeout_seconds=3,
-            poll_seconds=0,
+            timeout_seconds=12.0,
+            poll_seconds=3.0,
             sleep=lambda _: None,
-            monotonic=_FakeClock(),
+            monotonic=lambda: 0.0,
         )
+    assert client.agents.get_version_calls == poll_attempts(12.0, 3.0) == 4
+
+
+def test_the_bound_is_derived_from_timeout_and_poll_interval() -> None:
+    assert poll_attempts(120.0, 3.0) == 40
+    assert poll_attempts(12.0, 3.0) == 4
+    assert poll_attempts(1.0, 3.0) == 1
+    assert poll_attempts(120.0, 0) == 1  # never a ZeroDivisionError mid-deployment
+
+
+def test_unknown_status_is_surfaced_and_still_bounded() -> None:
+    client = _version_reporting(*["wedged-new-status"] * 200)
+    with pytest.raises(UnrecognisedStatusError, match="wedged-new-status"):
+        _wait(client)
+    assert client.agents.get_version_calls == poll_attempts(12.0, 3.0)
+
+
+def test_unknown_status_is_never_treated_as_success() -> None:
+    with pytest.raises(UnrecognisedStatusError):
+        _wait(_version_reporting("succeeded"))
+
+
+def test_unknown_status_that_later_becomes_ready_still_succeeds() -> None:
+    assert _wait(_version_reporting("brand-new-pending-name", "running")) is not None
+
+
+def test_status_is_logged_on_every_poll(caplog: pytest.LogCaptureFixture) -> None:
+    """Defect 1. Silence is what made a healthy deploy indistinguishable from a hang."""
+    caplog.set_level(logging.INFO, logger="containment_demo.deploy")
+    _wait(_version_reporting("creating", "creating", "running"))
+
+    polls = [r for r in caplog.records if "status=" in r.getMessage()]
+    assert len(polls) >= 3
+    assert "'creating'" in polls[0].getMessage()
+    assert "attempt=1/4" in polls[0].getMessage()
+    assert "elapsed=" in polls[0].getMessage()
+    assert "a: version 1" in polls[0].getMessage()
+    assert any("'running'" in r.getMessage() for r in polls)
+
+
+def test_unrecognised_status_is_logged_as_a_warning_every_time(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="containment_demo.deploy")
+    with pytest.raises(UnrecognisedStatusError):
+        _wait(_version_reporting(*["mystery"] * 200))
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == poll_attempts(12.0, 3.0)
+    assert all("UNRECOGNISED" in r.getMessage() for r in warnings)
+    assert all("mystery" in r.getMessage() for r in warnings)
 
 
 # --- read-back verification ----------------------------------------------------------------

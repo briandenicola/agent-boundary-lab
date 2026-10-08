@@ -587,7 +587,13 @@ particular, do not treat an `istio-envoy` response as evidence about egress enfo
 this header is on the *inbound* control path to the data plane and has nothing to do with
 the agent's outbound traffic, which is the thing under test.
 
-#### Version status vocabulary — RESOLVED from the SDK enum, still not observed on the wire
+#### Version status vocabulary — ~~RESOLVED from the SDK enum~~ **WRONG. SUPERSEDED BY B9c.**
+
+> **This subsection was wrong and is kept only as the record of how.** It called the
+> vocabulary "settled" on the strength of a client-library enum, and that conclusion cost
+> 45 minutes of wall clock on 2026-10-08. The enum is **incomplete** relative to the running
+> service. Read **B9c** instead. Everything below the line is retained verbatim so the
+> reasoning error is legible, not to be relied on.
 
 `AgentVersionStatus` (`azure/ai/projects/models/_enums.py`) declares exactly five values:
 
@@ -601,7 +607,9 @@ the agent's outbound traffic, which is the thing under test.
 
 The enum is declared `class AgentVersionStatus(str, Enum, metaclass=CaseInsensitiveEnumMeta)`.
 
-**`src/containment_demo/deploy.py` is already correct and needs no change.**
+~~**`src/containment_demo/deploy.py` is already correct and needs no change.**~~
+**It was not correct.** This paragraph is the specific error. See B9c.
+
 `_TERMINAL_OK = "active"` (line 78) matches the enum exactly; `_TERMINAL_BAD =
 {"failed", "deleting", "deleted"}` (line 79) matches exactly; and `_status_of()` (lines
 297–299) already calls `.lower()`, which is precisely what `CaseInsensitiveEnumMeta`
@@ -621,7 +629,11 @@ container that ran the live deployment uses **2.8.0** (B9b, above). The enum was
 from the version that actually ran, and that difference is recorded rather than glossed:
 if 2.8.0 widened the vocabulary, this table would be incomplete.
 
-#### OPEN — is a 900-second timeout long enough for provisioning?
+#### ~~OPEN — is a 900-second timeout long enough for provisioning?~~ **CLOSED, and the question was wrong**
+
+> Provisioning took **under a minute**, not ten. The version was healthy the whole time;
+> the poller could not recognise it. 900s was never too short — it was 7.5x too long, and
+> it is now 120s. See B9c. Retained below as written.
 
 This is the real open question left by the live run, and it replaces the vocabulary
 question.
@@ -640,7 +652,23 @@ best; it tells you nothing about whether the version would have become active.
 - SDK enum read 2026-10-08 from the installed 2.4.0 package; no primary source documents
   the wire-level status values or a provisioning-time expectation.
 
-#### OBSERVED 2026-10-08, HYPOTHESIS NOT YET CONFIRMED — a version stuck in `creating`
+#### ~~OBSERVED 2026-10-08 — a version stuck in `creating`~~ **The premise was false. See B9c.**
+
+> **The version was never stuck.** The Azure portal showed
+> `containment-demo-audit | Version: 1 | Status: Running` at **18:39:26Z**, under a minute
+> after creation. The init container was not observing a hung provision; it was failing to
+> recognise a finished one, and logging nothing about it (B9c).
+>
+> **The `creating` in this entry was never observed.** It was *inferred* from the enum
+> subsection above — `creating` was the only non-terminal value the enum declared, so it was
+> assumed to be what the service was returning. The poller logged no status, so there was no
+> observation to check the inference against. An inference from an incomplete enum was
+> written down as an observation.
+>
+> **`azurerm_role_assignment.foundry_acr_pull` is retained** — the argument that no pull can
+> succeed without `AcrPull` on the pulling principal stands on its own — but the evidence
+> that motivated it has evaporated, and it must not be cited as a fix for anything. The
+> symptom it was built to explain did not exist.
 
 A version created successfully at 18:41 (HTTP 200, `Created version`) was still `creating`
 15+ minutes later, with the init container still polling.
@@ -688,6 +716,118 @@ forgotten.
    primary source turns up, record it here before implementing it.
 
 - Observed 2026-10-08. Hypothesis, not a verified cause.
+
+### B9c. The SDK status enum is INCOMPLETE — do not treat it as the contract
+
+**Access date 2026-10-08.** This is the correction to the status subsections in B9b, and it
+is the most generalisable finding in this document so far.
+
+#### What happened
+
+A hosted agent version was created at 18:39:26Z and the Azure portal showed it
+`Status: Running` in under a minute — a healthy, fully deployed agent.
+`wait_until_active` polled that same version for **45+ minutes** and never terminated.
+Two independent defects, both traceable to trusting a type definition over a running
+service:
+
+1. **`_TERMINAL_OK = "active"` was derived from `AgentVersionStatus`.** The enum does not
+   contain `running`. The service returns it.
+2. **The poll loop logged nothing.** ~270 successful HTTP 200s produced not one line
+   saying what status came back, so a healthy deployment and a hung one emitted
+   byte-identical output: silence. Meanwhile azure-core's `http_logging_policy` filled the
+   log with request/response headers, so the container *looked* busy while saying nothing
+   that mattered.
+
+An entire ACR role-assignment theory was built and applied to explain a problem that did
+not exist.
+
+#### The status vocabulary that is actually true
+
+From **Brian's working production implementation**,
+`briandenicola/banking-agent-foundry-orchestrator`, `src/agents/deployer/deploy.py` lines
+20–21, read 2026-10-08:
+
+```python
+READY_STATUSES   = {"active", "running"}
+PENDING_STATUSES = {"creating", "starting", "updating"}
+```
+
+`running`, `starting` and `updating` are **absent from `AgentVersionStatus`**. The portal
+independently showed `Running`, matching this set. This is observed production behaviour
+across two independent sources, not a portal label.
+
+| Status | In SDK enum? | Source |
+| --- | --- | --- |
+| `active` | yes | `models/_enums.py:380` + reference `READY_STATUSES` |
+| `running` | **no** | reference `READY_STATUSES`; portal, 2026-10-08 |
+| `creating` | yes | enum + reference `PENDING_STATUSES` |
+| `starting` | **no** | reference `PENDING_STATUSES` |
+| `updating` | **no** | reference `PENDING_STATUSES` |
+| `failed` | yes | enum; reference fails fast on it |
+| `deleting` / `deleted` | yes | `models/_enums.py:380` |
+
+#### The second bug: `str()` on an SDK enum member never matched anything
+
+Verified 2026-10-08 by deserialising each case against **azure-ai-projects 2.8.0**:
+
+| Wire value | Deserialises to | `str(...)` returns |
+| --- | --- | --- |
+| `"active"` | `AgentVersionStatus.ACTIVE` | `'AgentVersionStatus.ACTIVE'` |
+| `"running"` | plain `str` | `'running'` |
+| `"Running"` | plain `str` | `'Running'` |
+| `"creating"` | `AgentVersionStatus.CREATING` | `'AgentVersionStatus.CREATING'` |
+| `"weird-new-status"` | plain `str` | `'weird-new-status'` |
+| `AgentVersionStatus("Running")` | — | raises `ValueError` |
+
+`AgentVersionStatus` is a `(str, Enum)` mixin, so `str(member)` yields the **qualified name**,
+not the value. The old `str(status).lower()` therefore produced
+`'agentversionstatus.active'`, which can never equal `'active'`. **The poller could not have
+terminated on success even if the service had said `active`.** Values outside the enum pass
+through as plain `str`, unmangled — so reading `.value` with the raw object as fallback is
+correct for both cases. That is what `_normalise_status()` now does.
+
+#### The rule this establishes
+
+**A client library's enum is the SDK's claim about the service, not the service's contract.**
+It can be stale, partial, or generated from a different API version than the one answering
+the call. Where a value drives a success condition, verify it against a running service or a
+known-working implementation. Where neither is available, the code must handle an
+unrecognised value **loudly and boundedly** — never silently as success, never as pending
+forever.
+
+`briandenicola/banking-agent-foundry-orchestrator` is a **primary reference for Foundry
+hosted-agent behaviour** and should be consulted *before* deriving behaviour from SDK type
+definitions.
+
+#### What `deploy.py` does now
+
+* Ready / pending / failed **sets**, cited inline to the reference and the portal observation.
+* **Bounded** `for attempt in range(1, attempts + 1)` — a bounded loop cannot fail to
+  terminate, which the previous `while True` plus monotonic deadline demonstrably did.
+  `attempts = ceil(timeout / poll)`, so the iteration bound and the time budget cannot
+  disagree.
+* Status logged on **every** poll with agent, version, verbatim status, attempt and elapsed.
+* Fail-fast on `failed`, including the service error payload.
+* An unrecognised status logs a **WARNING every time it is seen** with the verbatim string,
+  and raises `UnrecognisedStatusError` at the bound.
+* Timeout is a **failure**, never an optimistic pass. Unchanged, and it stays.
+* `deploy_timeout_seconds` **900 → 120** (`le` 3600 → 600); `deploy_poll_seconds` 10 → 3;
+  `deploy_request_timeout_seconds` 60 → 15; new `deploy_retry_total=2` so SDK retries
+  cannot consume the budget inside a single call.
+* `azure.core.pipeline.policies.http_logging_policy` turned down to WARNING so it stops
+  burying our own lines.
+
+#### Still UNKNOWN
+
+**The verbatim status string this service returns for a ready version has still not been
+observed by us.** `running` is accepted on the strength of the reference implementation and
+the portal; the next run will log the real value on every poll, which settles it. Record the
+observed string here when it lands.
+
+Sources: `briandenicola/banking-agent-foundry-orchestrator`
+`src/agents/deployer/deploy.py` lines 15–21 and 417–433, fetched 2026-10-08; Azure portal
+agent blade, 2026-10-08; `azure-ai-projects` 2.8.0 `models/_enums.py:380` and a live
+deserialisation test, 2026-10-08.
 
 ### C1. Where egress decisions surface
 

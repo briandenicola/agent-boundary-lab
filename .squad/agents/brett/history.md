@@ -129,3 +129,48 @@ and that is caught only by reading or by apply.
 - **Timeouts are bounded and a timeout is a failure.** `DEMO_DEPLOY_TIMEOUT_SECONDS` (default 900) for status == "active". A version still "creating" at deadline is failure, not optimistic pass. An unprovisioned agent proves nothing.
 - **The deployer venv is in the same image as the agent, not a separate image.** `/opt/deploy-venv` (install `.[deploy]` there), `/opt/deploy-venv/bin/python` (init container uses this). One image, one digest, two isolated dependency sets. Agent's dependencies untouched.
 - **Parker's init-container contract is final.** Module path in `var.agent_deploy_module` (variables.tf), entrypoint command in `infra/k8s/harness.tf`, all `DEMO_*` env vars injected from Terraform outputs. If the module moves, tell Parker and he updates variables.tf.
+
+## Learnings — 2026-10-08, the 45-minute poller hang
+
+**An SDK enum is not the service's contract.** `AgentVersionStatus`
+(`azure/ai/projects/models/_enums.py:380`) declares creating/active/failed/deleting/deleted.
+The live service also returns `running`; Brian's production deployer
+(`briandenicola/banking-agent-foundry-orchestrator`, `src/agents/deployer/deploy.py:20-21`)
+carries `READY_STATUSES = {"active","running"}` and
+`PENDING_STATUSES = {"creating","starting","updating"}`. I derived `_TERMINAL_OK = "active"`
+from the enum and from my own module docstring, and polled a healthy agent for 45 minutes.
+**Consult Brian's repo before deriving Foundry hosted-agent behaviour from type definitions.**
+
+**`str()` on a `(str, Enum)` SDK member returns the qualified name, not the value.**
+Verified against azure-ai-projects 2.8.0 by deserialising each case: `"active"` becomes
+`AgentVersionStatus.ACTIVE` whose `str()` is `'AgentVersionStatus.ACTIVE'`, so the old
+`str(status).lower()` produced `'agentversionstatus.active'` — it could never match
+`'active'`. Out-of-enum values (`"running"`, `"Running"`, `"weird-new-status"`) pass through
+as plain `str`, unmangled, so `.value`-with-raw-fallback is correct for both cases. That is
+`_normalise_status()`.
+
+**A loop that logs nothing is indistinguishable from a loop that works.** ~270 HTTP 200s,
+zero lines about what status came back. azure-core's `http_logging_policy` filled the log
+with headers so the container looked healthy while saying nothing that mattered. We built
+and applied an ACR role-assignment theory for a problem that did not exist. Log the thing
+the decision is made on, every time, flushed.
+
+**Prefer a bounded `for` over `while True` + a monotonic deadline.** Our deadline provably
+did not fire and I could not establish why from code plus read-only cluster state
+(`DEMO_DEPLOY_TIMEOUT_SECONDS` is not injected by `deploy/kustomize/base/deployment.yaml`,
+so 900.0 was in effect; the deadline was computed once, not per iteration). Surviving
+hypotheses: azure-core's default `retry_total=10` with `retry_backoff_max=120` blocking
+inside a single `get_version` where a single-threaded loop cannot observe its deadline; or
+wall-clock from pod start covering client construction and token acquisition, which are
+outside the deadline. **Stated as unresolved, not guessed.** `attempts = ceil(timeout/poll)`
+removes the whole failure class.
+
+**Fakes must not be optimistic.** My `FakeAgentsOperations.get_version` defaulted to
+`"active"` once its scripted statuses ran out, which would have let a test pass on an
+unknown status. Status is now sticky; only versions the fake itself created auto-advance.
+
+**Settings now:** timeout 900→120 (`le` 3600→600), poll 10→3, request timeout 60→15, new
+`deploy_retry_total=2`. A timeout remains a FAILURE, never an optimistic pass.
+
+Recorded in `docs/compatibility.md` B9c; B9b's status subsections annotated as superseded.
+Decision: `.squad/decisions/inbox/brett-deploy-poller.md`.
