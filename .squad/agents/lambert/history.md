@@ -93,7 +93,34 @@ control (serial runs + timestamps) then substitutes for missing technical correl
   written to test it empirically the moment an agent version exists, and must be the first
   query run.
 
-### 2026-10-08 — Telemetry-map complete, App Insights connection blocker unblocked
+### 2026-10-08 — Runbook carries weaker "three consistent observations in one window" claim until GATE 0 answered
+
+Dallas delivered `docs/demo-runbook.md` and `docs/evidence-template.md` with three embedded team
+rules:
+
+1. **NOT COLLECTED is a first-class evidence state.** Every signal has three states
+   (present/absent/NOT COLLECTED), and NOT COLLECTED forces inconclusive. Runbook Sections B and
+   C are stubs returning `not_implemented`, which is NOT COLLECTED by another name, which is why
+   no hosted verdict is possible today.
+
+2. **Observation window is an explicit constant.** `W_start = T0`, `W_end = T_end + 120s` (UTC).
+   Query bounds are explicit pair, never relative. Use in-payload `received_at`, not
+   `TimeGenerated`. 120 s tail is ~1.5s measured ingestion lag plus headroom, not late-good-news
+   fishing.
+
+3. **"What this run did NOT prove" is mandatory** (Evidence template §8). Reviewers send back any
+   template with blank §8. Addresses 11 specific potential claims: Blocker 3 implicit allow, Blocker
+   1 stage 2 attribution, digest acceptance server-side, authoring ≠ enforcement, private endpoint
+   direction, protocol coverage, harness governance, preview status, prompt injection, etc.
+
+**Impact on Layer 1↔2 correlation:** Runbook assumes `joined == false` (platform egress records do
+not copy `demo_run_id`) until Q6 says otherwise. **Weaker claim in force:** three consistent
+observations in one bounded window, never "three rows joined on shared key". Q6 (OperationId
+propagation test) is GATE 0 and runs first on first hosted agent invocation. If Q6 returns
+`joined == false`, runbook §4 and template §4 stay as written. If Q6 returns true, they are
+replaced (not softened). Pre-committed outcome branches written in advance.
+
+**Commits:** 1450235 (demo-runbook.md), c3bc181 (evidence-template.md)
 
 - **Platform egress property keys (§2.1) left deliberately blank.** Portal UI labels (Decision, Reason, Matched rule, Rule source, Enforcement, Destination, Default action) are **not** Log Analytics column names. Fill this table only after a real row is observed in live run. Do not guess.
 - **Correlation gap is structural, not a query problem.** Layer 1 (app trace) carries `demo_run_id` in HTTP header/query param. Platform egress decision records are not documented to copy it. Fallback: run window + hostname + agent version, which breaks under concurrency and depends on unmeasured Foundry-side clock lag. **Procedural control required:** demo runs strictly serial with timestamps.

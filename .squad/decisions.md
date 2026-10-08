@@ -254,6 +254,70 @@
 - Phase 9 (A2A on hosted container agents) remains blocked on A2A spike (Blocker 5)
 - Responses fallback is pre-agreed and costs nothing (harness transport method has no bearing on what agent tools can reach)
 
+### Init-Container Interpreter: Absolute Path in Variable (Parker)
+
+**By:** Parker  
+**Date:** 2026-10-08  
+**Status:** Implemented (Commit b3c60a3)
+
+- `infra/k8s/harness.tf` init container runs `[var.agent_deploy_interpreter, "-m", var.agent_deploy_module]`
+- Default: `/opt/deploy-venv/bin/python`
+- Validated to be an absolute path (not PATH-resolved)
+- Rationale: Dockerfile installs deploy stack only in `/opt/deploy-venv`; bare `python` would be system interpreter (no module)
+- **Absolute path is deliberate,** not PATH ordering. PATH-based resolution would make the pod silently sensitive to any future `ENV PATH` edit in the Dockerfile, making that failure indistinguishable from a missing dependency
+- **Team caveat:** No mechanical tie between decisions.md, Dockerfile, and Terraform variables. Drift is caught only by reading or by apply. If deploy module path, interpreter path, or venv path moves, all three must move together.
+
+### No Plan-Time-Varying Functions in Resource Attributes (Parker)
+
+**By:** Parker  
+**Date:** 2026-10-08  
+**Status:** Implemented (Commit 64371ae)
+
+- Removed `DeployedOn = timestamp()` from `infra/cloud/locals.tf` and `infra/spike/locals.tf`
+- Plan-time-varying functions mark tag map unknown on every plan, causing all tagged resources to be marked for in-place update
+- Live impact: clean plan became 24 changes, 22 of them tag-only churn
+- Nothing consumed `DeployedOn`; `Application` and `AppName` tags remain (both consumed by tasks)
+- **Team-relevant rule:** Plan cleanliness is how we demonstrate RAI policy is the **only** variable between Audit and Enforced runs. `No changes. Your infrastructure matches configuration.` between the two is the control.
+  - No `timestamp()`, `uuid()`, or `bcrypt()` in any attribute of a persistent resource
+  - A non-empty plan on an unchanged configuration is a defect to be fixed, not noise to be scrolled past
+  - Anyone seeing one should say so
+- Recorded as `docs/compatibility.md` §C6
+
+### NOT COLLECTED is a First-Class Evidence State; Observation Window is a Fixed Constant (Dallas)
+
+**By:** Dallas  
+**Date:** 2026-10-08  
+**Status:** Implemented (Commits 1450235, c3bc181)
+
+**Three team-relevant rules now embedded in Phase 7 deliverables:**
+
+1. **Every signal has three states; the third is not soft absent**
+   - Each signal — client failure (classified by kind), platform egress decision record, receipt absence — recorded as **present**, **absent**, or **NOT COLLECTED**
+   - **NOT COLLECTED forces overall verdict to inconclusive.** A signal nobody looked for is not evidence of anything
+   - Collapse of absent/not-collected is how a run with two signals becomes a pass
+
+2. **Observation window is a stated constant, owned by runbook**
+   ```
+   W_start = T0             (UTC, immediately before first tool trigger)
+   W_end   = T_end + 120 s  (UTC, immediately after last tool result)
+   ```
+   - Explicit `(W_start, W_end)` pair on every query, never relative `ago(Nm)`
+   - Use in-payload `received_at`, never `TimeGenerated`, for ordering
+   - 120 s tail is ingestion headroom (~1.5 s measured lag), not late-arriving good news
+   - **Changing the constant requires recording the change and reason in evidence template**
+   - Window closes once; longer look is a new run id
+
+3. **"What this run did NOT prove" is mandatory section with named rows**
+   - Evidence template §8 lists specific claims and requires each answered: Blocker 3 (positive may ride undocumented implicit allow), Blocker 1 stage 2 (managed-VNet attribution), server-side digest acceptance, authoring ≠ enforcement, private endpoint direction, protocols beyond HTTP/HTTPS, ungoverned harness, preview status, prompt injection
+   - Template with blank §8 is not completed; reviewers send it back
+
+**Why this matters:**
+- **Ripley:** Runbook assumes `joined == false` (Layer 1↔2 correlation missing) until Q6 answers otherwise; carries weaker "three consistent observations in one bounded window" claim
+- **Lambert:** Runbook names no platform property or table not verified in `telemetry-map.md`; §2.1 blank is documented gap, not hole to paper over
+- **Parker:** Two pre-flight checks are now gates on interpreting denial, not health pings. A5 (receiver accepts unauthenticated POST) and P7 (App Insights `authType == ApiKey`); either failure makes denial unattributable
+- **Brett:** Deterministic diagnostic route is documented trigger; model refusal proves nothing
+- **Everyone:** Local runs and hosted runs never share verdict; run class filled in before execution; strict-serial rule labeled as procedural stand-in (enforced by operator reading, nothing else)
+
 ## Known Risks / Unverified Assumptions
 
 ### Server-Side Digest Acceptance

@@ -104,7 +104,23 @@ landed. An Enforced agent with a silently-unattached policy looks exactly like a
 Enforced agent that allows everything — that is the most dangerous way this demo could
 lie, so it is a loud `DriftError`.
 
-### 2026-10-08 — Deploy SDK finalized, openai dependency isolated
+### 2026-10-08 — Init-container entrypoint is now explicit absolute interpreter path, not bare `python`
+
+Parker fixed a critical deployment defect: the init container's bare `python` command had no
+access to the `azure-ai-projects` deployment stack (installed only in `/opt/deploy-venv`,
+not system). The fix adds `var.agent_deploy_interpreter` (default `/opt/deploy-venv/bin/python`,
+validated absolute path) to `infra/k8s/harness.tf`. Command is now
+`[var.agent_deploy_interpreter, "-m", var.agent_deploy_module]`.
+
+**Why absolute path, not PATH ordering:** PATH resolution would make the pod silently sensitive
+to any later `ENV PATH` edit in the Dockerfile, and that failure would be indistinguishable
+from a missing dependency. Absolute path forces the failure loud if someone moves the venv.
+
+**Team caveat:** No mechanical check ties decisions.md, Dockerfile, and Terraform together.
+If deploy module path, interpreter path, or venv path moves, all three must move together,
+and that is caught only by reading or by apply.
+
+**Commit:** b3c60a3
 
 - **Digest-only validation is final.** `DEMO_AGENT_IMAGE` must be `repo@sha256:<64 hex>`. If service rejects it, the module raises `DigestRejectedError`, exits 3 with STOP, no tag fallback, no configuration to override this. Server-side acceptance is still unknown; first hosted run answers it.
 - **Read-back verification is real.** After creating each version, the module reads it back and asserts the attached policy ARM id and image digest match exactly. Detects the silent failure (policy did not attach).
