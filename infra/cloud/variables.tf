@@ -97,15 +97,27 @@ variable "foundry_public_network_access" {
 #############################################
 
 variable "model_name" {
-  description = "Chat model backing the agent. The agent's reasoning quality is not what is being measured, so the cheapest capable model is the right default."
+  description = <<-EOT
+    Chat model backing the agent. The agent's reasoning quality is not what is being
+    measured, so the cheapest capable model is the right default -- it only has to be able
+    to call two tools.
+
+    gpt-5.4-mini, not a GPT-4 model: the 4 family is being retired. Note that gpt-5.5 has
+    no mini variant, so the smallest current option is one minor version behind the
+    newest full model.
+
+    Verified in canadacentral on 2026-10-08. Check the SKU before changing this: gpt-5-mini
+    and gpt-5 are GlobalProvisionedManaged ONLY in this region and would fail against the
+    GlobalStandard deployment below.
+  EOT
   type        = string
-  default     = "gpt-4o-mini"
+  default     = "gpt-5.4-mini"
 }
 
 variable "model_version" {
   description = "Pinned model version. Pinned rather than floating so a model change cannot silently become an extra variable between two runs that are supposed to differ only in egress policy."
   type        = string
-  default     = "2024-07-18"
+  default     = "2026-03-17"
 }
 
 variable "model_capacity" {

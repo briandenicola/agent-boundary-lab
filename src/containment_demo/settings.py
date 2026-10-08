@@ -109,8 +109,12 @@ class Settings(BaseSettings):
     # --- Model access ------------------------------------------------------------------
 
     model_deployment: str = Field(
-        default="gpt-4o",
-        description="Foundry model deployment name, used as litellm 'azure/<deployment>'.",
+        default="gpt-5.4-mini",
+        description=(
+            "Foundry model deployment name, used as litellm 'azure/<deployment>'. "
+            "Must match infra/cloud var.model_name -- the deployment is named after the "
+            "model, so a mismatch here fails at the first model call, not at startup."
+        ),
     )
     azure_openai_endpoint: str | None = Field(
         default=None,

@@ -316,7 +316,7 @@ Surveyed 2026-10-08:
 
 **The target region is `canadacentral`, so that the containment environment and the Phase 8
 state store share one region.** PostgreSQL Flexible Server is unrestricted there with major
-versions 11–18, and `gpt-4o-mini` `2024-07-18` is available on `GlobalStandard`
+versions 11–18, and `gpt-5.4-mini` `2026-03-17` is available on `GlobalStandard`
 (`compatibility.md` A2b). Its egress spike passed on 2026-10-08: ARM retained the
 Microsoft-managed agent network with `publicNetworkAccess` `Disabled`, and stored both RAI
 policies differing only in `Audit` versus `Enforced` mode. `swedencentral` passed the same

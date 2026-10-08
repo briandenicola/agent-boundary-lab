@@ -103,8 +103,8 @@ about which layer takes precedence, or about attribution of a denied request —
 limits recorded for East US 2 in D1–D3.
 
 From the general region table (re-accessed 2026-10-08), Sweden Central also reports Yes for
-Responses API, Agents and Private VNet, and `gpt-4o-mini` `2024-07-18` is available there
-with the `GlobalStandard` SKU the module deploys.
+Responses API, Agents and Private VNet, and the deployed model is available there with the
+`GlobalStandard` SKU the module uses (A2d).
 
 ### A2b. Region — PostgreSQL Flexible Server restrictions
 
@@ -121,8 +121,8 @@ Checked 2026-10-08 against
 | `swedencentral`, `centralus`, `westus3`, `northcentralus`, `canadacentral` | `eastus`, `eastus2`, `westus2`, `southcentralus`, `canadaeast` |
 
 Both `swedencentral` and `canadacentral` report supported major versions 11–18, covering
-the module default of 16, and both have `gpt-4o-mini` `2024-07-18` available on the
-`GlobalStandard` SKU the module deploys.
+the module default of 16, and both have the deployed model available on the
+`GlobalStandard` SKU the module uses (A2d).
 
 `canadaeast` was checked on request and is **restricted**, returning *"Provisioning is
 restricted in this region. Please choose a different region."* Regions within a geography
@@ -137,6 +137,49 @@ environment out of a region where it is already working.
 Note: `az postgres flexible-server list-supported-versions` does not exist, and `list-skus`
 returns a shape that does not surface the restriction. The REST capabilities endpoint is
 the reliable check.
+
+### A2d. Model selection — the GPT-4 family is retiring
+
+**Deployed model: `gpt-5.4-mini`, version `2026-03-17`, SKU `GlobalStandard`.** Verified
+against the live catalogue in canadacentral on 2026-10-08.
+
+**`gpt-5.5-mini` does not exist.** It was requested by name and was not present in the
+catalogue for canadacentral, eastus2, swedencentral, westus3 or eastus. `gpt-5.5` has no
+mini variant, so the smallest current model is one minor version behind the newest full
+one.
+
+**Check the SKU, not just the name.** In canadacentral, `gpt-5-mini` and `gpt-5` are offered
+as `GlobalProvisionedManaged` only. The module deploys `GlobalStandard`, so either would
+fail despite appearing in the catalogue. Availability of a model name is not availability
+of the deployment shape.
+
+| Model | Version | GlobalStandard in canadacentral |
+| --- | --- | --- |
+| `gpt-5.4-mini` | 2026-03-17 | Yes — selected |
+| `gpt-5.4-nano` | 2026-03-17 | Yes |
+| `gpt-5.5` | 2026-04-24 | Yes |
+| `gpt-5-mini`, `gpt-5` | 2025-08-07 | **No** — provisioned only |
+
+**NOT VERIFIED — three things, all on the model path rather than the containment path:**
+
+1. Whether `DEMO_AZURE_OPENAI_API_VERSION`, currently `2024-10-21`, serves the gpt-5
+   family. It was chosen for a GPT-4 model and has not been re-checked. Left unchanged
+   rather than raised to a guessed value; confirm against the Azure OpenAI reference and
+   record the result here before blaming a failure on anything else.
+2. Whether the gpt-5 family accepts the same request shape through LiteLLM. Reasoning
+   models in this family are documented to differ on parameters such as
+   `max_completion_tokens` versus `max_tokens`, and on `temperature` support.
+3. Whether tool calling behaves identically. gpt-4o-mini exercised this path; gpt-5.4-mini
+   has not.
+
+**A failure on any of these is a model-path failure, not a containment result.** The demo
+classifies HTTP, TLS, DNS and timeout failures separately for exactly this reason: an
+agent that never reaches the point of calling a tool has produced no evidence about
+egress at all. Record it as inconclusive.
+
+The version stays pinned. A floating version would let Azure change the model between the
+Audit run and the Enforced run, introducing a second variable into an experiment whose
+validity rests on there being exactly one.
 
 ### A2c. State store capability constraint
 
