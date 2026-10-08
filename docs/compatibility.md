@@ -451,9 +451,9 @@ The deployment must be a direct data-plane call that adds `rai_config.rai_policy
 `--image` is also tag-oriented: `_validate_image_tag` (`custom.py:510`) requires a colon
 and treats everything after the last one as "the tag, which becomes the agent version". A
 digest reference contains a colon, so it would pass validation, but the resulting version
-name would be the raw hex. **NOT VERIFIED:** whether the service accepts a digest
-reference in `definition.image` at all. The experiment requires digest pinning, so this
-must be proven before any run is trusted.
+name would be the raw hex. **Whether the service accepts a digest reference in
+`definition.image` at all was NOT VERIFIED here — it is now CONFIRMED, see B9b**, on the
+SDK path rather than the CLI path.
 
 **The data plane is unreachable from outside the VNet.** With
 `publicNetworkAccess: Disabled`, `az cognitiveservices agent list` returns:
@@ -493,6 +493,9 @@ the agent are deliberately different images.
 | Protocol | `ProtocolVersionRecord(protocol=, version=)`; protocols include `responses`, `invocations` | `models/_models.py:16657` |
 | Readiness | `AgentVersionDetails.status` ∈ creating / active / failed / deleting / deleted | `models/_enums.py:380` |
 
+These status values come from the **client library's enum**, not from an observed
+response. What the service actually returns on the wire is still unverified — see B9b.
+
 **B4 confirmed in code.** `RaiConfig.rai_policy_name` is a plain `rest_field` with no
 `name=` override, so the wire name is snake_case `rai_policy_name`, and it hangs off
 `HostedAgentDefinition`. Setting a policy through the SDK is therefore possible, which the
@@ -511,19 +514,103 @@ SDK 2.8.0 shape differs and the SDK is what ships:
    `AIProjectClientConfiguration.api_version` defaults to `"v1"` with a separate
    `allow_preview` flag rather than an explicit preview date string.
 
-**Digest question — partially resolved.** `ContainerConfiguration.image` is an unvalidated
+**Digest question — RESOLVED, see B9b.** `ContainerConfiguration.image` is an unvalidated
 `str`; the SDK applies none of the az CLI's `_validate_image_tag` logic, so a
 `repo@sha256:<64 hex>` reference is accepted client-side and the version name is assigned
 by the service rather than derived from the tag. The CLI's "the tag becomes the version
-name" problem does not exist on this path. **Server-side acceptance is still NOT
-VERIFIED** — it cannot be, without a call from inside the VNet. `containment_demo.deploy`
-requires a digest, has no tag fallback, and raises `DigestRejectedError` telling the
-operator to stop and record the exact error here if the service refuses it.
+name" problem does not exist on this path. **Server-side acceptance was CONFIRMED by the
+live run on 2026-10-08 (B9b).** `containment_demo.deploy` requires a digest, has no tag
+fallback, and raises `DigestRejectedError` telling the operator to stop and record the
+exact error here if the service ever refuses one.
 
 - Verified by reading installed package source on 2026-10-08; line numbers are for 2.8.0.
 - https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/add-hosted-agent-guardrails
 
-### C1. Where egress decisions surface
+### B9b. The first live deployment — VERIFIED FROM INSIDE THE VNet 2026-10-08
+
+Everything in B9 and B9a was read out of installed source. This section is the first
+**observed** deployment. Evidence: the `agent-deploy` init container's log, pod
+`agent-harness-6ffc656cd5-jbct7`, namespace `agent-boundary-lab`, AKS, 2026-10-08.
+
+Read this section as narrow. It records what one successful call did, with one role
+assignment, against one account. It is not a general capability claim about the service.
+
+#### Verified
+
+| Item | Observed value |
+| --- | --- |
+| Data-plane URL, verbatim | `https://<account>.services.ai.azure.com/api/projects/<project>/agents/<agent-name>/versions/<n>?api-version=v1` |
+| `api-version` query value | **`v1` was accepted — HTTP 200.** Not a preview date string. Confirms the SDK default described in B9a correction 3 is what the service honours. |
+| SDK that worked | `azure-ai-projects` **2.8.0**, `azure-identity` **1.26.0** (from the request User-Agent) |
+| Runtime that worked | Python **3.12.15** on Azure Linux 3 (`Linux-6.6.150.1-1.azl3-x86_64-with-glibc2.41`) |
+| Credential path | Workload identity. Observed: `ManagedIdentityCredential will use workload identity with client_id: a66ae277-860b-4a07-9735-354933e40146` |
+
+**Agent-version WRITE is permitted — open question CLOSED, narrowly.** The log emitted
+`Created version` and the subsequent `get_version` returned HTTP 200. The deployer identity
+holds **`Cognitive Services User`** scoped to the Foundry account
+(`infra/cloud/identity.tf:104`). This was previously an assumption: `agents/versions` is
+not separately registered as a provider operation, so version writes were *assumed* to
+authorise under `accounts/AIServices/agents/write` and the role's
+`Microsoft.CognitiveServices/*` dataAction wildcard. That assumption now has one
+confirming observation.
+
+What it proves: **create and read** on `agents/versions`, for this identity, with this
+role, at this scope. What it does **not** prove: update, delete, list, or any operation on
+any other agent resource; nor that a narrower role would fail; nor that the wildcard is
+the reason it succeeded.
+
+**Server-side digest acceptance — CONFIRMED.** An image reference of the form
+`<acr>/containment-demo-agent@sha256:<64 hex>` in
+`definition.container_configuration.image` was accepted by the service. This closes the
+`NOT VERIFIED` digest question carried in both B9 (where the az CLI's `_validate_image_tag`
+raised it) and B9a (where it was marked unresolvable without a call from inside the VNet).
+`DigestRejectedError` in `containment_demo.deploy` has not fired and, on this path, is now
+expected never to.
+
+Digests of record:
+
+| Image | Digest | Size (bytes) |
+| --- | --- | --- |
+| Previous | `sha256:0e4b5019…` | 145,547,315 |
+| Current | `sha256:0acce8b8ec1064710f462f330d1b22645ffe0485b459d57d34d4235dc8667de0` | 196,110,685 |
+
+#### Observation, not a contract
+
+Response headers carried `Server: istio-envoy` and `azureml-served-by-cluster`. Foundry
+hosted agents are therefore served on AzureML infrastructure behind an Istio ingress.
+
+This is an **implementation detail that may change without notice**. It is recorded
+because it is useful when reading a failure — an Envoy-shaped error is not necessarily a
+Foundry error — and for no other reason. **Nothing in this demo may depend on it.** In
+particular, do not treat an `istio-envoy` response as evidence about egress enforcement:
+this header is on the *inbound* control path to the data plane and has nothing to do with
+the agent's outbound traffic, which is the thing under test.
+
+#### OPEN — the version status vocabulary is still unknown
+
+`src/containment_demo/deploy.py` `wait_until_active` accepts exactly one terminal-good
+value, the literal lowercase string `"active"` (`_TERMINAL_OK`, line 78), and treats
+`{"failed", "deleting", "deleted"}` as terminal-bad (`_TERMINAL_BAD`, line 79). Those
+strings come from the SDK enum in B9a (`models/_enums.py:380`) — from the client library,
+**not** from an observed response.
+
+At the time of writing the init container had been polling for roughly six minutes and had
+**not** terminated. So:
+
+- We do not know what status string the service actually returns on the wire.
+- We do not know whether `"active"` is ever reached, or how long provisioning takes.
+- We do not know whether the service's casing matches the SDK enum's.
+
+Do not record provisioning as working until a terminal status has been observed. **The
+900-second timeout is the intended mechanism for learning the vocabulary:** its error
+message prints the last observed status verbatim. That is deliberate. The data plane is
+private-endpoint-only, so an operator outside the VNet cannot query the version directly,
+and the timeout message is the only channel that carries the real string back out.
+
+- Observed in a live run on 2026-10-08; no primary source documents the wire-level status
+  values.
+
+
 
 Application Insights **`traces`** table, filtered on a literal message string:
 
@@ -1062,6 +1149,10 @@ one-off spike, and each must be recorded here with its result before any claim d
 9. Whether ADK remains functional against `opentelemetry-api` 1.43+ at **runtime** under real
    load, not just at import (Blocker 0). The smoke test covers import and agent construction
    only.
+10. The agent-version **status vocabulary on the wire** (B9b). `deploy.py` waits for the
+    literal `"active"`, taken from the SDK enum; no live response has yet been observed
+    carrying a terminal status. The 900s timeout's error message is the mechanism for
+    learning it, because the data plane is private-endpoint-only.
 
 ### Resolved since first draft
 
@@ -1078,6 +1169,10 @@ one-off spike, and each must be recorded here with its result before any claim d
 | Canada East viability (A2b) | **Not viable** — Postgres restricted | Capabilities API, 2026-10-08 |
 | Postgres region restriction (A2b) | East US 2 restricted; Sweden Central clear | Capabilities API, 2026-10-08 |
 | State store must back actors (A2c) | PostgreSQL qualifies; Table/Blob do not | Dapr component reference, 2026-10-08 |
+| Server-side digest acceptance (B9, B9a) | **Accepted** — `repo@sha256:<64 hex>` took HTTP 200 | Live deploy from inside the VNet, 2026-10-08 (B9b) |
+| `agents/versions` write permission (B9b) | **Sufficient** — `Cognitive Services User` at account scope created and read a version | Live deploy, 2026-10-08 |
+| Data-plane `api-version` value (B9a) | **`v1`** accepted; not a preview date string | Observed request URL, 2026-10-08 |
+| Workload identity on the deploy path (B9b) | **Works** — `ManagedIdentityCredential` used the projected token | Init container log, 2026-10-08 |
 
 ---
 

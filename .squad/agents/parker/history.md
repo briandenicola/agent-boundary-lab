@@ -225,3 +225,34 @@ This is a Ripley/Brett observation, Phase 4 Blocker 1.
 - **Defect B (found by Coordinator):** Hardcoded fallback image digest (control-variable drift risk). Fixed to resolve live from ACR. This also exposed the fourth instance of the az auto-upgrade chatter bug (see Decision #30). Commit b52d58c.
 - **No breaking changes:** Task names, accept criteria, GATE 0 all intact.
 
+
+### 2026-10-08 — first live agent-version deployment from inside the VNet
+
+- **`api-version=v1` is what the service honours.** Observed verbatim on a 200:
+  `https://<account>.services.ai.azure.com/api/projects/<project>/agents/<agent>/versions/<n>?api-version=v1`.
+  Not a preview date string. The SDK default described in compatibility.md B9a is correct
+  and the az CLI's `2025-11-15-preview` is a different path.
+- **Server-side digest acceptance is CONFIRMED.** `<acr>/containment-demo-agent@sha256:<64
+  hex>` in `definition.container_configuration.image` was accepted. That was the last
+  open question on the experiment's control. `DigestRejectedError` has never fired.
+- **`Cognitive Services User` at account scope really does permit `agents/versions`
+  create and read.** `Created version` plus a 200 on `get_version`. My earlier entry
+  flagged this as an unverified RBAC assumption; it now has exactly one confirming
+  observation. It does NOT cover update, delete or list, and it does not prove a narrower
+  role would fail. Recorded that way.
+- **Workload identity works end to end on the deploy path.** Observed
+  `ManagedIdentityCredential will use workload identity with client_id: a66ae277-…`. The
+  label-not-annotation lesson held.
+- **Foundry hosted agents are served on AzureML behind Istio** — `Server: istio-envoy`,
+  `azureml-served-by-cluster`. Recorded as an OBSERVATION only. It is inbound control-path
+  metadata and says nothing about egress; nothing may depend on it.
+- **The version status vocabulary is still unknown, and that matters.** `deploy.py` waits
+  for the literal `"active"` taken from the SDK enum, not from an observed response. The
+  init container polled ~6 minutes without terminating. Because the data plane is
+  private-endpoint-only, the 900s timeout's error message — which prints the last status
+  verbatim — is the only channel that carries the real string out to an operator. Left
+  OPEN as unverified item 10.
+- **The Taskfile's default `AGENT_IMAGE_DIGEST` is the PREVIOUS image.** `sha256:0e4b5019…`
+  (145,547,315 bytes); the current one is `sha256:0acce8b8ec…` (196,110,685 bytes).
+  Reported rather than changed — the digest is the experiment's control and is Brian's to
+  move.
