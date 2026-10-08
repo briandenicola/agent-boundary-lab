@@ -165,3 +165,26 @@ re-gating.**
 undocumented implicit allow is what makes the permitted call succeed, the positive half of
 the demo proves nothing. Removing the explicit allow rule and confirming the permitted host
 is then denied too is now a Phase 6 item. **A risk without a test is a sentence.**
+
+### 2026-10-08 — PLAN.md corrected for the kustomize migration
+
+- `infra/k8s/` is gone. Cluster workloads are `kubectl` + kustomize manifests under
+  `deploy/kustomize/base/`, streamed through `sed` from `terraform output -raw` against
+  `infra/cloud`. Manifests are never mutated on disk. Task names unchanged.
+- The Terraform failure mode is worth remembering: hashicorp/kubernetes 2.38.0 on
+  Terraform 1.16.4 wrote `kubernetes_deployment_v1.harness` tainted with an all-null
+  `identity` block after a failed rollout wait, and every later refresh tripped
+  `Unexpected Identity Change`. Deleting the state file was the adoption mechanism; the
+  live objects kept running. Manifests have no state to corrupt.
+- `harness-plan` is a server-side dry run, not `kubectl diff`, because a diff prints the
+  Secret into any captured demo log. `--server-side --force-conflicts` is permanent, not
+  first-run-only.
+- The init-container interpreter defect is **fixed in the manifest** and has never been
+  observed to run. I recorded it as resolved without promoting it to a tested result.
+  Phase 4 stays blocked on digest acceptance, RBAC, and managed-VNet attribution.
+- Phase numbering in the brief was off by one: Dapr Workflow on AKS is **Phase 8**, not
+  Phase 9. Fixed both — Phase 8 no longer calls for `infra/aks/` or `infra/dapr/`
+  Terraform roots, Phase 9's `samples/onprem_harness/` gets its own kustomize overlay.
+- GATE 0 and every acceptance criterion untouched. The only GATE 0 edit was removing the
+  dangling pointer to a defect that no longer exists; the gate's branch table and the
+  "procedural control" caveat are unchanged.

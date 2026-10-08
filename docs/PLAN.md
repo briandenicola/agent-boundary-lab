@@ -87,7 +87,10 @@ hostname leg additionally depends on a property key we have never seen
 (`docs/telemetry-map.md` §2.1 is deliberately blank).
 
 **What would unblock this gate:** a deployed agent version that runs once. Which means
-Phase 4, which means the init-container defect below.
+Phase 4, whose remaining blockers are listed there. The init-container interpreter defect
+that used to sit on this path is fixed; the blockers that remain are server-side digest
+acceptance, RBAC on `agents/versions` write, and attribution under a managed VNet. None of
+them can be closed without a run from inside the VNet.
 
 ---
 
@@ -223,8 +226,12 @@ authorization header appears anywhere in exported telemetry.
 
 **Status: blocked. This is the critical path to everything.**
 
-**Tested result:** Terraform for the account, both RAI policies, the two controlled
-endpoints on distinct HTTPS hostnames, and the AKS deploy harness exists and validates.
+**Tested result:** Terraform for the account, both RAI policies and the two controlled
+endpoints on distinct HTTPS hostnames exists and validates in `infra/cloud`. The AKS deploy
+harness is **not** Terraform: cluster workloads are plain manifests under
+`deploy/kustomize/base/` applied with `kubectl` (`task cloud:harness-plan` /
+`cloud:harness-up` / `cloud:harness-status` / `cloud:harness-down`). Authoring validates;
+neither leg is evidence of anything running.
 Required-but-undocumented RAI policy properties were found by failed applies and are
 recorded in `docs/compatibility.md` Blocker 1: `basePolicyName` is mandatory,
 `properties.contentFilters` is mandatory (a custom policy does **not** inherit the base's
@@ -257,16 +264,47 @@ installed `azure-ai-projects` 2.8.0 source on 2026-10-08):
 
 `src/containment_demo/deploy.py` implements exactly this shape.
 
+**Tested result — cluster workloads are applied with `kubectl`, not Terraform
+(2026-10-08).** The deploy harness was a Terraform root at `infra/k8s/`. hashicorp/kubernetes
+2.38.0 on Terraform 1.16.4 wrote `kubernetes_deployment_v1.harness` into state **tainted and
+with an all-null `identity` block** after its first apply failed on the rollout wait; every
+later refresh read the real identity back and Terraform core rejected the delta with
+`Unexpected Identity Change`. The module could not be planned again without hand-editing
+state. `infra/k8s/` and its state file were deleted — deleting the state **was** the adoption
+mechanism, no `terraform destroy` was run, and the four live cluster objects kept running.
+What replaces it:
+
+- Manifests live in `deploy/kustomize/base/` (`namespace.yaml`, `serviceaccount.yaml`,
+  `secret.yaml`, `deployment.yaml`, `kustomization.yaml`) with committed `REPLACE_WITH_*`
+  placeholders. They are **never mutated on disk**; each task streams `kustomize build`
+  through `sed`, substituting from `terraform output -raw` against `infra/cloud`. The
+  diagnostics token and the App Insights connection string exist only inside that pipe.
+- Task names are unchanged: `cloud:harness-plan`, `cloud:harness-up`, `cloud:harness-status`,
+  `cloud:harness-down`. Apply order is still `cloud:up` → `build:agent` → `cloud:harness-up`,
+  with `cloud:kubeconfig` once beforehand.
+- `harness-plan` is a **server-side dry run**
+  (`kubectl apply --server-side --force-conflicts --dry-run=server`), deliberately not
+  `kubectl diff`, because a diff of this stream prints the Secret's contents into any
+  captured demo log. It reports whether each object would be accepted; it does **not** prove
+  field-level convergence.
+- Every apply uses `--server-side --force-conflicts`, in steady state as well as on the first
+  run. The objects Terraform created carry no
+  `kubectl.kubernetes.io/last-applied-configuration` annotation, so client-side apply has
+  nothing to three-way-merge against. The flag stays in permanently on purpose: a
+  first-run-only flag is one someone forgets on the single run where it matters.
+- **Applying a manifest is not evidence.** A pod that starts proves a version was accepted,
+  never that the policy on it is enforced. Read the version back.
+
+**Resolved blocker — init-container interpreter mismatch (2026-10-08).** The old
+`infra/k8s/harness.tf` ran `["python", "-m", var.agent_deploy_module]`, but the Dockerfile
+installs `.[deploy]` (and therefore `azure-ai-projects`) **only** into `/opt/deploy-venv`, so
+the init container would have failed with a missing `azure.ai.projects`.
+`deploy/kustomize/base/deployment.yaml` now carries the command agreed in
+`.squad/decisions.md`: `["/opt/deploy-venv/bin/python", "-m", "containment_demo.deploy"]`.
+This is fixed in the manifest only — it has never been observed to run.
+
 **Blocked — specific blockers, each with what unblocks it:**
 
-- [ ] **Init-container interpreter mismatch.** `infra/k8s/harness.tf` runs
-      `["python", "-m", var.agent_deploy_module]`. The Dockerfile installs `.[deploy]`
-      (and therefore `azure-ai-projects`) **only** into `/opt/deploy-venv`, and
-      `.squad/decisions.md` records the agreed command as
-      `["/opt/deploy-venv/bin/python", "-m", "containment_demo.deploy"]`. As written the
-      init container will fail with a missing `azure.ai.projects`.
-      **Unblocked by:** Parker correcting the command in `harness.tf`.
-      **Reviewer note:** this is Parker's to fix, not Brett's.
 - [ ] **Server-side digest acceptance is unverified.** `ContainerConfiguration.image` is an
       unvalidated `str`, so `repo@sha256:…` passes client-side; whether the service accepts
       it cannot be known without a call from inside the VNet. `deploy.py` raises
@@ -448,9 +486,16 @@ Task Scheduler and its SDK are explicitly **not** dependencies.
 - [ ] Pin and record Dapr runtime, Python Workflow SDK, AKS version, install method and
       state component in `docs/compatibility.md` with a documentation date.
 - [ ] One installation method only — AKS extension **or** Helm. Do not double-install the
-      control plane.
-- [ ] Add `src/workflow_app/`, `src/workflow_api/`, `tests/workflow/`, `infra/aks/`,
-      `infra/dapr/`, and an independent workflow-app image.
+      control plane. Whichever is chosen, record it; neither is Terraform-managed, and the
+      Dapr control plane install is a separate step from applying the Dapr **components**,
+      which are manifests.
+- [ ] Add `src/workflow_app/`, `src/workflow_api/`, `tests/workflow/` and an independent
+      workflow-app image. Azure resources (the PostgreSQL Flexible Server and its
+      networking) go in `infra/cloud`. **Cluster workloads do not go in Terraform** — the
+      Dapr components and the workflow app's Deployment/Service/Secret are manifests under
+      `deploy/kustomize/`, applied the same way the client harness is, for the reason
+      recorded in Phase 4. Give the workflow app its own overlay so it can be applied and
+      removed without touching the harness.
 - [ ] Validate required state operations, transactions, concurrency, connection limits,
       TLS and credential handling for the pinned PostgreSQL version.
 - [ ] Inventory required Dapr services including placement and reminder scheduling.
@@ -508,6 +553,9 @@ and contexts are retained 60 days from last write.
 
 - [ ] Narrow application-owned API: start case, query status, submit authorized event.
 - [ ] `samples/onprem_harness/` — standalone agent runtime, no Dapr install, no sidecar.
+      Deployed to AKS as manifests under `deploy/kustomize/` in its own overlay, not as a
+      Terraform resource (Phase 4). Keep it separate from the containment harness overlay so
+      the two can be applied and torn down independently.
 - [ ] Confirm the harness resolves Foundry through the private DNS zones
       (`cognitiveservices`, `openai`, `services.ai`), not a public IP.
 - [ ] **Never present the private endpoint as outbound containment.** It governs inbound
@@ -588,8 +636,15 @@ What this plan previously got wrong or left stale, and what replaced it:
     item: without it, an undocumented implicit allow could be carrying the positive result.
 11. **Strictly-serial runs were presented as a mitigation.** They are a *procedural*
     control standing in for a missing technical join. Labelled.
-12. **A live defect blocks Phase 4:** `infra/k8s/harness.tf` runs the init container with
-    `python`, but `azure-ai-projects` is installed only into `/opt/deploy-venv`. Parker's
-    to fix.
+12. **A live defect blocked Phase 4:** the init container ran as `python`, but
+    `azure-ai-projects` is installed only into `/opt/deploy-venv`. **Fixed** — the command
+    is now `["/opt/deploy-venv/bin/python", "-m", "containment_demo.deploy"]` in
+    `deploy/kustomize/base/deployment.yaml`. Fixed in the manifest; never yet observed to
+    run. Phase 4's other blockers are unchanged.
 13. **Phase 8/9 preconditions were implicit.** Both are now explicitly gated on the base
     containment criteria producing a result first.
+14. **The plan assumed cluster workloads were Terraform.** `infra/k8s/` was deleted after
+    hashicorp/kubernetes 2.38.0 wrote a tainted, null-`identity` deployment into state that
+    could not be planned again. Cluster workloads are now `kubectl` + kustomize manifests
+    under `deploy/kustomize/`, with unchanged task names. Phase 4 records the mechanism;
+    Phases 8 and 9 no longer call for `infra/aks/` or `infra/dapr/` Terraform roots.
