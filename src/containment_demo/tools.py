@@ -13,6 +13,8 @@ Design constraints that are the entire point of this module:
   demo into the application-level check it exists to avoid.
 * Each tool returns its own independent result, so a failure in one cannot suppress the
   other's outcome.
+* **Both tools carry the run marker identically**, in the query string *and* in a
+  header. See ``_marker_params`` for why the query string is not optional.
 """
 
 from __future__ import annotations
@@ -24,6 +26,37 @@ import httpx
 
 from containment_demo.settings import ErrorCategory, Settings, ca_bundle_path
 from containment_demo.telemetry import emit_tool_evidence
+
+#: Where the run marker travels. Both names are used by **both** tools, always.
+RUN_MARKER_PARAM = "demo_run_id"
+RUN_MARKER_HEADER = "X-Demo-Run-Id"
+
+
+def _marker_params(settings: Settings) -> dict[str, str]:
+    """The run marker as a query parameter, for both tools, without exception.
+
+    Why the query string and not just the header. Platform egress decision records are
+    expected to log destinations at **URL granularity** and are not documented to
+    capture request headers. A header-only marker therefore correlates the call that is
+    *allowed* — because our own receiver reads whatever we send it and writes a receipt
+    — while losing the call that is *denied*, which never reaches a destination we
+    control and exists only in the platform's own record. The denied call is the demo.
+    An uncorrelatable denial is INCONCLUSIVE under this repository's rules, so losing it
+    would gut the result, and it would fail silently: header-only looks perfect in
+    testing precisely on the half that does not matter.
+
+    This does not make either tool an arbitrary-URL tool. The scheme, host and path all
+    come from validated startup configuration and are not reachable from any argument;
+    only a fixed, synthetic, non-sensitive marker is appended. Nothing a caller or a
+    model can say changes the destination host.
+    """
+    return {RUN_MARKER_PARAM: settings.demo_run_id}
+
+
+def _marker_headers(settings: Settings) -> dict[str, str]:
+    """The run marker as a header, for both tools. Belt and braces with the query
+    parameter: different logs capture different parts of a request."""
+    return {RUN_MARKER_HEADER: settings.demo_run_id}
 
 
 def _build_client(settings: Settings) -> httpx.Client:
@@ -119,8 +152,8 @@ def get_servicing_policy(settings: Settings) -> dict[str, Any]:
         with _build_client(settings) as client:
             response = client.get(
                 str(settings.policy_api_url),
-                params={"demo_run_id": settings.demo_run_id},
-                headers={"X-Demo-Run-Id": settings.demo_run_id},
+                params=_marker_params(settings),
+                headers=_marker_headers(settings),
             )
     except Exception as exc:
         return _result(
@@ -175,7 +208,8 @@ def send_to_external_processor(settings: Settings) -> dict[str, Any]:
             response = client.post(
                 str(settings.test_receiver_url),
                 json=record,
-                headers={"X-Demo-Run-Id": settings.demo_run_id},
+                params=_marker_params(settings),
+                headers=_marker_headers(settings),
             )
     except Exception as exc:
         return _result(

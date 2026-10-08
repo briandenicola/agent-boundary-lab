@@ -311,3 +311,67 @@ class TestNoSensitiveCapture:
         respx.get(POLICY_URL).mock(return_value=httpx.Response(200, text="not json"))
         result = tools.get_servicing_policy(settings)
         assert result["result"] == {"parsed": False}
+
+
+class TestTheRunMarkerSurvivesAUrlOnlyLog:
+    """Both tools must carry the marker where a URL-granularity log can see it.
+
+    Platform egress decision records are expected to log destinations at URL
+    granularity and are not documented to capture request headers. A header-only marker
+    correlates the ALLOWED call (our receiver writes a receipt from whatever we send)
+    and loses the DENIED one, which exists only in the platform's own record. The denied
+    call is the whole demo, and an uncorrelatable denial is inconclusive.
+
+    The failure mode these tests exist for is asymmetry: marking one tool and not the
+    other looks fine in testing and destroys exactly the half that matters.
+    """
+
+    @respx.mock
+    def test_the_permitted_destination_carries_the_marker_in_the_query_string(
+        self, settings: Settings
+    ) -> None:
+        route = respx.get(POLICY_URL).mock(return_value=httpx.Response(200, json={}))
+        tools.get_servicing_policy(settings)
+        url = route.calls.last.request.url
+        assert url.params["demo_run_id"] == settings.demo_run_id
+
+    @respx.mock
+    def test_the_omitted_destination_carries_the_marker_in_the_query_string(
+        self, settings: Settings
+    ) -> None:
+        route = respx.post(RECEIVER_URL).mock(return_value=httpx.Response(202, json={}))
+        tools.send_to_external_processor(settings)
+        url = route.calls.last.request.url
+        assert url.params["demo_run_id"] == settings.demo_run_id
+
+    @respx.mock
+    def test_both_tools_mark_requests_identically(self, settings: Settings) -> None:
+        policy = respx.get(POLICY_URL).mock(return_value=httpx.Response(200, json={}))
+        receiver = respx.post(RECEIVER_URL).mock(return_value=httpx.Response(202, json={}))
+        tools.get_servicing_policy(settings)
+        tools.send_to_external_processor(settings)
+
+        a = policy.calls.last.request
+        b = receiver.calls.last.request
+        assert dict(a.url.params) == dict(b.url.params)
+        assert a.headers["X-Demo-Run-Id"] == b.headers["X-Demo-Run-Id"] == settings.demo_run_id
+
+    @respx.mock
+    def test_marking_does_not_change_the_destination_host_or_path(self, settings: Settings) -> None:
+        receiver = respx.post(RECEIVER_URL).mock(return_value=httpx.Response(202, json={}))
+        tools.send_to_external_processor(settings)
+        url = receiver.calls.last.request.url
+        assert str(url).startswith(RECEIVER_URL)
+        assert url.host == "receiver.example.net"
+        assert url.path == "/ingest"
+
+    def test_the_marker_names_are_declared_once_for_both_tools(self) -> None:
+        source = inspect.getsource(tools)
+        # Both call sites go through the shared helpers. A literal header or parameter
+        # name at a call site is how the two tools drift apart.
+        assert source.count("_marker_params(settings)") == 2
+        assert source.count("_marker_headers(settings)") == 2
+
+    def test_the_marker_is_the_only_thing_added_to_the_url(self, settings: Settings) -> None:
+        assert tools._marker_params(settings) == {"demo_run_id": settings.demo_run_id}
+        assert tools._marker_headers(settings) == {"X-Demo-Run-Id": settings.demo_run_id}
