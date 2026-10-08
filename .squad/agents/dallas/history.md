@@ -264,3 +264,51 @@ passed, 1 skipped).
 - **Evidence template §8:** Added mandatory row preventing a server-side dry run from being presented as containment evidence. The dry run proves API server acceptance; it proves nothing about egress policy enforcement.
 - **Kustomize mechanics documented:** placeholders, stream substitution, secrets-only-in-pipe pattern, `--server-side --force-conflicts` adoption, expect `configured` not `created` on first apply, `kubectl diff` prints secrets into logs (wrong tool).
 
+
+### 2026-10-08 — The invocation primitive, and the marker that nearly only worked on the easy half
+
+Built `src/containment_demo/invoke.py`: call a named hosted agent version, trigger both
+business tools, report each outcome classified separately. Offline tests only; nothing
+invoked live. Committed as `9bbb747`.
+
+Things worth remembering:
+
+**I did not invent the API shape, and it took reading two of our own files plus the SDK
+to avoid doing so.** `deploy.py`'s `build_definition` registers
+`ProtocolVersionRecord(protocol="responses", version="v1")`, and `protocol_adapter.py`
+hosts `ResponsesAgentServerHost`. That maps to
+`AIProjectClient.get_openai_client(agent_name=...)` → `responses.create`. The base URL
+is *agent-scoped*, which matters more than it looks: `agent_name` is the only thing
+selecting audit versus enforced, and there is no client-side version pin at all. The
+version and digest can only be asserted from the control plane.
+
+**There were already two vocabularies for failure kinds and I nearly wrote a third.**
+`ErrorCategory` in settings.py and `FailureMode` in verify_demo.py already mirror each
+other member for member. I reused `ErrorCategory` and added a test that fails if the
+two ever drift. Checking first cost one grep.
+
+**Lambert's GATE 0 finding changed the design late and was right to.** Marking a run
+only with an HTTP header correlates the ALLOWED call and silently loses the DENIED one,
+because egress decision records log at URL granularity and our receiver — which logs
+whatever we hand it — is the only thing that would have proved the header "worked". It
+would have tested perfectly and been useless for the entire point of the demo. The fix
+is a query parameter on both destinations, built by one shared helper, plus keeping the
+header. The asymmetry risk is the real hazard: mark one tool and not the other and you
+get the same silent failure by a different route. There is now a test that compares the
+two requests' parameters and headers directly.
+
+**Tamper-testing the new guard was worth it.** I removed the marker from the POST only —
+exactly the mistake a hurried edit would make — and watched three tests fail, including
+the symmetry one. Then reverted. A guard I have not seen fail is a guard I do not have.
+
+**The blocker I did not fix.** `protocol_adapter.py:70` calls the async-only
+`context.get_input_text()` without awaiting it, so a coroutine lands in
+`types.Part(text=...)` and raises. Every real invocation against the deployed digest
+fails before a tool is reached. It is Brett's file and fixing it changes the image
+digest, invalidating both deployed agent versions — so it is Brian's sequencing call,
+not mine. Reported with the proof rather than quietly patched.
+
+**Deployment coupling I keep having to re-state.** Anything under `src/` changes the
+image digest. The marker change means the deployed digest `…bfa0d45` does *not* carry
+the query parameter. Until Brian rebuilds and redeploys both versions, a live run would
+produce exactly the correlation gap this change exists to close.
