@@ -9,9 +9,9 @@ Target region: **Canada Central**, chosen so that the containment environment an
 Phase 8 workflow state store can share one region. East US 2 hosted the containment
 environment through Phase 0 and is verified there, but it cannot host PostgreSQL Flexible
 Server on this subscription, and Flexible Server uses VNet injection, so the database
-cannot simply live elsewhere (A2b). Canada Central permits both. **Its egress spike is
-pending — see A2a; do not tear down a working environment before it passes.** Sweden
-Central was spiked and passed on 2026-10-08 and remains the proven fallback. Target
+cannot simply live elsewhere (A2b). Canada Central permits both, and its egress spike
+passed on 2026-10-08 (A2a). Sweden Central passed the same check and remains a proven
+fallback. Target
 subscription: from the ambient `az login` context (matching the `online-banking-demo`
 convention).
 
@@ -75,16 +75,17 @@ accepted from the general Agents table.
 | --- | --- | --- |
 | East US 2 | **Passed** 2026-10-07 | Restricted |
 | Sweden Central | **Passed** 2026-10-08 | Unrestricted |
-| Canada Central | **PENDING** — run `task spike:up -- canadacentral` | Unrestricted |
+| Canada Central | **Passed** 2026-10-08 | Unrestricted |
 | Canada East | Not run | **Restricted** — not viable |
 
-Canada Central is the selected target because it clears Postgres and keeps everything in
-one region, but its spike has not been run. Until it passes, nothing about egress support
-there is established, and the working environment should not be destroyed on the assumption
-that it will.
+Canada Central is the selected target: it clears Postgres, keeps the containment
+environment and the state store in one region, and its spike passed. Three regions have now
+returned an identical result, which is consistent with the egress preview being broadly
+available — but that is a pattern across three samples, not a published statement, so a
+fourth region still gets spiked rather than assumed.
 
-The Sweden Central spike created a Foundry account there and read the configuration back
-from ARM:
+Each spike created a Foundry account in the region and read the configuration back from
+ARM. Canada Central (`viable-kid-4249-spike-rg`) and Sweden Central both returned:
 
 | Checked | Result |
 | --- | --- |
@@ -747,8 +748,8 @@ one-off spike, and each must be recorded here with its result before any claim d
 7. Which layer governs when managed-VNet isolation mode and the egress policy are both
    configured (D2, D3).
 8. Hosted-agent- and egress-specific region support in general: still no published table
-   (A2, B1). East US 2 and Sweden Central are each backed by a spike rather than by
-   documentation (A2a); any further region needs its own spike.
+   (A2, B1). East US 2, Sweden Central and Canada Central are each backed by a spike rather
+   than by documentation (A2a); any further region needs its own spike.
 9. Whether ADK remains functional against `opentelemetry-api` 1.43+ at **runtime** under real
    load, not just at import (Blocker 0). The smoke test covers import and agent construction
    only.
@@ -764,6 +765,7 @@ one-off spike, and each must be recorded here with its result before any claim d
 | LiteLLM rotating Entra token (E2) | **Supported** via `azure_ad_token_provider` | Source of installed 1.104.0 |
 | ADK + agent server co-install (Blocker 0) | Conflict confirmed; override tested working on otel 1.44.0 | Install + smoke test |
 | Sweden Central viability (A2a) | **Passed** — managed VNet and both egress policies stored | Spike + ARM read-back, 2026-10-08 |
+| Canada Central viability (A2a) | **Passed** — identical result; selected target | Spike + ARM read-back, 2026-10-08 |
 | Canada East viability (A2b) | **Not viable** — Postgres restricted | Capabilities API, 2026-10-08 |
 | Postgres region restriction (A2b) | East US 2 restricted; Sweden Central clear | Capabilities API, 2026-10-08 |
 | State store must back actors (A2c) | PostgreSQL qualifies; Table/Blob do not | Dapr component reference, 2026-10-08 |

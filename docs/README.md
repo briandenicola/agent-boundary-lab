@@ -314,10 +314,14 @@ Surveyed 2026-10-08:
 **The target region is `canadacentral`, so that the containment environment and the Phase 8
 state store share one region.** PostgreSQL Flexible Server is unrestricted there with major
 versions 11–18, and `gpt-4o-mini` `2024-07-18` is available on `GlobalStandard`
-(`compatibility.md` A2b). **Its egress spike has not been run yet** — until it passes,
-support for the egress preview there is unestablished, and the working environment should
-not be destroyed on the assumption that it will pass. `swedencentral` was spiked on
-2026-10-08 and passed, and is the proven fallback if Canada Central does not.
+(`compatibility.md` A2b). Its egress spike passed on 2026-10-08: ARM retained the
+Microsoft-managed agent network with `publicNetworkAccess` `Disabled`, and stored both RAI
+policies differing only in `Audit` versus `Enforced` mode. `swedencentral` passed the same
+check and remains a proven fallback.
+
+That result is control-plane acceptance only. It shows ARM stores the configuration; it
+shows nothing about enforcement, about which layer wins when the managed network and the
+egress policy both apply, or about whether a denied request is attributable.
 
 Check regions individually rather than by geography: `canadaeast` is restricted for
 PostgreSQL even though `canadacentral` is not.
