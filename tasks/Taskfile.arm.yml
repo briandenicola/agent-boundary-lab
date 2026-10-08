@@ -1,0 +1,63 @@
+version: '3'
+
+# Shared ARM reads.
+#
+# Two things here exist because `az` writes auto-upgrade chatter to STDOUT. A raw
+# `az ... | jq` feeds jq a line of apt output, and a raw `az ... -o tsv` captured into
+# a variable yields a resource id with a sentence in front of it. Both failure modes
+# produce a wrong answer rather than an error, so both reads are filtered and checked
+# in exactly one place instead of being retyped at every call site.
+
+silent: true
+
+tasks:
+  _account-id:
+    internal: true
+    # The account is found by TAG, not by terraform output, so this still works after a
+    # partially failed apply and before the first one. Writes the id to OUT.
+    requires:
+      vars: [TAG, OUT]
+    cmds:
+      - |
+        set -eu
+        RAW=$(az resource list \
+          --tag Application="{{.TAG}}" \
+          --query "[?type=='Microsoft.CognitiveServices/accounts'] | [0].id" \
+          -o tsv --only-show-errors)
+        ID=$(printf '%s\n' "$RAW" | grep -m1 '^/subscriptions/' || true)
+        if [ -z "$ID" ]; then
+          echo "No Foundry account found with tag Application='{{.TAG}}'." >&2
+          echo "Nothing was read. This is not evidence that the account is absent if" >&2
+          echo "the lookup itself failed -- check that you are on the right subscription." >&2
+          if [ -n "$RAW" ]; then
+            echo "--- raw response ---" >&2
+            printf '%s\n' "$RAW" >&2
+          fi
+          exit 1
+        fi
+        printf '%s' "$ID" > "{{.OUT}}"
+
+  _arm-get:
+    internal: true
+    # Every ARM read goes through here. az writes auto-upgrade chatter to STDOUT, so a
+    # raw `az rest | jq` silently feeds jq a line of apt output and jq fails. The caller
+    # then sees an empty string, which compares equal to another empty string and reads
+    # as a clean result. A query that did not run must never look like a query that
+    # returned nothing.
+    requires:
+      vars: [URL, QUERY, OUT]
+    cmds:
+      - |
+        set -eu
+        RAW=$(az rest --method get --url "{{.URL}}" --query "{{.QUERY}}" -o json --only-show-errors)
+        JSON=$(printf '%s\n' "$RAW" | sed -n '/^[[{]/,$p')
+        if [ -z "$JSON" ] || ! printf '%s\n' "$JSON" | jq empty >/dev/null 2>&1; then
+          echo "ARM QUERY DID NOT RETURN JSON. This is a failed read, not an empty result." >&2
+          echo "Nothing about the environment has been established." >&2
+          echo >&2
+          echo "url: {{.URL}}" >&2
+          echo "--- raw response ---" >&2
+          printf '%s\n' "$RAW" >&2
+          exit 1
+        fi
+        printf '%s\n' "$JSON" > "{{.OUT}}"

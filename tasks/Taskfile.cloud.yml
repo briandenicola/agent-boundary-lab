@@ -34,6 +34,11 @@ env:
   # `task build:deploy-endpoints`, set ENDPOINT_IMAGE_TAG=latest in your .env — the root
   # Taskfile loads it — or `cloud:up` will roll both endpoints back to the placeholder.
 
+includes:
+  arm:
+    taskfile: ./Taskfile.arm.yml
+    internal: true
+
 tasks:
   default:
     desc: Show available cloud tasks
@@ -81,38 +86,30 @@ tasks:
   base-policies:
     desc: List the RAI base policies that exist on the demo's Foundry account
     cmds:
-      - |
-        set -eu
-        ACCOUNT_ID=$(az resource list \
-          --tag Application="{{.TITLE}}" \
-          --query "[?type=='Microsoft.CognitiveServices/accounts'] | [0].id" -o tsv)
-        if [ -z "$ACCOUNT_ID" ]; then
-          echo "No Foundry account found with tag Application='{{.TITLE}}'."
-          exit 1
-        fi
-        az rest --method get \
-          --url "https://management.azure.com${ACCOUNT_ID}/raiPolicies?api-version=2026-05-15-preview" \
-          --query "value[].{name:name, type:properties.type, basePolicy:properties.basePolicyName, mode:properties.mode, egress:properties.egressPolicy}" \
-          -o json
+      - task: arm:_account-id
+        vars: {TAG: '{{.TITLE}}', OUT: /tmp/abl-account-id}
+      - task: arm:_arm-get
+        vars:
+          URL:
+            sh: echo "https://management.azure.com$(cat /tmp/abl-account-id)/raiPolicies?api-version=2026-05-15-preview"
+          QUERY: "value[].{name:name, type:properties.type, basePolicy:properties.basePolicyName, mode:properties.mode, egress:properties.egressPolicy}"
+          OUT: /tmp/abl-base-policies.json
+      - cat /tmp/abl-base-policies.json
 
   show-base:
     desc: Dump a base RAI policy in full, to copy its contentFilters verbatim
     cmds:
       # Fetched from the collection rather than by direct GET: a direct GET on a
       # system-managed policy returns 404 even though it appears in the list.
-      - |
-        set -eu
-        ACCOUNT_ID=$(az resource list \
-          --tag Application="{{.TITLE}}" \
-          --query "[?type=='Microsoft.CognitiveServices/accounts'] | [0].id" -o tsv)
-        if [ -z "$ACCOUNT_ID" ]; then
-          echo "No Foundry account found with tag Application='{{.TITLE}}'."
-          exit 1
-        fi
-        az rest --method get \
-          --url "https://management.azure.com${ACCOUNT_ID}/raiPolicies?api-version=2026-05-15-preview" \
-          --query "value[?name=='{{.BASE}}'] | [0]" \
-          -o json
+      - task: arm:_account-id
+        vars: {TAG: '{{.TITLE}}', OUT: /tmp/abl-account-id}
+      - task: arm:_arm-get
+        vars:
+          URL:
+            sh: echo "https://management.azure.com$(cat /tmp/abl-account-id)/raiPolicies?api-version=2026-05-15-preview"
+          QUERY: "value[?name=='{{.BASE}}'] | [0]"
+          OUT: /tmp/abl-base-policy.json
+      - cat /tmp/abl-base-policy.json
     vars:
       BASE: '{{default "Microsoft.DefaultV2" .CLI_ARGS}}'
 
@@ -130,37 +127,12 @@ tasks:
         echo "The only difference between these two is whether the egress policy names"
         echo "them. No application code knows which is which."
 
-  _arm-get:
-    internal: true
-    # Every ARM read goes through here. az writes auto-upgrade chatter to STDOUT, so a
-    # raw `az rest | jq` silently feeds jq a line of apt output and jq fails. The caller
-    # then sees an empty string, which compares equal to another empty string and reads
-    # as a clean result. A query that did not run must never look like a query that
-    # returned nothing.
-    requires:
-      vars: [URL, QUERY, OUT]
-    cmds:
-      - |
-        set -eu
-        RAW=$(az rest --method get --url "{{.URL}}" --query "{{.QUERY}}" -o json --only-show-errors)
-        JSON=$(printf '%s\n' "$RAW" | sed -n '/^[[{]/,$p')
-        if [ -z "$JSON" ] || ! printf '%s\n' "$JSON" | jq empty >/dev/null 2>&1; then
-          echo "ARM QUERY DID NOT RETURN JSON. This is a failed read, not an empty result." >&2
-          echo "Nothing about the environment has been established." >&2
-          echo >&2
-          echo "url: {{.URL}}" >&2
-          echo "--- raw response ---" >&2
-          printf '%s\n' "$RAW" >&2
-          exit 1
-        fi
-        printf '%s\n' "$JSON" > "{{.OUT}}"
-
   policies:
     desc: Prove the two RAI policies differ in EXACTLY one field
     cmds:
       # The single-variable claim is checkable, so check it rather than asserting it.
       # Read from ARM, not from state: state is what terraform believes it wrote.
-      - task: _arm-get
+      - task: arm:_arm-get
         vars:
           URL:
             sh: echo "https://management.azure.com$(terraform -chdir=./{{.CLOUD_DIR}} output -raw foundry_account_id)/raiPolicies?api-version=2026-05-15-preview"
@@ -224,7 +196,7 @@ tasks:
       #
       # Read from ARM rather than from terraform state: state is what terraform believes
       # it wrote.
-      - task: _arm-get
+      - task: arm:_arm-get
         vars:
           URL:
             sh: echo "https://management.azure.com$(terraform -chdir=./{{.CLOUD_DIR}} output -raw foundry_account_id)/projects/$(terraform -chdir=./{{.CLOUD_DIR}} output -raw project_name)/connections?api-version=2026-05-15-preview"

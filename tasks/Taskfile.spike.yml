@@ -24,6 +24,11 @@ env:
   # EXPORTS that over the .env value, so setting the variable in .env silently did
   # nothing. Shell expansion at the point of use reads the real environment.
 
+includes:
+  arm:
+    taskfile: ./Taskfile.arm.yml
+    internal: true
+
 tasks:
   default:
     desc: Show available spike tasks
@@ -45,15 +50,11 @@ tasks:
     cmds:
       # A read, not a change. The account is found by tag rather than by terraform
       # output, so this still works after a partially failed apply.
+      - task: arm:_account-id
+        vars: {TAG: '{{.SPIKE_TITLE}}', OUT: /tmp/abl-spike-account-id}
       - |
         set -eu
-        ACCOUNT_ID=$(az resource list \
-          --tag Application="{{.SPIKE_TITLE}}" \
-          --query "[?type=='Microsoft.CognitiveServices/accounts'] | [0].id" -o tsv)
-        if [ -z "$ACCOUNT_ID" ]; then
-          echo "No Foundry account found with tag Application='{{.SPIKE_TITLE}}'."
-          exit 1
-        fi
+        ACCOUNT_ID=$(cat /tmp/abl-spike-account-id)
         echo "account: $ACCOUNT_ID"
         echo
         echo "=== existing RAI policies, and which are usable as a base ==="
@@ -69,15 +70,11 @@ tasks:
       # across our two policies - content filtering is not the variable under test, so
       # any difference there would confound the egress result. Copying the base policy's
       # own filters is the most defensible way to hold them constant.
+      - task: arm:_account-id
+        vars: {TAG: '{{.SPIKE_TITLE}}', OUT: /tmp/abl-spike-account-id}
       - |
         set -eu
-        ACCOUNT_ID=$(az resource list \
-          --tag Application="{{.SPIKE_TITLE}}" \
-          --query "[?type=='Microsoft.CognitiveServices/accounts'] | [0].id" -o tsv)
-        if [ -z "$ACCOUNT_ID" ]; then
-          echo "No Foundry account found with tag Application='{{.SPIKE_TITLE}}'."
-          exit 1
-        fi
+        ACCOUNT_ID=$(cat /tmp/abl-spike-account-id)
         echo "=== {{.BASE}} in full ==="
         # Fetched from the collection rather than by direct GET: a direct GET on a
         # system-managed policy returns 404 even though the same policy appears in the
@@ -113,15 +110,11 @@ tasks:
       # Read straight back from ARM rather than from terraform state. State records what
       # terraform believes it wrote; this records what the platform actually kept, which
       # is the only version worth drawing a conclusion from on a preview API.
+      - task: arm:_account-id
+        vars: {TAG: '{{.SPIKE_TITLE}}', OUT: /tmp/abl-spike-account-id}
       - |
         set -eu
-        ACCOUNT_ID=$(az resource list \
-          --tag Application="{{.SPIKE_TITLE}}" \
-          --query "[?type=='Microsoft.CognitiveServices/accounts'] | [0].id" -o tsv)
-        if [ -z "$ACCOUNT_ID" ]; then
-          echo "No Foundry account found with tag Application='{{.SPIKE_TITLE}}'."
-          exit 1
-        fi
+        ACCOUNT_ID=$(cat /tmp/abl-spike-account-id)
 
         echo "=== did ARM keep the managed VNet configuration? ==="
         echo "(null or empty here means ARM accepted the request but dropped the config)"
