@@ -291,12 +291,19 @@ approval gates and restart survival around that same unchanged agent. Keeping th
 separate means the workflow extension can never be blamed for, or credited with, a
 containment result.
 
-**PostgreSQL is the state store, and the region is chosen to accommodate it.** The demo
-subscription is restricted from provisioning PostgreSQL Flexible Server in `eastus2`: the
-capabilities API returns `restricted: Enabled` with every supported version list empty,
-which surfaces as the misleading error `The value of the 'Version' should be in: []`.
-Flexible Server VNet injection pins the server to its subnet's region, so the environment
-deploys where PostgreSQL is available rather than working around it.
+**PostgreSQL is the state store, but it is gated off by default.** `infra/cloud/` carries
+the full Flexible Server configuration behind `enable_state_store`, which defaults to
+`false`. Nothing before Phase 8 reads from it, so the containment environment runs without
+it.
+
+The default exists because of a regional conflict that cannot be configured away. The demo
+subscription is restricted from provisioning Flexible Server in `eastus2`: the capabilities
+API returns `restricted: Enabled` with every supported version list empty, which surfaces
+as the misleading error `The value of the 'Version' should be in: []`. Flexible Server uses
+VNet injection rather than a private endpoint, so the server is pinned to its subnet's
+region. Creating it unconditionally would force the containment demo — which is the point
+of this repository, and which is running and verified in `eastus2` — to relocate for a
+database no phase queries yet.
 
 Surveyed 2026-10-08:
 
@@ -304,15 +311,15 @@ Surveyed 2026-10-08:
 | --- | --- |
 | `centralus`, `westus3`, `northcentralus`, `canadacentral` | `eastus`, `eastus2`, `westus2`, `southcentralus` |
 
-**Confirm the egress preview in the target region before building the full environment.**
-This is the real risk in moving, and it is not a theoretical one: there is no published
-region list for hosted agents or for the network egress preview (see `compatibility.md`
-A2 and B1). `eastus2` support was *inferred* from the general Agents table and then
-confirmed empirically by the Phase 0 spike. A different region has neither. Run
-`task spike:up -- <region>` first — it creates only a Foundry account and two RAI
-policies, costs little, and answers in minutes whether the egress policy is accepted
-there. If it is not, that is a blocker to record, not a reason to quietly fall back to an
-application-level check.
+**Phase 8 sets `enable_state_store = true` and deploys in an unrestricted region.** That
+environment is separate from the containment environment, and before building it, confirm
+the egress preview works there: there is no published region list for hosted agents or for
+the network egress preview (see `compatibility.md` A2 and B1). `eastus2` support was
+*inferred* from the general Agents table and then confirmed empirically by the Phase 0
+spike; another region has neither. Run `task spike:up -- <region>` first — it creates only
+a Foundry account and two RAI policies and answers in minutes. If the egress policy is
+rejected there, record a blocker rather than quietly falling back to an application-level
+check.
 
 Validate the chosen version against the selected Dapr runtime and Python Workflow SDK for
 actor-state requirements, transactions, concurrency and durability configuration before

@@ -139,12 +139,12 @@ output "what_this_environment_does_not_prove" {
 }
 
 output "postgres_fqdn" {
-  description = "Fully qualified domain name of the Dapr workflow state store."
-  value       = azurerm_postgresql_flexible_server.main.fqdn
+  description = "FQDN of the Dapr workflow state store, or null when enable_state_store is false."
+  value       = one(azurerm_postgresql_flexible_server.main[*].fqdn)
 }
 
 output "postgres_admin_password" {
-  description = "Generated administrator password for the workflow state store."
-  value       = random_password.postgres_admin.result
+  description = "Generated administrator password for the workflow state store, or null when disabled."
+  value       = one(random_password.postgres_admin[*].result)
   sensitive   = true
 }

@@ -161,6 +161,26 @@ variable "workflow_service_account" {
 # POSTGRES — Dapr workflow state store (Phase 8)
 #############################################
 
+variable "enable_state_store" {
+  description = <<-EOT
+    Create the PostgreSQL Flexible Server that backs Dapr Workflow state.
+
+    Defaults to false, and that default is deliberate. No phase before 8 reads from this
+    server, and Flexible Server is restricted in several regions including eastus2, where
+    the containment environment runs. VNet injection pins the server to its subnet's
+    region, so provisioning it unconditionally would force the containment demo to
+    relocate for a database nothing queries.
+
+    Set this to true when Phase 8 begins, and deploy that environment in a region where
+    Flexible Server is available. Surveyed 2026-10-08: centralus, westus3, northcentralus
+    and canadacentral were unrestricted; eastus, eastus2, westus2 and southcentralus were
+    not. A restricted region reports "The value of the 'Version' should be in: []", which
+    names the wrong cause -- check the capabilities API for restricted: Enabled.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "postgres_sku_name" {
   description = "Flexible Server SKU. The workflow state store holds a handful of orchestration rows, so the smallest burstable tier is sufficient."
   type        = string

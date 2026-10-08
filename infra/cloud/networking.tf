@@ -78,6 +78,8 @@ resource "azurerm_subnet" "container_apps" {
 # Postgres subnet. Flexible Server uses VNet injection rather than a private endpoint,
 # so it needs a delegated subnet of its own.
 resource "azurerm_subnet" "postgres" {
+  count = var.enable_state_store ? 1 : 0
+
   name                 = "postgres-subnet"
   resource_group_name  = azurerm_resource_group.this.name
   virtual_network_name = azurerm_virtual_network.main.name

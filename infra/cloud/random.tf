@@ -46,6 +46,8 @@ resource "random_password" "diagnostics_token" {
 # PostgreSQL administrator password for the Dapr workflow state store. Generated, never
 # typed, and surfaced only as a sensitive output -- there is no Key Vault in this module.
 resource "random_password" "postgres_admin" {
+  count = var.enable_state_store ? 1 : 0
+
   length  = 32
   special = true
 }
