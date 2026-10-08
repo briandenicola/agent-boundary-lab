@@ -133,18 +133,47 @@ tasks:
       # Run this BEFORE a demo run, never after a failure. An endpoint that was already
       # down makes a failed call unattributable: the agent would have failed to reach it
       # whether or not any policy existed.
+      #
+      # Retries for up to two minutes. `az containerapp update` returns once the control
+      # plane has accepted the new revision, which is well before that revision answers
+      # traffic, so checking immediately after a deploy reports UNREACHABLE for an
+      # endpoint that is merely still starting. In a repository whose entire output is
+      # "reachable" versus "not reachable", a false negative here is worse than a slow
+      # check, and it also exits non-zero so a failure cannot be scrolled past.
       - |
         set -eu
         POLICY=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw policy_api_url)
         RECEIVER=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw test_receiver_url)
 
+        DEADLINE=$(( $(date +%s) + 120 ))
+        FAILED=0
+
         for URL in "$POLICY" "$RECEIVER"; do
-          printf '%s -> ' "$URL/healthz"
-          curl --silent --show-error --fail --max-time 15 "$URL/healthz" || echo "UNREACHABLE"
-          echo
+          printf '%s/healthz -> ' "$URL"
+          BODY=""
+          while :; do
+            if BODY=$(curl --silent --show-error --fail --max-time 10 "$URL/healthz" 2>/dev/null); then
+              echo "$BODY"
+              break
+            fi
+            if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+              echo "UNREACHABLE after 120s"
+              FAILED=1
+              break
+            fi
+            printf '.'
+            sleep 5
+          done
         done
 
         echo
         echo "Both must answer. The receiver being reachable from here is what makes it"
         echo "meaningful when the AGENT cannot reach it: the difference is then the"
         echo "egress policy, not a dead endpoint."
+
+        if [ "$FAILED" -ne 0 ]; then
+          echo
+          echo "An endpoint did not come up. Do NOT run the demo: a denial you observe"
+          echo "now would be unattributable."
+          exit 1
+        fi
