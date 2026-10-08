@@ -298,9 +298,36 @@ tasks:
         fi
         kubectl -n "$NS" get pods -l "app.kubernetes.io/name=agent-harness" -o wide
         echo
-        echo "=== agent-deploy init container ==="
-        kubectl -n "$NS" logs "$DEP" -c agent-deploy --tail=200 || \
-          echo "No init container logs yet. If the pod is stuck in Init:0/1, describe it."
+
+        # The pod is chosen explicitly, newest first, and NAMED in the output.
+        #
+        # Reading logs from the deployment lets kubectl pick for us, and during a rollout
+        # it picks arbitrarily -- in practice the OLD, dying pod. The result was logs from
+        # a pod that had nothing to do with the apply just performed, under a heading that
+        # implied otherwise.
+        PODS=$(kubectl -n "$NS" get pods -l "app.kubernetes.io/name=agent-harness" \
+          --sort-by=.metadata.creationTimestamp -o name)
+        COUNT=$(printf '%s\n' "$PODS" | grep -c . || true)
+        POD=$(printf '%s\n' "$PODS" | tail -1)
+        if [ "$COUNT" -gt 1 ]; then
+          echo "ROLLOUT IN PROGRESS: $COUNT pods. Older pods belong to a previous apply"
+          echo "and their logs describe a workload you are no longer deploying."
+          echo
+        fi
+
+        echo "=== agent-deploy init container ($POD) ==="
+        LOGS=$(kubectl -n "$NS" logs "$POD" -c agent-deploy --tail=200 2>&1 || true)
+        if [ -z "$LOGS" ]; then
+          # An empty read is not an empty result. Silence here previously looked like
+          # a clean run.
+          echo "NO OUTPUT. This is not evidence that the deploy succeeded."
+          echo "The container may not have started yet, or may have been restarted."
+          echo "Try the previous attempt:"
+          echo "  kubectl -n $NS logs $POD -c agent-deploy --previous"
+          echo "  kubectl -n $NS describe $POD"
+        else
+          printf '%s\n' "$LOGS"
+        fi
         echo
         echo "An init container that exited 0 means a version was ACCEPTED. It does not"
         echo "mean the RAI policy on that version is being enforced. Read the version back."
