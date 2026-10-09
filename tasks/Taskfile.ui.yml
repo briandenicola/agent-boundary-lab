@@ -20,7 +20,7 @@ env:
   CLOUD_DIR: infra/cloud
   UI_REPOSITORY: containment-demo-ui
   UI_SECRET: demo-ui-config
-  UI_LOCAL_PORT: '8080'
+  UI_LOCAL_PORT: '8081'
 
 tasks:
   build:
@@ -157,7 +157,7 @@ tasks:
         kubectl -n "$NS" rollout status deployment/demo-ui --timeout=180s
 
   open:
-    desc: Reach the UI at http://localhost:8080 (port-forward; Ctrl-C to stop). Login password = task ui:token
+    desc: Reach the UI at http://localhost:8081 (port-forward; Ctrl-C to stop). Login password = task ui:token
     cmds:
       - task: _require-kubectl
       - |
