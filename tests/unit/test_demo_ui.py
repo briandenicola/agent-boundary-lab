@@ -173,7 +173,10 @@ def test_transport_failure_is_labelled_as_our_call() -> None:
 
 def test_platform_evidence_is_declared_not_joined() -> None:
     c, _ = client()
-    assert "GATE 0" in c.post("/run/audit", headers=AUTH).json()["platform_evidence"]
+    text = c.post("/run/audit", headers=AUTH).json()["platform_evidence"]
+    assert "not read by this UI" in text
+    assert "OperationId does not" in text
+    assert "no telemetry field joins" not in text  # the stale GATE 0 claim
 
 
 def test_run_label_is_shown_and_required() -> None:

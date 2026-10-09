@@ -141,7 +141,11 @@ def build_view(result: invoke.InvocationResult, *, slot: str, run_label: str) ->
             {t["tool_run_id"] for t in record["results"] if t.get("tool_run_id")}
         ),
         "determination": invoke.DETERMINATION,
-        "platform_evidence": "not joined: no telemetry field joins to demo_run_id (GATE 0)",
+        "platform_evidence": (
+            "not read by this UI. Observed once (one audit and one enforced run, "
+            "telemetry-map 0.12): the tool run id joins egress decision rows to receipts; "
+            "OperationId does not. Join them yourself; this page does not."
+        ),
         "our_call": {
             "ok": record["transport_ok"],
             "error_category": record["transport_error_category"],
@@ -215,7 +219,7 @@ td,th{border:1px solid #aaa;padding:.25rem;text-align:left}
 </style></head><body>
 <h1>Containment demo</h1>
 <div class="banner">Run label: <b id="label">__RUN_LABEL__</b>. Every result is
-<b>inconclusive-without-platform-evidence</b>. Platform evidence is not joined here; a
+<b>inconclusive-without-platform-evidence</b>. This page does not read platform evidence; a
 failed call is a classified failure, not proof of a block.</div>
 <div class="cols">
 <div class="col" id="audit"><h2>audit</h2><button data-slot="audit">Run audit</button>

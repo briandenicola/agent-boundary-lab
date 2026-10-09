@@ -40,7 +40,8 @@ demo-ui = [
     "starlette>=0.40",
     "uvicorn[standard]>=0.32",
 ]
-# The A2A spike only (Blocker 5). Not in any image.
+# The A2A spike only (Blocker 5). Installed in the image's /opt/deploy-venv, NOT the agent
+# interpreter.
 a2a = [
     "azure-ai-projects>=2.8.0,<3",
     "a2a-sdk==1.0.2",

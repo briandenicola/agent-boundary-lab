@@ -379,6 +379,45 @@ tasks:
           KUBECTL_ARGS: apply --server-side --force-conflicts
       - task: harness-status
 
+  a2a-card:
+    desc: READ-ONLY. Fetch the A2A agent card of the audit agent from inside the harness pod
+    cmds:
+      - task: _a2a-spike
+        vars:
+          SPIKE_ARGS: ""
+
+  a2a-enable:
+    desc: CHANGES AZURE. PATCH the audit agent to enable incoming A2A, then fetch its card
+    prompt: This sends a merge-patch to the audit agent on the Foundry data plane. Continue?
+    cmds:
+      - task: _a2a-spike
+        vars:
+          SPIKE_ARGS: "--enable"
+
+  a2a-send:
+    desc: CALLS THE AGENT. Send one A2A message to the audit agent (A2A-Version 1.0)
+    prompt: This invokes the audit agent once over A2A. Continue?
+    cmds:
+      - task: _a2a-spike
+        vars:
+          SPIKE_ARGS: "--send"
+
+  _a2a-spike:
+    internal: true
+    cmds:
+      # Runs in the harness pod because the Foundry data plane is private. Uses the
+      # deploy venv, where azure-ai-projects and the a2a extra live. Names come from
+      # terraform outputs; nothing is rebuilt from strings here. The spike has no pass.
+      - |
+        set -eu
+        TF="terraform -chdir=./{{.CLOUD_DIR}} output -raw"
+        NS=$($TF kubernetes_namespace)
+        DEP=$(kubectl -n "$NS" get deployment -l "app.kubernetes.io/name=agent-harness" -o name | head -1)
+        kubectl -n "$NS" exec "$DEP" -c harness -- /opt/deploy-venv/bin/python -m containment_demo.a2a_spike \
+          --account "$($TF foundry_account_name)" \
+          --project "$($TF project_name)" \
+          --agent "$($TF agent_name_audit)" {{.SPIKE_ARGS}}
+
   harness-status:
     desc: Show the harness pod and the deploy init container's result
     cmds:

@@ -41,8 +41,11 @@ RUN uv pip install --system --no-cache .
 # So it goes in a separate venv. One image, one digest, two isolated dependency sets. The
 # init container overrides the entrypoint to use this interpreter:
 #   command: ["/opt/deploy-venv/bin/python", "-m", "containment_demo.deploy"]
+# The A2A spike (containment_demo.a2a_spike) runs in this same venv, exec'd into the
+# harness pod. The a2a extra resolves alongside azure-ai-projects here, and never touches
+# the agent's own interpreter, so the agent's model stack is unchanged.
 RUN uv venv /opt/deploy-venv \
-    && VIRTUAL_ENV=/opt/deploy-venv uv pip install --no-cache ".[deploy]"
+    && VIRTUAL_ENV=/opt/deploy-venv uv pip install --no-cache ".[deploy,a2a]"
 
 # Run unprivileged. The container has no need to write anywhere outside /tmp.
 RUN useradd --create-home --uid 10001 agent

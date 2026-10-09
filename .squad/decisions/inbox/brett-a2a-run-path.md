@@ -1,0 +1,3 @@
+# A2A spike run path + UI evidence text (Brett, 2026-10-09)
+- UI `platform_evidence` now says: not read by this UI; run-id join observed once (audit+enforced, telemetry-map 0.12); OperationId does not join. Determination stays inconclusive-without-platform-evidence (UI never reads platform evidence). Tamper: stale text and weakened OperationId claim each fail `test_platform_evidence_is_declared_not_joined`.
+- Spike runs in the harness pod's /opt/deploy-venv (Dockerfile now `.[deploy,a2a]`; resolved cleanly with openai>=3 there; agent interpreter untouched). Tasks: cloud:a2a-card (read-only), cloud:a2a-enable, cloud:a2a-send (each prompts). Image digest changed because of the layer, so both agents were redeployed.
