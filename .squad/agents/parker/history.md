@@ -414,3 +414,5 @@ What actually happened:
   `managednetworks/default` has `outboundRules: {}`. Sample README (not Learn) is the only source.
   Account MI also needs Network Connection Approver (b556d68e…). Sample region list omits
   canadacentral. Recorded as B9g PROPOSED/UNVERIFIED; nothing applied.
+- Applied B9g (authorised): managed-network outbound rule + Approver at ACCOUNT scope. Rule Active,
+  new PE connection auto-approved; Contributor-at-RG not needed. Model-call success still unobserved.

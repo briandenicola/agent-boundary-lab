@@ -1068,7 +1068,20 @@ Recommendation: **A**, written as reviewable azapi + role assignment, planned (n
 by Parker once approved. Brian must approve: (1) the new outbound rule resource, (2) the
 Approver role (and whether Contributor-at-RG is acceptable) for the account identity,
 (3) possible managed-network cost. Confirmation is only that the model call then returns 200.
-Nothing applied.
+Nothing applied at the time of the proposal.
+
+**OBSERVED after apply (2026-10-09, `task cloud:up`, plan was 2 add / 0 change / 0 destroy;
+`infra/cloud/managed-network.tf`):**
+- Outbound rule `foundry-account-pe` (`PrivateEndpoint` → this account, `account`): `status: Active`.
+- Account private endpoint connections: ours (`…-foundry-pe`) Approved; new
+  `foundry-account-pe.74a8ffb3-…` **Approved**, description "Auto-approved by Azure AI managed
+  network for workspace: humble-phoenix-46689-foundry@AML".
+- Role: `Azure AI Enterprise Network Connection Approver` assigned to the account identity at
+  **account scope** only. The sample's RG-scope Contributor was NOT granted and auto-approval
+  worked without it, so on this evidence it is not required for the account-scope case.
+- RAI policies and agents untouched. NOT yet observed: the model call succeeding. That
+  (HTTP 200 from the account on re-invoke) is the only confirmation; the rule being Active
+  proves the control plane accepted it, not that the data path works.
 
 ### C1. Where egress decisions surface
 
