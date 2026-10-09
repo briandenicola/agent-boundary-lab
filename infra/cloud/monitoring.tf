@@ -33,3 +33,24 @@ resource "azurerm_application_insights" "main" {
 
   tags = local.common_tags
 }
+
+# PROPOSED, not applied. Evidence dashboard built from docs/kql-queries.md. The queries
+# target the Log Analytics workspace so one workbook reads both AppDependencies and
+# ContainerAppConsoleLogs_CL. Workbook names must be GUIDs, so it is derived from a
+# random_uuid, never from a variable.
+resource "random_uuid" "evidence_workbook" {}
+
+resource "azurerm_application_insights_workbook" "egress_evidence" {
+  name                = random_uuid.evidence_workbook.result
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
+  display_name        = "${local.resource_name} egress evidence"
+  source_id           = lower(azurerm_log_analytics_workspace.main.id)
+  category            = "workbook"
+
+  data_json = jsonencode(jsondecode(templatefile("${path.module}/workbooks/egress-evidence.workbook.json", {
+    workspace_id = azurerm_log_analytics_workspace.main.id
+  })))
+
+  tags = local.common_tags
+}

@@ -216,3 +216,8 @@ output "postgres_admin_password" {
   value       = one(random_password.postgres_admin[*].result)
   sensitive   = true
 }
+
+output "evidence_workbook_id" {
+  description = "Resource id of the egress evidence workbook. In the portal: Application Insights > Workbooks, or Monitor > Workbooks, named '<resource name> egress evidence'."
+  value       = azurerm_application_insights_workbook.egress_evidence.id
+}

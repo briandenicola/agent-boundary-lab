@@ -149,6 +149,18 @@ AppDependencies
 - Azure Firewall, NSG flow logs or other network-device logs. None are in this design, and no such source was queried.
 - The harness and the façades are not governed by the policy. Only the hosted agents' outbound calls are.
 
+## Evidence workbook
+
+**PROPOSED. Not yet applied.** `infra/cloud/workbooks/egress-evidence.workbook.json` is an Azure Workbook (resource
+`azurerm_application_insights_workbook.egress_evidence`, output `evidence_workbook_id`) that renders queries 1 to 8 of
+`kql-queries.md` as panels with a time range and an optional run id. It queries the Log Analytics workspace, so decision
+rows (`AppDependencies`) and receipts (`ContainerAppConsoleLogs_CL`) sit in one view.
+
+- Apply it with the existing infra task, `task cloud:plan` then `task cloud:up` (there is no workbook-only task, so read the plan: it applies the whole environment). This needs Brian's approval: it creates a
+  real Azure resource (no separate charge, but it is a change to the deployed environment).
+- The queries are **untested as written** until it is applied and one panel is run. Report any error before relying on it.
+- Seeing a panel is not proof of containment: the evidence is the decision rows plus receipts, with the 180 s rule for absence.
+
 ## Verified, proposed, blocked
 
 | Item | Status |

@@ -10,6 +10,8 @@ ran equivalent queries for §0.14. Run one first and report any error before rel
 Set the run id once at the top of each query. The `run-…` id appears in the URL path of the decision row (`Data`)
 and in the receipt line; the `ui-…` and harness ids do not join to it.
 
+A proposed (not yet applied) workbook with these panels: `infra/cloud/workbooks/egress-evidence.workbook.json`.
+
 ## 1. Every platform egress decision in a time window
 
 ```kusto
