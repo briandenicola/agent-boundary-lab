@@ -25,6 +25,7 @@ from containment_demo.deploy import (
     DriftError,
     UnrecognisedStatusError,
     _normalise_status,
+    _service_error_of,
     _status_of,
     build_definition,
     build_environment,
@@ -105,6 +106,8 @@ class FakeAgentsOperations:
     created: list[tuple[str, FakeHostedAgentDefinition]] = field(default_factory=list)
     create_error: Exception | None = None
     get_version_calls: int = 0
+    # What a DIRECT read returns when it disagrees with what list_versions said.
+    direct: dict[tuple[str, str], FakeVersion] = field(default_factory=dict)
 
     def list_versions(self, agent_name: str) -> list[FakeVersion]:
         from azure.core.exceptions import ResourceNotFoundError
@@ -130,6 +133,8 @@ class FakeAgentsOperations:
 
     def get_version(self, agent_name: str, agent_version: str) -> FakeVersion:
         self.get_version_calls += 1
+        if (agent_name, agent_version) in self.direct:
+            return self.direct[(agent_name, agent_version)]
         versions = self.existing[agent_name]
         match = next(v for v in versions if v.version == agent_version)
         queued = self.statuses.get(agent_name)
@@ -371,6 +376,70 @@ def test_rerun_creates_nothing_and_still_succeeds() -> None:
     report = run(client, make_cfg(), make_settings())
     assert client.agents.created == []
     assert all(r.reused for r in report.results)
+
+
+def _stale_active_version_4() -> tuple[FakeClient, FakeHostedAgentDefinition]:
+    """list_versions says version 1 is active; a direct read says failed/ImageError."""
+    cfg = make_cfg()
+    audit, _ = plan(cfg)
+    definition = build_definition(FakeModels, cfg, make_settings(), audit)
+    client = FakeClient()
+    client.agents.existing[audit.agent_name] = [FakeVersion("1", definition, status="active")]
+    client.agents.direct[(audit.agent_name, "1")] = FakeVersion(
+        "1",
+        definition,
+        status="failed",
+        error={"code": "ImageError", "message": "Container registry authentication failed"},
+    )
+    return client, definition
+
+
+def test_list_active_but_direct_failed_is_not_reused() -> None:
+    client, _ = _stale_active_version_4()
+    report = run(client, make_cfg(), make_settings())
+    audit = next(r for r in report.results if r.agent_name == make_cfg().agent_name_audit)
+    assert not audit.reused
+    assert audit.version == "2"
+    assert [n for n, _ in client.agents.created].count(audit.agent_name) == 1
+
+
+def test_direct_read_failure_is_logged_with_the_service_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING, logger="containment_demo.deploy")
+    client, _ = _stale_active_version_4()
+    run(client, make_cfg(), make_settings())
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "ImageError" in text
+    assert "Skipping it" in text
+
+
+def test_direct_read_that_confirms_active_is_still_reused() -> None:
+    client = FakeClient()
+    run(client, make_cfg(), make_settings())
+    client.agents.created.clear()
+    client.agents.get_version_calls = 0
+    run(client, make_cfg(), make_settings())
+    assert client.agents.created == []
+    assert client.agents.get_version_calls >= 2
+
+
+def test_service_error_is_read_from_a_mapping_when_there_is_no_attribute() -> None:
+    """AgentVersionDetails declares no `error` field: getattr is None, the key is not."""
+
+    class MappingOnly(dict[str, Any]):
+        pass
+
+    payload = {"code": "ImageError", "message": "AcrPull"}
+    assert _service_error_of(MappingOnly(error=payload)) == payload
+    assert _service_error_of(MappingOnly()) is None
+
+
+def test_failed_message_carries_code_and_message() -> None:
+    client = _version_reporting("failed")
+    client.agents.existing["a"][0].error = {"code": "ImageError", "message": "AcrPull"}
+    with pytest.raises(DeploymentError, match="ImageError.*AcrPull"):
+        _wait(client)
 
 
 def test_new_digest_creates_a_new_version() -> None:

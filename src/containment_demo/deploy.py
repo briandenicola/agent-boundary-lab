@@ -60,7 +60,7 @@ import math
 import re
 import sys
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -409,6 +409,21 @@ def _status_of(version: Any) -> str:
     return _normalise_status(_raw_status(version))
 
 
+def _matching_versions(versions: Iterable[Any], image: str, rai_policy_id: str) -> Iterator[Any]:
+    """Every listed version that looks reusable. LIST status is a hint, never a verdict."""
+    for version in versions:
+        definition = getattr(version, "definition", None)
+        if definition is None:
+            continue
+        if _image_of(definition) != image:
+            continue
+        if _policy_of(definition) != rai_policy_id:
+            continue
+        if _status_of(version) not in _READY_STATUSES | _PENDING_STATUSES:
+            continue
+        yield version
+
+
 def find_matching_version(versions: Iterable[Any], image: str, rai_policy_id: str) -> Any | None:
     """Return an existing version that is already exactly what we would create.
 
@@ -424,17 +439,31 @@ def find_matching_version(versions: Iterable[Any], image: str, rai_policy_id: st
     it would hide the unrecognised value instead of surfacing it. A pending version IS
     reused and then waited on, which is the stuck-``creating`` case.
     """
-    for version in versions:
-        definition = getattr(version, "definition", None)
-        if definition is None:
-            continue
-        if _image_of(definition) != image:
-            continue
-        if _policy_of(definition) != rai_policy_id:
-            continue
-        if _status_of(version) not in _READY_STATUSES | _PENDING_STATUSES:
-            continue
-        return version
+    return next(_matching_versions(versions, image, rai_policy_id), None)
+
+
+def _confirmed_reusable(client: Any, agent_name: str, candidate: Any) -> Any | None:
+    """Confirm a reuse candidate with a DIRECT get_version read.
+
+    Observed 2026-10-09: list_versions reported containment-demo-audit:4 as active while
+    get_version returned status 'failed' with error ImageError (ACR authentication /
+    AcrPull). Reusing it crash-looped the init container. List status is not trustworthy
+    for readiness. A permission fix does not heal a failed version; a new one is created.
+    """
+    version_id = str(candidate.version)
+    direct = client.agents.get_version(agent_name, version_id)
+    status = _status_of(direct)
+    if status in _READY_STATUSES | _PENDING_STATUSES:
+        return direct
+    logger.warning(
+        "%s: version %s looked reusable in list_versions but a direct read says status=%r "
+        "(verbatim %r), service error: %s. Skipping it; a new version will be created.",
+        agent_name,
+        version_id,
+        status,
+        _raw_status(direct),
+        _service_error_of(direct),
+    )
     return None
 
 
@@ -495,9 +524,18 @@ def poll_attempts(timeout_seconds: float, poll_seconds: float) -> int:
 
 
 def _service_error_of(version: Any) -> Any:
-    """Whatever the service attached to a failure, for verbatim inclusion in the error."""
-    for attribute in ("error", "last_error", "status_details"):
-        value = getattr(version, attribute, None)
+    """Whatever the service attached to a failure, for verbatim inclusion in the error.
+
+    ``AgentVersionDetails`` (azure-ai-projects 2.8.0) declares NO ``error`` field, so
+    ``getattr(version, "error")`` is None even when the wire body carries one. The model is
+    a MutableMapping and keeps undeclared wire fields, so they are read by key. Verified
+    2026-10-09 by deserialising {"status": "failed", "error": {...}}: getattr -> None,
+    version["error"] -> the payload. That is why the log said "Service error: None".
+    """
+    for key in ("error", "last_error", "status_details"):
+        value = getattr(version, key, None)
+        if value is None and hasattr(version, "get"):
+            value = version.get(key)
         if value is not None:
             return value
     return None
@@ -576,7 +614,7 @@ def wait_until_ready(
         if status in _FAILED_STATUSES:
             raise DeploymentError(
                 f"{agent_name}: version {version_id} reached terminal status {status!r} "
-                f"after {elapsed:.1f}s. Service error: {_service_error_of(version)!r}. "
+                f"after {elapsed:.1f}s. Service error (code/message): {_service_error_of(version)!r}. "
                 "Not retrying: a failed provision is a real result."
             )
 
@@ -636,9 +674,13 @@ def deploy_agent(
     monotonic: Callable[[], float] = time.monotonic,
 ) -> DeploymentResult:
     """Create one agent version if it does not already exist, then verify it."""
-    existing = find_matching_version(
+    existing = None
+    for candidate in _matching_versions(
         _list_versions(client, spec.agent_name), cfg.agent_image, spec.rai_policy_id
-    )
+    ):
+        existing = _confirmed_reusable(client, spec.agent_name, candidate)
+        if existing is not None:
+            break
     if existing is not None:
         version_id = str(existing.version)
         reused = True
