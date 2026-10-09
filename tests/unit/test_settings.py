@@ -14,8 +14,8 @@ from containment_demo.settings import PolicyMode, Settings, ca_bundle_path
 
 def make_settings(**overrides: object) -> Settings:
     defaults: dict[str, object] = {
-        "policy_api_url": "https://policy.example.com/policy",
-        "test_receiver_url": "https://receiver.example.net/ingest",
+        "policy_api_url": "https://policy.example.com/",
+        "test_receiver_url": "https://receiver.example.net/",
         "diagnostics_token": "test-diagnostics-token-value",
     }
     defaults.update(overrides)
@@ -58,7 +58,7 @@ def test_malformed_url_is_rejected() -> None:
 def test_missing_destination_is_rejected() -> None:
     with pytest.raises(ValidationError):
         Settings(  # type: ignore[call-arg]
-            test_receiver_url="https://receiver.example.net/ingest",
+            test_receiver_url="https://receiver.example.net/",
             diagnostics_token="test-diagnostics-token-value",
         )
 

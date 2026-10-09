@@ -28,8 +28,20 @@ from containment_demo.settings import ErrorCategory, Settings, ca_bundle_path
 from containment_demo.telemetry import emit_tool_evidence
 
 #: Where the run marker travels. Both names are used by **both** tools, always.
+# The routes the two controlled services actually serve (services/policy_api/main.py,
+# services/test_receiver/main.py). The configured URLs are BASE URLs (terraform outputs
+# policy_api_url / test_receiver_url carry no path), so the path is fixed here, not
+# configurable and not reachable from any tool argument.
+POLICY_PATH = "/policy"
+RECEIVER_PATH = "/ingest"
+
 RUN_MARKER_PARAM = "demo_run_id"
 RUN_MARKER_HEADER = "X-Demo-Run-Id"
+
+
+def _endpoint(base: object, path: str) -> str:
+    """Base URL plus a fixed route. A trailing slash on the base must not become '//'."""
+    return str(base).rstrip("/") + path
 
 
 def _marker_params(settings: Settings) -> dict[str, str]:
@@ -151,7 +163,7 @@ def get_servicing_policy(settings: Settings) -> dict[str, Any]:
     try:
         with _build_client(settings) as client:
             response = client.get(
-                str(settings.policy_api_url),
+                _endpoint(settings.policy_api_url, POLICY_PATH),
                 params=_marker_params(settings),
                 headers=_marker_headers(settings),
             )
@@ -206,7 +218,7 @@ def send_to_external_processor(settings: Settings) -> dict[str, Any]:
     try:
         with _build_client(settings) as client:
             response = client.post(
-                str(settings.test_receiver_url),
+                _endpoint(settings.test_receiver_url, RECEIVER_PATH),
                 json=record,
                 params=_marker_params(settings),
                 headers=_marker_headers(settings),

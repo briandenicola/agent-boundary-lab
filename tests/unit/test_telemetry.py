@@ -19,8 +19,8 @@ from containment_demo.settings import PolicyMode, Settings
 @pytest.fixture
 def settings() -> Settings:
     return Settings(
-        policy_api_url="https://policy.example.com/policy",  # type: ignore[arg-type]
-        test_receiver_url="https://receiver.example.net/ingest",  # type: ignore[arg-type]
+        policy_api_url="https://policy.example.com/",  # type: ignore[arg-type]
+        test_receiver_url="https://receiver.example.net/",  # type: ignore[arg-type]
         policy_mode=PolicyMode.ENFORCED,
         diagnostics_token="test-diagnostics-token-value",  # type: ignore[arg-type]
     )

@@ -18,6 +18,8 @@ from starlette.requests import Request
 from containment_demo import diagnostics, tools
 from containment_demo.settings import Settings
 
+POLICY_BASE = "https://policy.example.com/"
+RECEIVER_BASE = "https://receiver.example.net/"
 POLICY_URL = "https://policy.example.com/policy"
 RECEIVER_URL = "https://receiver.example.net/ingest"
 TOKEN = "test-diagnostics-token-value"
@@ -26,8 +28,8 @@ TOKEN = "test-diagnostics-token-value"
 @pytest.fixture
 def settings() -> Settings:
     return Settings(
-        policy_api_url=POLICY_URL,  # type: ignore[arg-type]
-        test_receiver_url=RECEIVER_URL,  # type: ignore[arg-type]
+        policy_api_url=POLICY_BASE,  # type: ignore[arg-type]
+        test_receiver_url=RECEIVER_BASE,  # type: ignore[arg-type]
         diagnostics_token=TOKEN,  # type: ignore[arg-type]
     )
 

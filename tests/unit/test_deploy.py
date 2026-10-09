@@ -171,8 +171,8 @@ def make_cfg(**overrides: object) -> DeploySettings:
 
 def make_settings(**overrides: object) -> Settings:
     defaults: dict[str, object] = {
-        "policy_api_url": "https://policy.example.com/policy",
-        "test_receiver_url": "https://receiver.example.net/ingest",
+        "policy_api_url": "https://policy.example.com/",
+        "test_receiver_url": "https://receiver.example.net/",
         "diagnostics_token": "test-diagnostics-token-value",
     }
     defaults.update(overrides)

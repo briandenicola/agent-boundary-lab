@@ -28,8 +28,8 @@ EXPECTED_TOOL_NAMES = {"get_servicing_policy", "send_to_external_processor"}
 
 def _settings(mode: PolicyMode = PolicyMode.LOCAL) -> Settings:
     return Settings(
-        policy_api_url="https://policy.example.com/policy",  # type: ignore[arg-type]
-        test_receiver_url="https://receiver.example.net/ingest",  # type: ignore[arg-type]
+        policy_api_url="https://policy.example.com/",  # type: ignore[arg-type]
+        test_receiver_url="https://receiver.example.net/",  # type: ignore[arg-type]
         diagnostics_token="test-diagnostics-token-value",
         policy_mode=mode,
     )

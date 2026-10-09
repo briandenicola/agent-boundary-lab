@@ -17,6 +17,10 @@ import respx
 from containment_demo import tools
 from containment_demo.settings import ErrorCategory, PolicyMode, Settings
 
+# Configured values are BASE URLs with a trailing slash, the shape the deployment really
+# supplies (terraform outputs carry no path). The routes are the ones the services serve.
+POLICY_BASE = "https://policy.example.com/"
+RECEIVER_BASE = "https://receiver.example.net/"
 POLICY_URL = "https://policy.example.com/policy"
 RECEIVER_URL = "https://receiver.example.net/ingest"
 
@@ -24,11 +28,42 @@ RECEIVER_URL = "https://receiver.example.net/ingest"
 @pytest.fixture
 def settings() -> Settings:
     return Settings(
-        policy_api_url=POLICY_URL,  # type: ignore[arg-type]
-        test_receiver_url=RECEIVER_URL,  # type: ignore[arg-type]
+        policy_api_url=POLICY_BASE,  # type: ignore[arg-type]
+        test_receiver_url=RECEIVER_BASE,  # type: ignore[arg-type]
         diagnostics_token="test-diagnostics-token-value",
         http_timeout_seconds=5.0,
     )
+
+
+class TestRoutes:
+    """Regression: the tools requested the bare base URL ('/'), so both services 404'd."""
+
+    @respx.mock
+    def test_tools_request_the_routes_the_services_serve(self, settings: Settings) -> None:
+        policy = respx.get(POLICY_URL).mock(return_value=httpx.Response(200, json={}))
+        receiver = respx.post(RECEIVER_URL).mock(return_value=httpx.Response(202, json={}))
+        tools.get_servicing_policy(settings)
+        tools.send_to_external_processor(settings)
+        assert policy.calls.last.request.url.path == "/policy"
+        assert receiver.calls.last.request.url.path == "/ingest"
+
+    @respx.mock
+    def test_trailing_slash_does_not_produce_a_double_slash(self, settings: Settings) -> None:
+        policy = respx.get(POLICY_URL).mock(return_value=httpx.Response(200, json={}))
+        tools.get_servicing_policy(settings)
+        assert policy.calls.last.request.url.path == "/policy"
+
+    def test_routes_match_what_the_services_declare(self) -> None:
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[2]
+        assert (
+            f'@app.get("{tools.POLICY_PATH}")' in (root / "services/policy_api/main.py").read_text()
+        )
+        assert (
+            f'@app.post("{tools.RECEIVER_PATH}")'
+            in (root / "services/test_receiver/main.py").read_text()
+        )
 
 
 class TestSuccessPaths:
@@ -247,8 +282,8 @@ class TestNoEmbeddedPolicy:
         outcomes = []
         for mode in (PolicyMode.LOCAL, PolicyMode.AUDIT, PolicyMode.ENFORCED):
             s = Settings(
-                policy_api_url=POLICY_URL,  # type: ignore[arg-type]
-                test_receiver_url=RECEIVER_URL,  # type: ignore[arg-type]
+                policy_api_url=POLICY_BASE,  # type: ignore[arg-type]
+                test_receiver_url=RECEIVER_BASE,  # type: ignore[arg-type]
                 diagnostics_token="test-diagnostics-token-value",
                 policy_mode=mode,
             )
@@ -273,8 +308,8 @@ class TestNoEmbeddedPolicy:
         """
         route = respx.post(RECEIVER_URL).mock(return_value=httpx.Response(403))
         s = Settings(
-            policy_api_url=POLICY_URL,  # type: ignore[arg-type]
-            test_receiver_url=RECEIVER_URL,  # type: ignore[arg-type]
+            policy_api_url=POLICY_BASE,  # type: ignore[arg-type]
+            test_receiver_url=RECEIVER_BASE,  # type: ignore[arg-type]
             diagnostics_token="test-diagnostics-token-value",
             policy_mode=PolicyMode.ENFORCED,
         )
