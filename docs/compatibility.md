@@ -1427,7 +1427,12 @@ The image digest comes from `.task/local-model-digest`, same convention as the f
 **Built in ACR 2026-10-09 (approved by Brian):** `task local-model:build` (ACR run `cxv`, 2m59s) produced
 `containment-demo-local-model@sha256:cb646e1ce39d04792d45016b6e48703a09c69c001f513693803374662b83fa8b` (index/manifest size 1583 B). The GGUF `sha256sum -c`
 step inside the build passed. Build context was the same repo-minus-`.dockerignore` tree as the harness build (731 KiB compressed upload). Digest recorded in
-`.task/local-model-digest` (gitignored). Not yet run: see the deploy note below once it exists.
+`.task/local-model-digest` (gitignored). 
+
+**Deployed 2026-10-09 (approved by Brian), namespace `agent-boundary-lab`:** `local-model:plan` dry run clean; `local-model:up --yes` rolled out. Pod `local-model-...` Ready on
+`aks-system-13659643-vmss000003` with no Pending/OOM and no resize; image pull 49.6 s (2.37 GB); the first readiness probe returned 503 (model loading), then Ready within ~67 s.
+From the harness pod, in-cluster: `GET http://local-model/health` -> 200 `{"status":"ok"}`; `GET /v1/models` -> 200. Server log: 2 threads, n_slots 4, n_ctx_slot 4096.
+Speed is NOT measured. Tool-calling quality is NOT tested here.
 
 **OPEN RISK: speed.** On Brian's 8-CPU laptop (B11) Qwen2.5-3B ran at 0.6 tok/s (median 68.7 s/prompt) and the cause was never
 diagnosed. B10 notes 2 vCPU on a D4s_v3 will be no faster. Do not assume AKS fixes it. To measure on AKS (nothing measured yet):
@@ -1461,6 +1466,7 @@ trailing-slash rule; `lint:manifests` also fails on an unsubstituted placeholder
 1; an unsubstituted `REPLACE_WITH_TAMPER` failed `lint:manifests`.
 `task harness:build` (ACR run `cxw`, 53s): `containment-demo-harness@sha256:21260bc40c2cfbf0e467d0c444b0b3d38a26de4103e951d83fe511ebe69d2495`; context 731.236 KiB sent
 (1.301 MB as seen by the build daemon). Digest in `.task/harness-digest`.
+Deployed: `harness:secret` created Secret `harness-config`; `harness:plan` clean; `harness:up --yes` rolled out, pod Ready, `/healthz` 200 in-pod. No chat turn was run.
 
 ---
 
