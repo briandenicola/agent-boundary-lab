@@ -202,6 +202,85 @@ the reconciliation with `docs/compatibility.md` C1.
 
 ---
 
+## 0.6 GATE 0 RESULT — first real rows, observed 2026-10-09 (workspace `humble-phoenix-46689-logs`)
+
+**Supersedes the INCONCLUSIVE verdict above and corrects two assumptions in this file.**
+Window: runs `invoke-11f340906be4` (~12:21:55Z, HTTP 400) and `invoke-01b1fd795e4f`
+(12:54:35Z–12:55:41Z, HTTP 500), agent `containment-demo-audit` v5.
+
+**Verdict: Layer 2 EXISTS and is rich; correlation to `demo_run_id` = FAIL on every key tested; correlation to the app trace by `OperationId` = FAIL (0 of 88 decision rows joined).**
+
+### 0.6.1 Where rows landed (VERIFIED 2026-10-09)
+
+| Table | Rows (2 d) | Window |
+| --- | --- | --- |
+| `AppDependencies` | 26 (+ later rows; 88 egress decisions total) | 12:54:52Z – 12:56:25Z |
+| `AppTraces` | 6 | 12:55:20Z – 12:55:38Z |
+| `AppExceptions` | 5 | 12:55:17Z – 12:55:18Z |
+| `AppRequests`, `AppEvents` | 0 | |
+
+**Nothing at all for the first run (12:21Z, HTTP 400):** the request was rejected before the container ran, so no telemetry is expected. That is "no rows for this window", not a finding about the platform.
+
+### 0.6.2 CORRECTION: egress decisions are NOT in `AppTraces`
+
+Every earlier query in this file (Q0a, Q5a, Q7) filters `AppTraces` on `Message == "Network egress decision"`. **That returns zero rows.** Observed reality: egress decisions are `AppDependencies` rows with
+
+| Column | Observed value (verbatim pattern) |
+| --- | --- |
+| `DependencyType` | `NetworkEgressDecision` |
+| `Name` | `Network egress decision: Allow POST <host>` or `Network egress decision: AuditWouldDeny POST <host>` |
+| `Data` | `POST https://<host><path>` (full URL; no query string seen on these rows) |
+| `Target` | `<host>` |
+| `Success`, `ResultCode` | `True`, `200` on every row, **including AuditWouldDeny** — do not read `Success` as the decision |
+| `OperationId`, `ParentId` | present; see 0.6.4 |
+| `Properties` | JSON, keys below |
+| `Measurements` | `None` |
+
+Use `Q0e` (below). The primary doc's `traces / message == "Network egress decision"` form was not what we observed at workspace scope.
+
+### 0.6.3 §2.1 filled — `Properties` keys of an egress decision row, verbatim (VERIFIED 2026-10-09)
+
+`timestamp`, `decisionResultCode` (`Allow` | `AuditWouldDeny`), `effectiveDecision`, `decision` (`Allow` | `Deny`), `enforcement` (`Audit`), `decisionReasonCode` (`MatchedAllowRule` | `AuditWouldDefaultDeny`), `decisionReason`, `denyReasonCode` (`NoMatchingAllowRule`, deny rows only), `denyReason` (deny rows only), `matchedRule`, `defaultAction`, `policyRoutingMode` (`Swift`), `ruleRoutingMode` (`Default`), `egressDecisionId`, `operationId`, `operationParentId`, `method`, `scheme`, `host`, `normalizedHost`, `hostForPolicy`, `path`.
+
+Notes: `AuditWouldDeny` has `decision = "Deny"` with `enforcement = "Audit"` — that is exactly the Audit-mode signature. Platform-internal allow rules were observed (`foundry-bizops-baggage-cognitive-services-openai`, `foundry-token-injection`): the implicit allowlist is real (compat B8). The agent's own telemetry exports (`*.applicationinsights.azure.com`, `livediagnostics.monitor.azure.com`, `agent365.svc.cloud.microsoft`, `raw.githubusercontent.com`) show as `AuditWouldDeny` under Audit; **under Enforced those would be denied, which may silence this very telemetry. NOT VERIFIED; the denied-run evidence may not reach App Insights. Treat absence under Enforced as inconclusive.**
+No `Properties` key contains a URL query string, request header, or any run id.
+
+### 0.6.4 Correlation — observed
+
+| Join | Result |
+| --- | --- |
+| egress `demo_run_id` | **NOT PRESENT.** `invoke-01b1fd795e4f` and `invoke-11f340906be4` appear in no row of any table (`union *` scan, 2 d). |
+| egress `OperationId` = app trace/exception `OperationId` | **FAIL.** 0 of 88 joined. Egress rows carry their own operation ids (e.g. `d649ae72…`); the app exceptions carry `2a4b310c…`. |
+| egress `Properties.operationParentId` | equals the row's own `ParentId`; not matched to app spans. |
+| Our `demo.*` span attributes / `demo.tool_result` events | **NOT PRESENT** — the run never reached a tool call, so none emitted. Unverified, not failed. |
+| Fallback: time + `host`/`Target` + `gen_ai.agent.version` | Only join available. Rows are within ~10 ms of the model call (12:55:17.845Z egress to `…cognitiveservices…/openai/responses`; 12:55:17.854Z `NotFoundError`). |
+
+### 0.6.5 The 500 — root cause evidence (verbatim, `AppExceptions`, AppRoleName `containment-demo-audit`, OperationId `2a4b310c975664611b9e202a9c0be966`, 12:55:17.85–12:55:18.04Z)
+
+In order:
+1. `NotFoundError` — "Node execution failed with exception" (logger `google_adk.google.adk.workflow._node_runner`)
+2. `NotFoundError` — "Root node servicing_assistant failed." (`google_adk.google.adk.runners`)
+3. `NotFoundError` — "Handler raised during background processing (response_id=caresp_0024abc8…)"
+4. **`FoundryApiError` — "Persistence failed at bg non-stream finalization (response_id=caresp_0024abc8…): Public access is disabled. Please configure private endpoint."**
+5. `FoundryApiError` — "Handler error in sync create (response_id=caresp_0024abc8…)"
+
+`AppTraces`: `192.168.0.1:37702 "POST /responses 1.1" 500 102 7835147μs`; `Inbound POST /responses completed with status 500 in 7835.4ms (x-request-id: 2a4b310c…, trace-id: 2a4b310c…)`.
+
+Reading: (a) the model call returned a **NotFound** (the `Allow` decision for `…cognitiveservices.azure.com/openai/responses` at 12:55:17.845Z shows egress was NOT the blocker; likely a model deployment/route name problem, consistent with Microsoft's documented `ModelNotFound` pattern; **the exception text does not name the missing resource, so the exact cause is NOT VERIFIED**). (b) Separately, the platform's **response persistence** to `…services.ai.azure.com/…/storage/responses` failed with *"Public access is disabled. Please configure private endpoint."* — egress decision for that call was `Allow` (rule `foundry-token-injection`), so this is the account's inbound-private setting rejecting the sandbox's storage write, not egress policy. Which of (a)/(b) produced the final 500 is not proven; (b) is the last error and carries "Handler error in sync create".
+
+Later (12:55:32–38Z, a different operation `3cac9f7a…`) a fresh session started, logged `diagnostics route registered` and `LiteLLM completion() model= gpt-5.4-mini; provider = azure`; its `invocation / invoke_agent / call_llm / generate_content` spans all show `Success=False`. Same failure class on retry.
+
+Useful real keys on app rows (`Properties`, verbatim): `azure.ai.agentserver.response_id`, `azure.ai.agentserver.x-request-id`, `azure.ai.agentserver.session_id`, `gen_ai.agent.name`, `gen_ai.agent.version`, `microsoft.foundry.project.id`, `x_request_id`, `logger_name`. `x-request-id` == `trace-id` == `OperationId` for the inbound request: **that IS a usable app-side trace id, and `demo_run_id` could be joined to it if the invoker records the response `x-request-id`/`response_id` next to its own `demo_run_id`.** Proposed, not tested.
+
+### 0.6.6 Container stdout/stderr retrieval — primary docs only (accessed 2026-10-09)
+
+Source: https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/monitor-hosted-agent-logs (page dated 2026-07-21).
+- **VERIFIED in doc:** `azd ai agent monitor` fetches recent console logs (stdout and stderr) from the last invoke session; `--follow` streams; `--session-id <id>` filters to a session; `--type system` shows container lifecycle events; `--tail N` (1–300, default 50). Session ID is printed by `azd ai agent invoke`.
+- **NOT FOUND in primary docs:** a Log Analytics table for container stdout/stderr, or a documented REST log-stream URL. A `.../sessions/<id>/logs/stream` path appeared only in a GitHub skills file (microsoft/azure-skills, troubleshoot.md), not Learn; **NOT VERIFIED, do not use.** No Container Apps-style table exists for hosted agents in our workspace (verified: no such table has rows).
+- Note: we ship no `az`; `azd` is the documented tool and is operator-run, investigation only.
+
+---
+
 ## 1. Layer 1 — application / tool traces (emitted by our own code)
 
 Source of truth: `src/containment_demo/telemetry.py`, `src/containment_demo/tools.py`,
@@ -438,7 +517,36 @@ Replace `<RUN_ID>` with the `demo_run_id` for the run.
 
 ---
 
-### Q0 — **THE GATE 0 QUERY.** Run this first, after the first invocation.
+### Q0e — Platform egress decisions as OBSERVED (use this, not Q0a/Q5a)
+
+**Runnable now. Columns VERIFIED 2026-10-09** (§0.6.2–0.6.3).
+
+```kusto
+AppDependencies
+| where TimeGenerated between (datetime(<RUN_START>) .. datetime(<RUN_END>))
+| where DependencyType == "NetworkEgressDecision"
+| extend p = parse_json(Properties)
+| project TimeGenerated, Target, Data,
+          decision = tostring(p.decision), decisionResultCode = tostring(p.decisionResultCode),
+          enforcement = tostring(p.enforcement), matchedRule = tostring(p.matchedRule),
+          decisionReasonCode = tostring(p.decisionReasonCode), host = tostring(p.host),
+          egressDecisionId = tostring(p.egressDecisionId), OperationId, ParentId
+| order by TimeGenerated asc
+```
+
+Join test against app rows (expected FAIL as of 2026-10-09):
+
+```kusto
+let app_ops = union AppTraces, AppExceptions
+    | where OperationId != "00000000000000000000000000000000" | distinct OperationId;
+AppDependencies
+| where DependencyType == "NetworkEgressDecision"
+| summarize n = count() by joined = OperationId in (app_ops)
+```
+
+---
+
+### Q0 — **THE GATE 0 QUERY.** (Q0a/Q0b/Q0c filter `AppTraces`; superseded by Q0e, see §0.6.2) Run this first, after the first invocation.
 
 **BLOCKED on one real invocation. Runnable the instant Dallas's first call completes.**
 **Unverified columns:** none in Q0a/Q0b — `AppTraces.Message`, `Properties`, `OperationId`,
