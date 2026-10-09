@@ -263,3 +263,5 @@ Decision: `.squad/decisions/inbox/brett-adapter-await.md`. 244 unit tests pass, 
 - Demo UI: ToolOutcome.tool_run_id from the tool record; UI view fields ui_run_id vs tool_run_ids.
 
 - a2a spike runs via kubectl exec in harness pod, deploy-venv; tasks cloud:a2a-card/-enable/-send.
+
+- a2a_spike: httpx.HTTPStatusError status lives on exc.response; body captured redacted <=2KB.

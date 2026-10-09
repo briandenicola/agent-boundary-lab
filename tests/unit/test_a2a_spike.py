@@ -214,3 +214,66 @@ def test_main_defaults_to_read_only(monkeypatch: pytest.MonkeyPatch, capsys: Any
     assert a2a_spike.main(["--account", "acct", "--project", "proj", "--agent", "agent-a"]) == 0
     assert seen["enable"] is False and seen["send"] is False
     assert "inconclusive-a2a-unverified" in capsys.readouterr().out
+
+
+class TestHttpStatusErrorClassification:
+    """Regression: httpx puts the status on exc.response, so a platform 400 was 'our_call'."""
+
+    @staticmethod
+    def _status_error(status: int, text: str) -> Exception:
+        import httpx
+
+        request = httpx.Request("GET", "https://x.example/agentCard/v1.0")
+        response = httpx.Response(status, text=text, request=request)
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            return exc
+        raise AssertionError("expected a status error")
+
+    def test_a_platform_400_on_the_card_is_platform_with_status_and_body(self) -> None:
+        exc = self._status_error(400, '{"error":{"message":"A2A is not enabled for this agent"}}')
+        step = a2a_spike.classify_failure("card", exc, may_signal_unsupported=True)
+        assert step.origin == "platform"
+        assert step.http_status == 400
+        assert step.error_category == "http_error"
+        assert "A2A is not enabled" in step.observed["response_body"]
+
+    def test_a_401_is_still_our_call(self) -> None:
+        step = a2a_spike.classify_failure(
+            "card", self._status_error(401, "nope"), may_signal_unsupported=True
+        )
+        assert step.origin == "our_call"
+        assert step.http_status == 401
+
+    def test_body_is_capped(self) -> None:
+        step = a2a_spike.classify_failure(
+            "card", self._status_error(400, "x" * 10_000), may_signal_unsupported=True
+        )
+        assert len(step.observed["response_body"]) == a2a_spike.BODY_CAP == 2048
+
+    @pytest.mark.parametrize(
+        "secret",
+        [
+            "Bearer abc.def-123_xyz",
+            "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJl",
+            "Authorization: topsecretvalue",
+            '"access_token": "topsecretvalue"',
+        ],
+    )
+    def test_tokens_never_survive_in_the_body(self, secret: str) -> None:
+        step = a2a_spike.classify_failure(
+            "card",
+            self._status_error(400, f"bad request {secret} end"),
+            may_signal_unsupported=True,
+        )
+        body = step.observed["response_body"]
+        assert "topsecretvalue" not in body
+        assert "abc.def-123_xyz" not in body
+        assert "eyJhbGci" not in body
+        assert "bad request" in body
+
+    def test_a_transport_failure_has_no_body_and_stays_our_call(self) -> None:
+        step = a2a_spike.classify_failure("card", TimeoutError("slow"), may_signal_unsupported=True)
+        assert step.origin == "our_call"
+        assert "response_body" not in step.observed

@@ -112,10 +112,63 @@ def a2a_base(endpoint: str, agent_name: str) -> str:
     return f"{endpoint}/agents/{agent_name}/endpoint/protocols/a2a"
 
 
+BODY_CAP = 2048
+_REDACTIONS = (
+    (re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]+"), r"\1 [redacted]"),
+    (re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*"), "[redacted-jwt]"),
+    (
+        re.compile(
+            r"(?i)(authorization|token|secret|password|api[-_]?key|sig|client_secret)"
+            r"(\"?\s*[:=]\s*\"?)[^\s\",&}]+"
+        ),
+        r"\1\2[redacted]",
+    ),
+)
+
+
+def redact_body(text: str) -> str:
+    """Bounded, redacted platform response text. Tokens and auth values never survive."""
+    for pattern, replacement in _REDACTIONS:
+        text = pattern.sub(replacement, text)
+    return text[:BODY_CAP]
+
+
+def _response_of(exc: BaseException) -> Any:
+    """The HTTP response an httpx-style status error carries (``exc.response``), if any."""
+    for candidate in _chain_of(exc):
+        response = getattr(candidate, "response", None)
+        if isinstance(getattr(response, "status_code", None), int):
+            return response
+    return None
+
+
+def _chain_of(exc: BaseException) -> list[BaseException]:
+    seen: list[BaseException] = []
+    current: BaseException | None = exc
+    while current is not None and current not in seen:
+        seen.append(current)
+        current = current.__cause__ or current.__context__
+    return seen
+
+
 def classify_failure(name: str, exc: BaseException, *, may_signal_unsupported: bool) -> StepResult:
-    """Our call versus the platform. A bare status is never read as more than it is."""
-    category = classify_invocation_exception(exc)
+    """Our call versus the platform. A bare status is never read as more than it is.
+
+    ``httpx.HTTPStatusError`` carries its status on ``exc.response``, not ``exc.status_code``,
+    so a well-formed platform refusal used to be mislabelled as our own call.
+    """
+    response = _response_of(exc)
     status = http_status_of(exc)
+    observed: dict[str, Any] = {}
+    if response is not None:
+        status = response.status_code
+        category = ErrorCategory.HTTP_ERROR
+        try:
+            observed["response_body"] = redact_body(str(response.text))
+        except Exception:  # unreadable body: record that, do not fail the classification
+            observed["response_body"] = "[unreadable]"
+    else:
+        category = classify_invocation_exception(exc)
     if category is ErrorCategory.HTTP_ERROR and status is not None:
         if status in _OUR_SIDE_STATUSES:
             origin: Origin = "our_call"
@@ -133,6 +186,7 @@ def classify_failure(name: str, exc: BaseException, *, may_signal_unsupported: b
         error_category=category.value,
         http_status=status,
         detail=sanitize(exc),
+        observed=observed,
     )
 
 
