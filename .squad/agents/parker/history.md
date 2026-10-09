@@ -409,3 +409,8 @@ What actually happened:
   PROJECT identity pulls the image and prefers Repository Reader over AcrPull.
 - Terraform is wrong for identities that exist only after deploy; a tag-keyed task with an
   exactly-one-match guard is the honest design.
+- Private-only account (2026-10-09): hosted agents run in the Microsoft-managed VNet and need a
+  managed-network outbound PE rule (`foundry-account-pe`) back to the account; our
+  `managednetworks/default` has `outboundRules: {}`. Sample README (not Learn) is the only source.
+  Account MI also needs Network Connection Approver (b556d68e…). Sample region list omits
+  canadacentral. Recorded as B9g PROPOSED/UNVERIFIED; nothing applied.

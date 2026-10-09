@@ -1016,6 +1016,60 @@ stays the only variable; **A** as a follow-up if Brett can prove it under the eg
 which would remove the grant entirely. Nothing applied. `task cloud:agent-access-plan`
 reported both identities MISSING the role on 2026-10-09.
 
+### B9g. Hosted agent cannot reach a private-only account — PROPOSED / UNVERIFIED (2026-10-09)
+
+Observed (Lambert, `telemetry-map.md` §0.9): after the OpenAI User grant the model call to
+`humble-phoenix-46689-foundry.cognitiveservices.azure.com` is allowed by egress and the
+account answers 403 `Public access is disabled. Please configure private endpoint.`
+
+**Read-only state of our account (az rest, API 2025-10-01-preview, 2026-10-09):**
+`publicNetworkAccess: Disabled`; `networkAcls: Deny`, no ip/vnet rules; one private endpoint
+connection `humble-phoenix-46689-foundry-pe` **Approved** (in OUR vnet); `networkInjections`
+= `[{scenario: agent, subnetArmId: "", useMicrosoftManagedNetwork: true}]`; account capability
+host `…@aml_aiagentservice` Succeeded on a Microsoft-owned subnet; project capability hosts
+none. `managednetworks/default`: `isolationMode: AllowInternetOutbound`, `managedNetworkKind: V2`,
+Active, **`outboundRules: {}` (empty)**. The Foundry account identity holds only AcrPull on the
+registry; it holds none of the roles named below.
+
+**Documented** (primary: `github.com/microsoft-foundry/foundry-samples`, `infrastructure/infrastructure-setup-bicep/18-managed-virtual-network/README.md`, accessed 2026-10-09 — a Microsoft sample README, not a Learn page):
+- Hosted agent containers run in the Microsoft-managed VNet. With `publicNetworkAccess: Disabled`
+  they need an **outbound private-endpoint rule from the managed network back to the account**
+  (`managednetworks/default/outboundrules/foundry-account-pe`, type `PrivateEndpoint`,
+  `subresourceTarget: account`). Without it: "500 wrapping 403: Public access is disabled" —
+  exactly our symptom. Your own VNet's private endpoint does not help this path.
+- The account's managed identity needs `Azure AI Enterprise Network Connection Approver`
+  (`b556d68e-0be0-4f35-a333-ad7ee1ce17ea`; verified by `az role definition list`: it grants
+  private-endpoint-connection read/write/approval incl. `Microsoft.CognitiveServices/accounts/privateEndpointConnections/write`)
+  and Contributor at resource-group scope for the rule to auto-approve.
+- Isolation cannot be disabled once enabled; deleting the account deletes the managed VNet.
+- The sample's list of supported regions includes Canada East but **not canadacentral**. Our
+  managed network is nevertheless `Active` in canadacentral, so the list may be stale or
+  not enforced; unverified either way.
+
+**NOT documented / not established:** whether the Learn `agents-networking-deep-dive` and
+`virtual-networks` pages (BYO-VNet only) cover this; whether the rule can be created while
+the egress RAI policy is attached; whether the project endpoint (`services.ai.azure.com`)
+takes a different route from `cognitiveservices.azure.com` from inside the managed network
+(the sample's curl examples use the project endpoint and still say the hosted agent needs the
+self-PE, which suggests no); how the sample's `az rest` rule creation maps to azapi.
+
+| Option | What | Failure mode / design effect |
+|---|---|---|
+| **A. Self-PE outbound rule (recommended)** | azapi `Microsoft.CognitiveServices/accounts/managednetworks/outboundRules` (`foundry-account-pe`, PE → this account, `account`) + Network Connection Approver (+ Contributor at RG per sample) for the account identity | Rule is on the managed network, not the RAI policy, so the model-host allowlist is unchanged and identical for both agents. Risks: Contributor on the RG is broad (try Approver alone first and record); preview API; may incur managed-network cost; region support unconfirmed; may need the private DNS path to resolve inside the managed VNet (platform-managed, unobservable to us) |
+| B. Point agent at project endpoint | Brett changes `agent.py` to `services.ai.azure.com` | Sample says hosted agents still need the self-PE; likely still 403. Changes the model host in the allowlist for both agents |
+| C. Re-enable public access / networkAcls | Touch `foundry.tf` | Rejected: edits the experimental control surface and defeats the private-only design |
+| D. BYO-VNet delegated subnet | Move off `useMicrosoftManagedNetwork` | Full redesign; no upgrade path per sample; subnet CIDR is a hardcoded range |
+
+Note on the egress allowlist: `rai-policies.tf` today allows only the policy API host; the model
+host is not listed, yet the call reached the account, consistent with the blog's statement that
+required platform connectivity is allowed separately. Not changed. No option needs IPs or CIDRs.
+
+Recommendation: **A**, written as reviewable azapi + role assignment, planned (never applied)
+by Parker once approved. Brian must approve: (1) the new outbound rule resource, (2) the
+Approver role (and whether Contributor-at-RG is acceptable) for the account identity,
+(3) possible managed-network cost. Confirmation is only that the model call then returns 200.
+Nothing applied.
+
 ### C1. Where egress decisions surface
 
 Application Insights **`traces`** table, filtered on a literal message string:
