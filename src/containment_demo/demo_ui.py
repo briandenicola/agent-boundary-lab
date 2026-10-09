@@ -1,23 +1,24 @@
-"""Demo test UI: a run button per agent, driving ``containment_demo.invoke``.
+"""Demo test UI: a run button per agent, driving each slot's A2A façade.
 
 This exists so a presenter does not need ``kubectl exec``. It is not a third business
-tool and not a second invocation path.
+tool.
 
-* **One invocation path.** Every run goes through :func:`containment_demo.invoke.invoke_agent`.
-  Nothing here builds a request, parses a response, or classifies a failure.
+* **One invocation path, through A2A.** Every run is an A2A SendMessage to that slot's
+  façade (:func:`containment_demo.ui_a2a.invoke_via_a2a`). Hosted agents are invoked
+  through Responses; the façade exposes them as A2A. The UI no longer calls Foundry
+  and imports no Azure SDK. Tool outcomes are classified by ``containment_demo.invoke``.
 * **No pass.** The determination shown is :data:`containment_demo.invoke.DETERMINATION`,
   always. A classified tool failure is rendered as a failure kind, never as "blocked".
-  Platform evidence is NOT joined here (GATE 0 in issue #1: no telemetry field yet joins
-  to ``demo_run_id``), and the page says so rather than leaving a gap that looks like a
-  pass.
+  Platform evidence is NOT read here, and the page says so rather than leaving a gap
+  that looks like a pass.
 * **No free-text destination.** The only input is a slot, ``audit`` or ``enforced``,
-  mapped to an agent name that came from startup configuration. The endpoint is built
-  from configured account and project names. The route takes no URL, host or name.
+  mapped to a façade URL from startup configuration. The route takes no URL, host or name.
 * **Authenticated.** Every route except ``/healthz`` needs the configured token, as a
   bearer token or as the HTTP Basic password (a browser cannot send a bearer header).
   State-changing requests also need a custom header, which a cross-site form cannot set.
+  The façade's own token comes from the environment and is never shown or logged.
 * **Nothing sensitive is shown or logged.** No prompt, response text, payload or
-  authorization header. ``invoke`` already keeps only a digest of the response text.
+  authorization header.
 * **Local and hosted runs are labelled apart** by a required ``run_label``.
 """
 
@@ -38,7 +39,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 
-from containment_demo import invoke
+from containment_demo import invoke, ui_a2a
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +57,9 @@ class UiSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="DEMO_", extra="ignore")
 
-    foundry_account_name: str
-    foundry_project_name: str
+    a2a_facade_url_audit: str
+    a2a_facade_url_enforced: str
+    a2a_token: SecretStr = Field(description="The façade's shared bearer secret (never shown).")
     agent_name_audit: str
     agent_name_enforced: str
     ui_token: SecretStr = Field(description="Shared secret for the UI. At least 16 characters.")
@@ -66,12 +68,10 @@ class UiSettings(BaseSettings):
     )
     ui_timeout_seconds: float = Field(default=120.0, gt=0, le=300)
 
-    @field_validator("foundry_account_name", "foundry_project_name")
+    @field_validator("a2a_facade_url_audit", "a2a_facade_url_enforced")
     @classmethod
-    def _dns_label(cls, v: str) -> str:
-        if not _NAME.match(v):
-            raise ValueError("must be a DNS label: alphanumerics and inner hyphens only")
-        return v
+    def _facade_url(cls, v: str) -> str:
+        return ui_a2a.validate_base_url(v)
 
     @field_validator("agent_name_audit", "agent_name_enforced")
     @classmethod
@@ -80,19 +80,19 @@ class UiSettings(BaseSettings):
             raise ValueError("invalid agent name")
         return v
 
-    @field_validator("ui_token")
+    @field_validator("ui_token", "a2a_token")
     @classmethod
     def _token_strength(cls, v: SecretStr) -> SecretStr:
         if len(v.get_secret_value()) < 16:
-            raise ValueError("DEMO_UI_TOKEN must be at least 16 characters")
+            raise ValueError("tokens must be at least 16 characters")
         return v
 
-    @property
-    def endpoint(self) -> str:
-        return (
-            f"https://{self.foundry_account_name}.services.ai.azure.com"
-            f"/api/projects/{self.foundry_project_name}"
-        )
+    def facade_for(self, slot: str) -> str:
+        if slot == "audit":
+            return self.a2a_facade_url_audit
+        if slot == "enforced":
+            return self.a2a_facade_url_enforced
+        raise KeyError(slot)
 
     def agent_for(self, slot: str) -> str:
         if slot == "audit":
@@ -135,6 +135,11 @@ def build_view(result: invoke.InvocationResult, *, slot: str, run_label: str) ->
         "agent_name": record["agent_name"],
         # UI-only id: generated here, appears in no platform row. Do not join on it.
         "ui_run_id": record["demo_run_id"],
+        # What the A2A façade reported. Descriptive only; neither is platform evidence.
+        "a2a": {
+            "task_state": record["response_status"],
+            "response_id": record.get("response_id"),
+        },
         # The id(s) the tools reported using; this is what platform egress rows join on.
         # Empty when no tool record carried one. Never filled from the UI id.
         "tool_run_ids": sorted(
@@ -158,7 +163,7 @@ def build_view(result: invoke.InvocationResult, *, slot: str, run_label: str) ->
 
 def create_app(settings: UiSettings, *, invoker: Any = None) -> Starlette:
     """``invoker`` is injectable so tests never touch the SDK or the network."""
-    run = invoker or invoke.invoke_agent
+    run = invoker or ui_a2a.invoke_via_a2a
     locks = {slot: asyncio.Lock() for slot in SLOTS}
 
     async def page(request: Request) -> Response:
@@ -182,7 +187,8 @@ def create_app(settings: UiSettings, *, invoker: Any = None) -> Starlette:
             logger.info("ui run starting slot=%s demo_run_id=%s", slot, run_id)
             result = await asyncio.to_thread(
                 run,
-                endpoint=settings.endpoint,
+                base_url=settings.facade_for(slot),
+                token=settings.a2a_token.get_secret_value(),
                 agent_name=settings.agent_for(slot),
                 demo_run_id=run_id,
                 timeout_seconds=settings.ui_timeout_seconds,
@@ -239,14 +245,16 @@ async function runSlot(slot){
   catch(e){ out.replaceChildren(); add(out,'p','OUR request to this UI failed.','ours'); return;}
   out.replaceChildren();
   if(!r.ok){ add(out,'p','UI error: '+(d.error||r.status),'ours'); return;}
-  add(out,'p','run: '+d.run_label+' / '+d.agent_name);
+  add(out,'p','run: '+d.run_label+' / '+d.agent_name+' (via A2A facade)');
+  add(out,'p','A2A task state: '+(d.a2a.task_state||'-'));
+  add(out,'p','downstream response id: '+(d.a2a.response_id||'-'));
   add(out,'p','tool run id (joins platform egress rows): '+
     (d.tool_run_ids.length?d.tool_run_ids.join(', '):'not available in the invoke result'));
   add(out,'p','UI-only id (joins nothing): '+d.ui_run_id);
   add(out,'p','determination: '+d.determination);
   add(out,'p','platform evidence: '+d.platform_evidence);
   if(!d.our_call.ok){
-    add(out,'p','OUR CALL to the platform failed ('+d.our_call.error_category+'): '+
+    add(out,'p','OUR CALL via the A2A facade failed ('+d.our_call.error_category+'): '+
       d.our_call.detail+' This says nothing about egress.','ours');}
   const t=add(out,'table',''); const h=add(t,'tr','');
   ['tool','attempted','succeeded','failure kind','HTTP','host'].forEach(x=>add(h,'th',x));

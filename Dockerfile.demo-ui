@@ -1,8 +1,9 @@
 # Demo UI image. Separate from the agent image on purpose: the agent image's digest is the
 # experiment's control and must not move because the UI gained a dependency.
 #
-# Only what the UI imports is installed. containment_demo.invoke and .settings need pydantic;
-# the SDK is imported lazily by invoke and needs azure-ai-projects. The package itself is
+# Only what the UI imports is installed. The UI is an A2A client of the façades and no
+# longer calls Foundry, so no Azure SDK is installed here. containment_demo.invoke needs
+# pydantic; the A2A client needs a2a-sdk and httpx (protobuf capped below 7, as the façade). The package itself is
 # installed with --no-deps so the agent stack (google-adk, litellm) is not pulled in.
 
 FROM python:3.12-slim
@@ -20,8 +21,8 @@ COPY src ./src
 
 RUN uv pip install --system --no-cache --no-deps . \
     && uv pip install --system --no-cache \
-        "pydantic>=2.9" "pydantic-settings>=2.6" "httpx>=0.27" "azure-identity>=1.19" \
-        "azure-ai-projects>=2.8.0,<3" "starlette>=0.40" "uvicorn[standard]>=0.32"
+        "pydantic>=2.9" "pydantic-settings>=2.6" "httpx>=0.27" \
+        "a2a-sdk==1.0.2" "protobuf>=5.29.5,<7" "starlette>=0.40" "uvicorn[standard]>=0.32"
 
 RUN useradd --create-home --uid 10001 ui
 USER 10001

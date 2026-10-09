@@ -115,16 +115,12 @@ tasks:
         IMAGE="$($TF acr_login_server)/${UI_REPOSITORY}@${DIGEST}"
         NAMESPACE=$($TF kubernetes_namespace)
         CLIENT_ID=$($TF demo_ui_identity_client_id)
-        ACCOUNT=$($TF foundry_account_name)
-        PROJECT=$($TF project_name)
         AUDIT=$($TF agent_name_audit)
         ENFORCED=$($TF agent_name_enforced)
         RENDERED=$(kustomize build deploy/kustomize/demo-ui \
           | sed -e "s|REPLACE_WITH_NAMESPACE|${NAMESPACE}|g" \
                 -e "s|REPLACE_WITH_DEMO_UI_CLIENT_ID|${CLIENT_ID}|g" \
                 -e "s|REPLACE_WITH_DEMO_UI_IMAGE|${IMAGE}|g" \
-                -e "s|REPLACE_WITH_FOUNDRY_ACCOUNT_NAME|${ACCOUNT}|g" \
-                -e "s|REPLACE_WITH_FOUNDRY_PROJECT_NAME|${PROJECT}|g" \
                 -e "s|REPLACE_WITH_AGENT_NAME_AUDIT|${AUDIT}|g" \
                 -e "s|REPLACE_WITH_AGENT_NAME_ENFORCED|${ENFORCED}|g")
         LEFTOVER=$(printf '%s\n' "$RENDERED" | grep -o 'REPLACE_WITH_[A-Z0-9_]*' | sort -u || true)
@@ -153,6 +149,8 @@ tasks:
         NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
         kubectl -n "$NS" get secret "$UI_SECRET" >/dev/null 2>&1 || {
           echo "Secret $UI_SECRET missing. Run 'task ui:secret' first." >&2; exit 1; }
+        kubectl -n "$NS" get secret a2a-facade-config >/dev/null 2>&1 || {
+          echo "Secret a2a-facade-config missing. Run 'task a2a:secret' first (the UI calls the facades)." >&2; exit 1; }
         task ui:render | kubectl apply --server-side --force-conflicts -f -
         kubectl -n "$NS" rollout status deployment/demo-ui --timeout=180s
 

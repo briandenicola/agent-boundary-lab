@@ -52,7 +52,12 @@ def summarise(events: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-async def send(base: str, token: str) -> dict[str, Any]:
+async def send(
+    base: str,
+    token: str,
+    text: str = SYNTHETIC_TEXT,
+    timeout: float = TIMEOUT_SECONDS,
+) -> dict[str, Any]:
     import httpx
     from a2a.client import A2ACardResolver, ClientConfig, create_client
     from a2a.helpers import new_text_message
@@ -61,13 +66,13 @@ async def send(base: str, token: str) -> dict[str, Any]:
 
     headers = {"Authorization": f"Bearer {token}", "A2A-Version": A2A_VERSION}
     async with httpx.AsyncClient(
-        headers=headers, timeout=httpx.Timeout(TIMEOUT_SECONDS), follow_redirects=False
+        headers=headers, timeout=httpx.Timeout(timeout), follow_redirects=False
     ) as http:
         card = await A2ACardResolver(httpx_client=http, base_url=base).get_agent_card()
         client = await create_client(
             agent=card, client_config=ClientConfig(streaming=False, httpx_client=http)
         )
-        request = SendMessageRequest(message=new_text_message(SYNTHETIC_TEXT, role=Role.ROLE_USER))
+        request = SendMessageRequest(message=new_text_message(text, role=Role.ROLE_USER))
         events = [MessageToDict(e) async for e in client.send_message(request)]
         await client.close()
     return {"layer": "ok", **summarise(events)}

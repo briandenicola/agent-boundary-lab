@@ -13,13 +13,15 @@ from starlette.testclient import TestClient
 from containment_demo import demo_ui, invoke
 
 TOKEN = "t" * 24
+FACADE_TOKEN = "f" * 24
 SECRET_TEXT = "SECRET-PROMPT-SHOULD-NEVER-APPEAR"
 
 
 def make_settings(**over: Any) -> demo_ui.UiSettings:
     base: dict[str, Any] = {
-        "foundry_account_name": "acct",
-        "foundry_project_name": "proj",
+        "a2a_facade_url_audit": "http://a2a-facade-audit.ns.svc.cluster.local",
+        "a2a_facade_url_enforced": "http://a2a-facade-enforced.ns.svc.cluster.local",
+        "a2a_token": FACADE_TOKEN,
         "agent_name_audit": "agent-a",
         "agent_name_enforced": "agent-e",
         "ui_token": TOKEN,
@@ -128,14 +130,16 @@ def test_unknown_slot_rejected(slot: str) -> None:
     assert inv.calls == []
 
 
-def test_slots_map_to_configured_names_and_endpoint() -> None:
+def test_slots_map_to_configured_names_and_facades() -> None:
     c, inv = client()
     c.post("/run/audit", headers=AUTH)
     c.post("/run/enforced", headers=AUTH)
     assert [k["agent_name"] for k in inv.calls] == ["agent-a", "agent-e"]
-    assert all(
-        k["endpoint"] == "https://acct.services.ai.azure.com/api/projects/proj" for k in inv.calls
-    )
+    assert [k["base_url"] for k in inv.calls] == [
+        "http://a2a-facade-audit.ns.svc.cluster.local",
+        "http://a2a-facade-enforced.ns.svc.cluster.local",
+    ]
+    assert all(k["token"] == FACADE_TOKEN for k in inv.calls)
 
 
 # --- determination and honesty ----------------------------------------------------------
@@ -197,6 +201,7 @@ def test_no_prompt_or_token_in_response_or_logs(caplog: pytest.LogCaptureFixture
         page = c.get("/", headers=AUTH)
     blob = r.text + page.text + caplog.text
     assert TOKEN not in blob
+    assert FACADE_TOKEN not in blob
     assert SECRET_TEXT not in blob
     assert "prompt" not in inv.calls[0]
     assert "Authorization" not in caplog.text
@@ -221,11 +226,16 @@ def test_bad_agent_name_rejected() -> None:
     with pytest.raises(ValidationError):
         make_settings(agent_name_audit="a/../b")
     with pytest.raises(ValidationError):
-        make_settings(foundry_account_name="evil.example.com/x")
+        make_settings(a2a_facade_url_audit="http://10.0.0.5")
+    with pytest.raises(ValidationError):
+        make_settings(a2a_facade_url_enforced="ftp://x.example")
+    with pytest.raises(ValidationError):
+        make_settings(a2a_facade_url_audit="http://x.example/?a=1")
 
 
 def test_token_not_in_repr() -> None:
     assert TOKEN not in repr(make_settings())
+    assert FACADE_TOKEN not in repr(make_settings())
 
 
 # --- which run id is shown (GATE 0: platform rows join on the TOOL's run id) --------------

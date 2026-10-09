@@ -22,7 +22,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: demo-ui
-          # Needs starlette, uvicorn and azure-ai-projects: NOT the agent image, whose
+          # Needs starlette, uvicorn and a2a-sdk (no Azure SDK): NOT the agent image, whose
           # digest is the experiment's control. Built from the `demo-ui` extra.
           image: REPLACE_WITH_DEMO_UI_IMAGE
           command: ["python", "-m", "containment_demo.demo_ui"]
@@ -32,10 +32,15 @@ spec:
           env:
             - name: DEMO_RUN_LABEL
               value: hosted
-            - name: DEMO_FOUNDRY_ACCOUNT_NAME
-              value: REPLACE_WITH_FOUNDRY_ACCOUNT_NAME
-            - name: DEMO_FOUNDRY_PROJECT_NAME
-              value: REPLACE_WITH_FOUNDRY_PROJECT_NAME
+            - name: DEMO_A2A_FACADE_URL_AUDIT
+              value: http://a2a-facade-audit.REPLACE_WITH_NAMESPACE.svc.cluster.local
+            - name: DEMO_A2A_FACADE_URL_ENFORCED
+              value: http://a2a-facade-enforced.REPLACE_WITH_NAMESPACE.svc.cluster.local
+            - name: DEMO_A2A_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: a2a-facade-config
+                  key: DEMO_A2A_TOKEN
             - name: DEMO_AGENT_NAME_AUDIT
               value: REPLACE_WITH_AGENT_NAME_AUDIT
             - name: DEMO_AGENT_NAME_ENFORCED
