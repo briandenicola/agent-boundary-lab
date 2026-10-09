@@ -304,6 +304,23 @@ Correlation (unchanged): `x-request-id` = `trace-id` = app `OperationId` (e.g. `
 
 ---
 
+## 0.8 Run `invoke-acad5487adaa` — audit v7, api-version `v1`, observed 2026-10-09 (window 13:22:30Z–13:26:00Z)
+
+**Verdict: INCONCLUSIVE for Gate 0 (no tool ran; `demo_run_id` in no row). The 500 root cause moved from 404 to 403 PermissionDenied (RBAC), and egress is proven not to be the blocker.**
+
+1. **Exceptions, time order, 3 attempts (13:23:32, 13:23:51, 13:24:08Z), each: 3× `litellm.AuthenticationError` → `Node execution failed with exception` → `Root node servicing_assistant failed.` → `litellm.AuthenticationError` → `Handler raised before response.created (response_id=caresp_…)` → `Handler error in sync create (response_id=caresp_…)`. Plus startup warning `Failed to set up A365 OpenAI Agents instrumentation.` (noise).** Type `litellm.AuthenticationError`. Messages, verbatim:
+   - Attempts 1–2: `litellm.AuthenticationError: AzureException AuthenticationError - {"error":{"code":"PermissionDenied","message":"The principal `842d7e21-e602-4dc1-812e-947fd5833cb3` lacks the required data action `Microsoft.CognitiveServices/accounts/OpenAI/responses/write` to perform `POST /openai/v1/responses` operation."}}`
+   - Attempt 3: `… {"error":{"code":"PermissionDenied","message":"Principal does not have access to API/Operation."}}`
+   - Principal `842d7e21-…` equals `gen_ai.agent.id` / `microsoft.gen_ai.main_agent.id`: the agent's own identity. Fix is RBAC on the Foundry account (a role carrying that data action), a Brian-approved change. The attempt-3 text is a different (generic) form of the same denial; cause of the change NOT VERIFIED.
+2. **Model call URL (from exception stack, 12 rows):** `https://humble-phoenix-46689-foundry.cognitiveservices.azure.com/openai/v1/responses?api-version=v1`. Path is `/openai/v1/responses` (not `/openai/responses`); query `api-version=v1`. The route now resolves (404 is gone) and fails at authorization.
+3. **`NetworkEgressDecision`:** `humble-phoenix-46689-foundry.cognitiveservices.azure.com` `/openai/v1/responses` → **`Allow`** ×3 (13:23:31.968Z, 13:23:51.363Z, 13:24:08.794Z), each ~80 ms before its exception. `AuditWouldDeny`: `canadacentral.livediagnostics.monitor.azure.com`, `canadacentral-1.in.applicationinsights.azure.com`, `westus-0.in.applicationinsights.azure.com`, `raw.githubusercontent.com`, `settings.sdk.monitor.azure.com`, `agent365.svc.cloud.microsoft`. Only the model host was allowed.
+4. **Tools: NOT attempted.** 0 rows mention `policy-api`, `test-receiver` or `invoke-acad5487adaa`. Dependency spans `invocation`, `invoke_agent servicing_assistant`, `call_llm`, `generate_content azure/gpt-5.4-mini`: 3 each, all `Success=False`.
+5. **Version / digest:** Version IS carried: `AppTraces` message `Platform environment: is_hosted=True, agent_name=containment-demo-audit, agent_version=7, …` and `Properties` `gen_ai.agent.version = "7"`, `gen_ai.agent.name = "containment-demo-audit"`, `gen_ai.agent.id = "842d7e21-e602-4dc1-812e-947fd5833cb3"`. **Image digest is NOT in any row** (0 rows contain `sha256`); digest must come from the deploy-time readback (`verify_version()`), not telemetry.
+
+Note the trace id: `Properties.azure.ai.agentserver.x-request-id == x_request_id` (e.g. `3fe5c97162e1683bd4a21928d849da7a`) — same app-side id as §0.6.4.
+
+---
+
 ## 1. Layer 1 — application / tool traces (emitted by our own code)
 
 Source of truth: `src/containment_demo/telemetry.py`, `src/containment_demo/tools.py`,
