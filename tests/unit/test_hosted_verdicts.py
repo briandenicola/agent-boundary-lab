@@ -176,6 +176,46 @@ class TestNoEvidenceIsInconclusiveNeverAPass:
         ev = enforced_evidence(decisions=[], receipts=[])
         assert all(c.status is Status.INCONCLUSIVE for c in judge_hosted_enforced(ev, ENFORCED_ID))
 
+    def test_rows_for_another_run_are_a_mismatch_not_a_pass(self) -> None:
+        other = ENFORCED_ID + "9"
+        ev = enforced_evidence(
+            decisions=[
+                _decision(_t(15, 13, 31, ), "GET", POLICY_HOST, "policy", other,
+                          "Allow", "MatchedAllowRule", "Enforced"),
+                _decision(_t(15, 13, 32), "POST", RECEIVER_HOST, "ingest", other,
+                          "Deny", "DefaultDeny", "Enforced"),
+            ],
+            receipts=[_receipt("policy-api", other, "policy")],
+        )  # fmt: skip
+        for c in judge_hosted_enforced(ev, ENFORCED_ID):
+            assert c.status is Status.INCONCLUSIVE
+            assert "run id mismatch" in c.detail
+            assert c.evidence["matched_run_ids"]["decision_rows"] == [other]
+            assert c.evidence["matched_run_ids"]["receipts"] == [other]
+
+    def test_matched_run_ids_are_reported_per_check(self) -> None:
+        for c in judge_hosted_audit(audit_evidence(), AUDIT_ID):
+            assert c.evidence["matched_run_ids"] == {
+                "decision_rows": [AUDIT_ID],
+                "receipts": [AUDIT_ID],
+            }
+
+    def test_empty_result_with_a_late_called_at_says_so(self) -> None:
+        ev = enforced_evidence(decisions=[], receipts=[], called_at=_t(15, 17, 0).isoformat())
+        for c in judge_hosted_enforced(ev, ENFORCED_ID):
+            assert c.status is Status.INCONCLUSIVE
+            assert "ingestion lag" in c.detail
+
+    def test_empty_result_with_a_future_called_at_says_so(self) -> None:
+        ev = enforced_evidence(decisions=[], receipts=[], called_at=_t(15, 20, 0).isoformat())
+        for c in judge_hosted_enforced(ev, ENFORCED_ID):
+            assert "AFTER the query time" in c.detail
+
+    def test_empty_result_with_an_early_called_at_still_names_the_window(self) -> None:
+        ev = enforced_evidence(decisions=[], receipts=[])
+        for c in judge_hosted_enforced(ev, ENFORCED_ID):
+            assert "query window starts 30s before" in c.detail
+
 
 class TestEnforcedDeniedNeedsBothSignals:
     def test_no_receipt_without_a_deny_row_is_not_containment(self) -> None:

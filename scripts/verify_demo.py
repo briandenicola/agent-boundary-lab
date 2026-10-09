@@ -1230,6 +1230,7 @@ def _leg_evidence(leg: Leg, evidence: HostedEvidence) -> dict[str, Any]:
         "path": leg.leg_path,
         "decision_rows": [d.as_dict() for d in leg.decisions],
         "receipts_for_run": len(leg.receipts),
+        "matched_run_ids": matched_run_ids(evidence),
         "called_at": evidence.called_at.isoformat() if evidence.called_at else None,
         "queried_at": evidence.queried_at.isoformat() if evidence.queried_at else None,
         "evidence_source": evidence.source,
@@ -1400,8 +1401,15 @@ def _seconds_after_call(evidence: HostedEvidence, leg: Leg) -> float | None:
     return (evidence.queried_at - anchor).total_seconds()
 
 
-def _missing_evidence(check_id: str, title: str, run_kind: RunKind, why: str) -> Check:
+def _missing_evidence(
+    check_id: str,
+    title: str,
+    run_kind: RunKind,
+    why: str,
+    evidence: HostedEvidence | None = None,
+) -> Check:
     return Check(
+        evidence={"matched_run_ids": matched_run_ids(evidence)} if evidence else {},
         id=check_id,
         title=title,
         status=Status.INCONCLUSIVE,
@@ -1431,7 +1439,71 @@ def _guard_evidence(evidence: HostedEvidence | None, run_id: str) -> str | None:
             "ui-... ids are the UI's own and appear in no decision row or receipt "
             "(telemetry-map §0.12). Use the run-... id the tools sent."
         )
+    return _mismatch_problem(evidence, run_id)
+
+
+def decision_row_run_id(row: dict[str, Any]) -> str | None:
+    """The run id a decision row carries: the path segment the tools put after the base."""
+    path = _row_properties(row).get("path") or row.get("path") or _path_of_data(row.get("Data"))
+    if not isinstance(path, str):
+        return None
+    for base in (POLICY_PATH, INGEST_PATH):
+        if path.startswith(f"{base}/") and len(path) > len(base) + 1:
+            return path[len(base) + 1 :]
     return None
+
+
+def matched_run_ids(evidence: HostedEvidence) -> dict[str, list[str]]:
+    """Run ids the evidence queries actually returned, not the id that was asked for."""
+    decisions = {i for row in evidence.decisions if (i := decision_row_run_id(row))}
+    receipts = {str(r["demo_run_id"]) for r in evidence.receipts if r.get("demo_run_id")}
+    return {"decision_rows": sorted(decisions), "receipts": sorted(receipts)}
+
+
+def _mismatch_problem(evidence: HostedEvidence, run_id: str) -> str | None:
+    """Rows came back, but none of them is this run's: a loose query matched something else."""
+    ids = matched_run_ids(evidence)
+    for label, rows, found in (
+        ("decision", evidence.decisions, ids["decision_rows"]),
+        ("receipt", evidence.receipts, ids["receipts"]),
+    ):
+        if rows and run_id not in found:
+            return (
+                f"run id mismatch: the {label} query returned {len(rows)} row(s) but none "
+                f"carries the requested run id {run_id!r} (rows carry {found or 'no run id'}). "
+                "Rows for another run are not evidence for this one."
+            )
+    return None
+
+
+def _window_hint(evidence: HostedEvidence) -> str:
+    """Why an empty result may be the operator's --*-called-at rather than the platform."""
+    base = (
+        "No rows were found for this run id. The query window starts 30s before "
+        "--*-called-at, so a called-at later than the real call excludes its rows"
+    )
+    called, queried = evidence.called_at, evidence.queried_at
+    if called is None:
+        return f"{base}; no called-at was recorded."
+    if queried is not None and called > queried:
+        return (
+            f"{base}: called-at {called.isoformat()} is AFTER the query time {queried.isoformat()}."
+        )
+    if queried is not None and (queried - called).total_seconds() < MIN_ABSENCE_WAIT_SECONDS:
+        return (
+            f"{base}: called-at {called.isoformat()} is later than query time minus the "
+            f"{MIN_ABSENCE_WAIT_SECONDS:.0f}s ingestion lag, so the rows may not be ingested yet."
+        )
+    return (
+        f"{base}; check called-at {called.isoformat()} is the call time (UTC) and not later, "
+        "and that the run id is the run-... id the tools sent."
+    )
+
+
+def _annotate(status: Status, detail: str, evidence: HostedEvidence) -> str:
+    if status is Status.INCONCLUSIVE and not evidence.decisions and not evidence.receipts:
+        return f"{detail}. {_window_hint(evidence)}"
+    return detail
 
 
 def _judged(status: Status, evidence: HostedEvidence) -> Status:
@@ -1454,13 +1526,18 @@ def judge_hosted_audit(evidence: HostedEvidence | None, run_id: str) -> list[Che
     if problem or evidence is None:
         return [
             _missing_evidence(
-                "b1-audit-permitted-allowed", "Audit: permitted call allowed", kind, problem or ""
+                "b1-audit-permitted-allowed",
+                "Audit: permitted call allowed",
+                kind,
+                problem or "",
+                evidence,
             ),
             _missing_evidence(
                 "b2-audit-would-deny-arrived",
                 "Audit: unapproved call would-deny and arrived",
                 kind,
                 problem or "",
+                evidence,
             ),
         ]
     policy = build_leg(evidence, POLICY_PATH)
@@ -1473,7 +1550,7 @@ def judge_hosted_audit(evidence: HostedEvidence | None, run_id: str) -> list[Che
             title="Audit: permitted call allowed and received",
             status=_judged(s1, evidence),
             run_kind=evidence.invoked_from,
-            detail=_detail_for_kind(d1, evidence),
+            detail=_detail_for_kind(_annotate(s1, d1, evidence), evidence),
             evidence=_leg_evidence(policy, evidence),
             group="hosted",
         ),
@@ -1482,7 +1559,7 @@ def judge_hosted_audit(evidence: HostedEvidence | None, run_id: str) -> list[Che
             title="Audit: unapproved call recorded as would-deny and still arrived",
             status=_judged(s2, evidence),
             run_kind=evidence.invoked_from,
-            detail=_detail_for_kind(d2, evidence),
+            detail=_detail_for_kind(_annotate(s2, d2, evidence), evidence),
             evidence=_leg_evidence(ingest, evidence),
             group="hosted",
         ),
@@ -1500,12 +1577,14 @@ def judge_hosted_enforced(evidence: HostedEvidence | None, run_id: str) -> list[
                 "Enforced: permitted call allowed",
                 kind,
                 problem or "",
+                evidence,
             ),
             _missing_evidence(
                 "c2-enforced-unapproved-denied",
                 "Enforced: unapproved call platform-denied",
                 kind,
                 problem or "",
+                evidence,
             ),
         ]
     policy = build_leg(evidence, POLICY_PATH)
@@ -1527,7 +1606,7 @@ def judge_hosted_enforced(evidence: HostedEvidence | None, run_id: str) -> list[
             title="Enforced: permitted call allowed and received",
             status=_judged(s1, evidence),
             run_kind=evidence.invoked_from,
-            detail=_detail_for_kind(d1, evidence),
+            detail=_detail_for_kind(_annotate(s1, d1, evidence), evidence),
             evidence=_leg_evidence(policy, evidence),
             group="hosted",
         ),
@@ -1536,7 +1615,7 @@ def judge_hosted_enforced(evidence: HostedEvidence | None, run_id: str) -> list[
             title="Enforced: unapproved call platform-denied, no receipt",
             status=_judged(s2, evidence),
             run_kind=evidence.invoked_from,
-            detail=_detail_for_kind(d2, evidence),
+            detail=_detail_for_kind(_annotate(s2, d2, evidence), evidence),
             evidence=c2_evidence,
             group="hosted",
         ),
@@ -1677,6 +1756,10 @@ def render(summary: dict[str, Any], checks: list[Check]) -> str:
             out(f"  [{_MARK[check.status]}] {check.id}")
             out(f"      {check.title}")
             out(f"      {check.detail}")
+            matched = check.evidence.get("matched_run_ids")
+            if matched:
+                out(f"      matched run ids — decision rows: {matched['decision_rows'] or 'none'}")
+                out(f"                        receipts:      {matched['receipts'] or 'none'}")
             if check.failure_mode is not FailureMode.NONE:
                 out(f"      failure kind: {check.failure_mode}")
         if block.get("transport_status"):
