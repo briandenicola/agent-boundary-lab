@@ -1850,3 +1850,5 @@ merge-patch with `agent_endpoint.protocol_configuration.a2a = null` and `agent_c
 `deploy.py` never sets A2A (a test pins it); the enable was a separate agent-level PATCH that
 persists across versions. Expected after disable: card step returns 400
 `endpoint-protocol-not-enabled`. Whether the platform honours null-removal is unknown until read back.
+
+**B5e OBSERVED 2026-10-09 (facade end to end, `task a2a:send`, one synthetic SendMessage per slot, in-pod a2a-sdk client, A2A-Version 1.0):** audit and enforced both returned `TASK_STATE_COMPLETED`. The audit reply text reported `send_to_external_processor` HTTP 202; the enforced reply text reported it HTTP 403 `http_error` (agent self-report only, NOT platform evidence). `tool_run_ids` was empty for both: the Responses output carried no run id the adapter could read, so none is invented. Facade logs held principal, task id and downstream response id only (no token, bearer string or reply content). Determination stays INCONCLUSIVE without joined platform evidence.

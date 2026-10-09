@@ -205,6 +205,17 @@ tasks:
         done
         exit $FAIL
 
+  send:
+    desc: "Send ONE synthetic A2A v1.0 SendMessage to a facade (SLOT=audit|enforced) from inside its pod; the token never leaves the pod"
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        SLOT="{{.SLOT | default "audit"}}"
+        case "$SLOT" in audit|enforced) ;; *) echo "SLOT must be audit or enforced" >&2; exit 2;; esac
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        kubectl -n "$NS" exec "deploy/a2a-facade-${SLOT}" -- python -m containment_demo.a2a_facade.client
+
   _require-kubectl:
     internal: true
     cmds:
