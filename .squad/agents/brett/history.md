@@ -281,3 +281,5 @@ Decision: `.squad/decisions/inbox/brett-adapter-await.md`. 244 unit tests pass, 
 ## Learnings: UI via A2A (2026-10-09)
 - Run ids appear only when the prompt asks for verbatim tool records (invoke.DEFAULT_PROMPT); parsing is invoke.extract_json_objects -> tool_records -> build_outcomes.
 - UI = A2A client of facades via ui_a2a.invoke_via_a2a; Dockerfile.demo-ui has a2a-sdk 1.0.2 + protobuf<7, no azure.
+
+- 2026-10-09 CPU model spike: llama-cpp-python prebuilt CPU wheel needs no compiler; its tools support is only chatml-function-calling, so native mode renders the GGUF jinja template (llm.detokenize for bos/eos; Llama template rejects multi-call messages). Results in compatibility.md B11. Never use /tmp; scratch in .task/llm.

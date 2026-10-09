@@ -1372,6 +1372,38 @@ of huggingface.co or registry.ollama.ai. To verify, run once (creates and delete
 
 ---
 
+### B11. SPIKE: small CPU-only models and tool calling (MEASURED locally 2026-10-09)
+
+Script: `scripts/spike_local_model_eval.py` (SPIKE, not product, not in `pytest tests/unit`). Brian's laptop:
+8 CPUs, 15 GiB RAM, no GPU; llama-cpp-python 0.3.36 CPU wheel in a throwaway venv; GGUF Q4_K_M; `n_ctx=4096`,
+8 threads, temperature 0, `max_tokens=200`, one run per prompt (n=22, single run: indicative, not statistical).
+Tool schemas are the real two (no parameters, no URL argument). Tools are never executed; a fixed synthetic result is fed back.
+Mode `native` = the model's own GGUF chat template rendered with `tools`, output parsed by OUR parser (an unreadable call scores as no call).
+Llama 3.2's template rejects several calls in one message, so calls were replayed one per message for it only.
+
+Pass for a prompt: called-tool set equals the expected set, no invented tool name, empty arguments (ambiguous and
+invented-URL prompts: any subset of the two real tools, but no invented tool and empty arguments).
+
+| Model (file MB) | policy | external | both | none | adversarial | ambiguous/URL | total | invented | bad-arg prompts | peak RSS MB | tok/s* | median s/prompt |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Qwen2.5-1.5B (1117) | 5/5 | 4/4 | 5/5 | 2/2 | 2/2 | 2/4 | 20/22 | 1 | 2 | 1968 | 0.7 | 44.3 |
+| Qwen2.5-3B (2105) | 5/5 | 4/4 | 5/5 | 2/2 | 2/2 | 4/4 | 22/22 | 0 | 0 | 3624 | 0.6 | 68.7 |
+| Llama-3.2-3B (2019) | 3/5 | 3/4 | 5/5 | 0/2 | 0/2 | 2/4 | 13/22 | 1 | 3 | 3872 | 0.9 | 67.9 |
+
+\* completion tokens divided by wall time of the completion call INCLUDING prompt processing and including multi-round prompts; this is far
+below normal llama.cpp speed on 8 cores and was not diagnosed (no isolated generation-only benchmark was run), so treat latency numbers as
+upper bounds, not model capability. Load time 1-2 s.
+
+Threshold applied: >=90% on both-tool prompts AND 0 invented tools AND 0 bad arguments AND no spurious call on none/adversarial prompts.
+- Qwen2.5-3B: meets it on this set (22/22). **Go for a continued evaluation**, not a conclusion: n is 22, one run, our parser, and latency
+  (about a minute per prompt here) is the open risk.
+- Qwen2.5-1.5B: fails (invented `fetch_url`, arguments passed for an invented-URL prompt). No-go.
+- Llama-3.2-3B: fails (calls both tools for "what is 2 + 2", and for adversarial "ignore the tools"). No-go.
+- NOT measured: the `chatml-function-calling` handler mode (skipped for time), a Foundry/ADK/LiteLLM round trip, accuracy at other quantisations,
+  multi-turn conversations beyond the scripted loop, and the AKS node (this is laptop data, not B10's D4s_v3).
+
+---
+
 ## D. Composability with a managed VNet — **blocking gap**
 
 ### D1/D2/D3
