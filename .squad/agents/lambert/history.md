@@ -217,3 +217,8 @@ zero telemetry because no invocation has happened yet.**
 - **Decision merged into .squad/decisions.md:** "GATE 0 Verdict: Inconclusive (Correlation Unresolved, Verified Prerequisites Met)" (Lambert)
 - **Path to close gate:** First invocation of both agents; run Q0; results determine Layer-1 ↔ Layer-2 correlation model.
 
+## Learnings (2026-10-09 GATE 0 rerun)
+- Egress decisions are `AppDependencies` rows (`DependencyType == "NetworkEgressDecision"`), not `AppTraces`; my earlier Q0a/Q5a/Q7 were wrong. Decision detail is JSON in `Properties`.
+- 0/88 decision rows join app `OperationId`; `demo_run_id` appears in no row (run failed before tools). Gate stays INCONCLUSIVE.
+- 500 evidence: `NotFoundError` on model call, then `FoundryApiError` "Public access is disabled" on response persistence. Logs: `azd ai agent monitor` only (primary docs).
+
