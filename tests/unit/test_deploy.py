@@ -438,7 +438,7 @@ def test_service_error_is_read_from_a_mapping_when_there_is_no_attribute() -> No
 def test_failed_message_carries_code_and_message() -> None:
     client = _version_reporting("failed")
     client.agents.existing["a"][0].error = {"code": "ImageError", "message": "AcrPull"}
-    with pytest.raises(DeploymentError, match="ImageError.*AcrPull"):
+    with pytest.raises(DeploymentError, match=r"ImageError.*AcrPull"):
         _wait(client)
 
 

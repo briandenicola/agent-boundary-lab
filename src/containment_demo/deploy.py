@@ -614,7 +614,8 @@ def wait_until_ready(
         if status in _FAILED_STATUSES:
             raise DeploymentError(
                 f"{agent_name}: version {version_id} reached terminal status {status!r} "
-                f"after {elapsed:.1f}s. Service error (code/message): {_service_error_of(version)!r}. "
+                f"after {elapsed:.1f}s. "
+                f"Service error (code/message): {_service_error_of(version)!r}. "
                 "Not retrying: a failed provision is a real result."
             )
 
