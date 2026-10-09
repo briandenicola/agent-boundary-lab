@@ -11,9 +11,7 @@ receipts for one `run-…` id; see [`../architecture-as-built.md`](../architectu
 | [`environment.excalidraw`](environment.excalidraw) (source) and `environment.svg` (export) | **The current, whole system:** laptop, AKS pods, Foundry, Container Apps, evidence plane, ACR, with flows F1 to F11. Use this one. | Current (2026-10-09) |
 | [`azure-environment.excalidraw`](azure-environment.excalidraw) / [`.svg`](azure-environment.svg) | Earlier Azure-resource-only view. Kept for history. | Superseded |
 
-<!-- When environment.svg is exported into this folder, uncomment the next line:
 ![Whole environment](environment.svg)
--->
 
 ## Edit and export
 
