@@ -103,6 +103,24 @@ tasks:
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
 
+  workbook-plan:
+    desc: Show what creating ONLY the evidence workbook would change (creates nothing)
+    cmds:
+      - task: _init-once
+      - terraform -chdir=./{{.CLOUD_DIR}} plan -compact-warnings -target=azurerm_application_insights_workbook.egress_evidence -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}"
+    vars:
+      REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
+
+  workbook-up:
+    desc: CREATES the evidence workbook only (one Azure resource, no compute). Prompts first
+    prompt: Create the egress evidence workbook in Azure (only that resource)?
+    cmds:
+      - task: _init-once
+      - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -target=azurerm_application_insights_workbook.egress_evidence -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}"
+      - terraform -chdir=./{{.CLOUD_DIR}} output evidence_workbook_id
+    vars:
+      REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
+
   base-policies:
     desc: List the RAI base policies that exist on the demo's Foundry account
     cmds:
