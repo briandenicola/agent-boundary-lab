@@ -1328,6 +1328,47 @@ left in so the first run and every later run use identical flags.
 deleted the live objects. Deleting `infra/k8s/terraform.tfstate` along with the module is
 the adoption mechanism.
 
+### B10. Spike: CPU-only 3–4B 4-bit LLM on the AKS harness (read-only, 2026-10-09)
+
+**OBSERVED (kubectl, no changes made):**
+
+| Item | Value |
+| --- | --- |
+| Node pool | one pool, `system`, 2 nodes, `Standard_D4s_v3`, Azure Linux 3.0 |
+| Per node | 4 vCPU / 16 GiB; allocatable 3860m CPU / 13973472Ki (~13.3 GiB) |
+| Requests (node 1) | CPU 2122m (54%), memory ~3.4 GiB (25%) |
+| Requests (node 2) | CPU 910m (23%), memory 1966Mi (14%) |
+| Limits (node 1 / 2) | memory 235% / 97% of allocatable (overcommitted by limits, not requests) |
+| Usage (`kubectl top`) | node 1 257m CPU / 2860Mi; node 2 162m CPU / 2016Mi. Metrics server present. |
+| Autoscale (`infra/cloud/aks.tf`) | enabled, min 1, max `aks_node_count * 2` (= 4); `node_count` drift ignored |
+| Pod networking | Azure CNI overlay + Cilium data plane and policy; `outbound_type = loadBalancer` |
+| NetworkPolicy | only `konnectivity-agent` in kube-system; none in our namespace |
+| ACR | `infra/cloud/acr.tf`: Premium, admin disabled, public network access enabled |
+
+**Egress (1 of 1 answered by config only): UNKNOWN from a live probe, but config suggests open.**
+Terraform shows a standard load-balancer outbound path with no firewall, UDR, or NAT gateway
+resource in `infra/cloud/`, and no NetworkPolicy restricting our namespace. Azure Policy
+(Gatekeeper) is enabled and was not inspected for egress rules. Not verified: actual reachability
+of huggingface.co or registry.ollama.ai. To verify, run once (creates and deletes a pod):
+`kubectl run egress-probe -n agent-boundary-lab --rm -i --restart=Never --image=curlimages/curl -- curl -sS -o /dev/null -m 10 -w '%{http_code}\n' https://huggingface.co`
+(repeat with `https://registry.ollama.ai/v2/`). Needs the image pullable; a 200/3xx/401 means reachable.
+
+**PROPOSED:**
+- *Weights location:* bake the GGUF into an image in our ACR (pull via kubelet over the existing
+  ACR path, pinned by digest, no runtime dependency on a third-party host, and consistent with
+  "same image digest" hygiene). A 3B Q4 image is ~2–3 GB; pull cost is paid once per node.
+  Runtime download is only acceptable if the probe above succeeds and the repo accepts an
+  external dependency at start; it also needs an emptyDir/PVC and re-downloads on every restart.
+- *Fit:* a 3B Q4 model needs ~2.5–3.5 GiB RAM with context, 2–4 vCPU. Node 2 has ~12 GiB
+  allocatable memory unreserved by requests and ~2.9 CPU; node 1 has ~1.7 CPU. It fits on node 2 with
+  requests ≈ 4 GiB memory / 2 CPU and limit ≈ 5 GiB, but leaves little CPU headroom, and generation
+  at 2 vCPU will be slow (seconds per token range, not benchmarked). Existing limits are already
+  overcommitted on node 1, so set a real request (not just a limit) to avoid eviction.
+- *Bigger pool:* yes, additively. Add an `azurerm_kubernetes_cluster_node_pool` (user mode,
+  e.g. a D8s_v3-class size, autoscale 0–1) in `infra/cloud/aks.tf` with a taint so only the LLM
+  pod schedules there. Not planned or applied; needs vCPU quota check and owner approval
+  (billable). The default pool's size cannot be changed in place without rotation.
+- Nothing here has been benchmarked; this is capacity arithmetic only.
 
 ---
 
