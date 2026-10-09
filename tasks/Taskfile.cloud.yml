@@ -140,6 +140,21 @@ tasks:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
       EXTRA: '{{default "" .TF_EXTRA}}'
 
+  network-probe:
+    desc: ONE-TIME PATCH of the managed network to AllowOnlyApprovedOutbound (keeps firewallSku Standard). IRREVERSIBLE if it succeeds. Prints the raw response or error
+    prompt: Send ONE PATCH setting managednetworks/default to AllowOnlyApprovedOutbound? One-way if accepted.
+    cmds:
+      - task: arm:_account-id
+        vars: {TAG: '{{.TITLE}}', OUT: /tmp/abl-account-id}
+      - |
+        set -u
+        URL="https://management.azure.com$(cat /tmp/abl-account-id)/managednetworks/default?api-version=2025-10-01-preview"
+        az rest --method patch --url "$URL" --headers "Content-Type=application/json" \
+          --body '{"properties":{"managedNetwork":{"isolationMode":"AllowOnlyApprovedOutbound","firewallSku":"Standard"}}}' \
+          --only-show-errors || echo "PATCH FAILED (see error above); nothing was changed unless a body printed"
+        echo "--- readback ---"
+        az rest --method get --url "$URL" --query "properties.managedNetwork.{isolationMode:isolationMode,firewallSku:firewallSku,changeable:changeableIsolationModes,state:provisioningState}" -o json --only-show-errors
+
   base-policies:
     desc: List the RAI base policies that exist on the demo's Foundry account
     cmds:
