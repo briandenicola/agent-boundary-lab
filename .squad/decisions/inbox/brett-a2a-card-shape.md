@@ -1,0 +1,3 @@
+# a2a_spike: card version check followed a guessed field (Brett, 2026-10-09)
+The spike read a top-level `protocolVersion` that the real card does not have (docs/compatibility.md B5c). Now: ok iff some `supportedInterfaces[].protocolVersion == "1.0"`; top-level `version` is not the protocol version. The card step also records keys, version-like fields and a redacted raw card capped at 4KB so the next shape surprise is visible, not guessed. Tamper: always-ok, reading top-level version, any-version-ok each fail named tests.
+Lesson: the field name was guessed from a spec sketch; record the real payload before writing the check.

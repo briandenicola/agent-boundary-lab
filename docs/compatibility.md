@@ -475,6 +475,12 @@ Observed (docs/telemetry-map.md §0.11): `NetworkEgressDecision` rows carry the 
 
 Proposed: both tools append the run id as the final path segment (`/policy/{run_id}`, `/ingest/{run_id}`; `tools._endpoint`), identical for both agents. The run id must match `[A-Za-z0-9_-]{1,64}` or the tool fails locally before any request. The services accept the new routes, keep the old ones, and log the path run id. UNVERIFIED until a real decision row shows the run id in its path; if it does not, this stays INCONCLUSIVE and nothing here counts as a join.
 
+### B5c. Observed A2A agent card shape on the hosted container agent (2026-10-09)
+
+OBSERVED (read-only `cloud:a2a-card` from the harness pod, after `--enable` on `containment-demo-audit`): HTTP 200. Top-level keys: `capabilities, defaultInputModes, defaultOutputModes, description, name, skills, supportedInterfaces, version`. There is NO top-level `protocolVersion`; `version` is `"1.0"` (the card's own version, as we sent it). `supportedInterfaces` has three entries at `.../agents/containment-demo-audit/endpoint/protocols/a2a`: `JSONRPC` `protocolVersion` `1.0`, `JSONRPC` `0.3`, `HTTP+JSON` `0.3`. `capabilities`: `streaming=false`, `pushNotifications=false`, two Azure extensions, `extendedAgentCard=false`. Before enabling, the card endpoint returned 400 `endpoint-protocol-not-enabled` ("Both 'a2a' and 'responses' protocols must be enabled").
+
+The spike's card check now reads `supportedInterfaces[].protocolVersion`. A served card is an observation, not a verdict; `message/send` is still UNVERIFIED and the determination stays `inconclusive-a2a-unverified`.
+
 ### B9a. The Python SDK surface we actually deploy with
 
 Verified 2026-10-08 by reading **azure-ai-projects 2.8.0** source (the newest copy on this

@@ -151,6 +151,23 @@ def _version_fields(node: Any, path: str = "", depth: int = 0) -> dict[str, Any]
     return found
 
 
+def declared_protocol_versions(body: dict[str, Any] | None) -> list[str]:
+    """Protocol versions the card declares, from supportedInterfaces[].protocolVersion.
+
+    Observed card shape (docs/compatibility.md B5a, 2026-10-09): there is NO top-level
+    ``protocolVersion``; the top-level ``version`` is the agent card's own version and is
+    deliberately not read here.
+    """
+    interfaces = body.get("supportedInterfaces") if isinstance(body, dict) else None
+    if not isinstance(interfaces, list):
+        return []
+    return [
+        str(item["protocolVersion"])
+        for item in interfaces
+        if isinstance(item, dict) and isinstance(item.get("protocolVersion"), str)
+    ]
+
+
 def summarise_card(body: dict[str, Any] | None) -> dict[str, Any]:
     """Raw card shape for the record: top-level keys, version-like fields, redacted raw text."""
     if not isinstance(body, dict):
@@ -343,13 +360,13 @@ def run_spike(
 
     try:
         status, body = card_fn(base, timeout)
-        declared = body.get("protocolVersion") if isinstance(body, dict) else None
+        declared = declared_protocol_versions(body)
         observed = {
             "http_status": status,
-            "card_protocol_version": declared,
+            "card_protocol_versions": declared,
             **summarise_card(body),
         }
-        if declared == A2A_VERSION:
+        if A2A_VERSION in declared:
             result.steps.append(StepResult("card", "ok", http_status=status, observed=observed))
         else:
             result.steps.append(
@@ -358,7 +375,7 @@ def run_spike(
                     "failed",
                     origin="platform",
                     http_status=status,
-                    detail=f"card did not declare protocolVersion {A2A_VERSION}",
+                    detail=f"card declares no interface with protocolVersion {A2A_VERSION}",
                     observed=observed,
                 )
             )

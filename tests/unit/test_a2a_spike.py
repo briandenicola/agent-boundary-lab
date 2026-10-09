@@ -17,8 +17,21 @@ class StatusError(Exception):
         self.status_code = status
 
 
+# The card exactly as observed from the platform on 2026-10-09 (shape only, trimmed).
+OBSERVED_CARD: dict[str, Any] = {
+    "name": "containment-demo-audit",
+    "version": "1.0",
+    "supportedInterfaces": [
+        {"url": "https://h.example/a2a", "protocolBinding": "JSONRPC", "protocolVersion": "1.0"},
+        {"url": "https://h.example/a2a", "protocolBinding": "JSONRPC", "protocolVersion": "0.3"},
+        {"url": "https://h.example/a2a", "protocolBinding": "HTTP+JSON", "protocolVersion": "0.3"},
+    ],
+    "capabilities": {"streaming": False},
+}
+
+
 def card_ok(base: str, timeout: float) -> tuple[int, dict[str, Any] | None]:
-    return 200, {"protocolVersion": "1.0"}
+    return 200, OBSERVED_CARD
 
 
 def send_ok(base: str, timeout: float) -> int:
@@ -116,10 +129,46 @@ def test_send_failure_is_never_an_unsupported_signal() -> None:
     assert s.status == "failed"
 
 
-def test_card_declaring_another_version_is_a_failure() -> None:
-    s = step(run(card_fn=lambda b, t: (200, {"protocolVersion": "0.3"})), "card")
+def _card(*versions: str, top: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "name": "a",
+        **(top or {}),
+        "supportedInterfaces": [
+            {"url": "https://x.example/a2a", "protocolBinding": "JSONRPC", "protocolVersion": v}
+            for v in versions
+        ],
+    }
+
+
+def test_card_with_a_1_0_interface_is_ok_like_the_observed_card() -> None:
+    s = step(run(card_fn=lambda b, t: (200, OBSERVED_CARD)), "card")
+    assert s.status == "ok"
+    assert s.observed["card_protocol_versions"] == ["1.0", "0.3", "0.3"]
+    assert "supportedInterfaces" in s.observed["card_keys"]
+
+
+def test_card_declaring_only_another_version_is_a_failure() -> None:
+    s = step(run(card_fn=lambda b, t: (200, _card("0.3"))), "card")
     assert s.status == "failed"
-    assert s.observed["card_protocol_version"] == "0.3"
+    assert s.observed["card_protocol_versions"] == ["0.3"]
+
+
+def test_top_level_version_is_not_the_protocol_version() -> None:
+    card = _card("0.3", top={"version": "1.0", "protocolVersion": "1.0"})
+    assert step(run(card_fn=lambda b, t: (200, card)), "card").status == "failed"
+
+
+def test_card_without_interfaces_is_a_failure_not_a_crash() -> None:
+    assert step(run(card_fn=lambda b, t: (200, {"name": "a"})), "card").status == "failed"
+
+
+def test_raw_card_is_recorded_bounded_and_redacted() -> None:
+    card = _card("1.0", top={"description": "Bearer abc.def-123_xyz " + "x" * 9000})
+    s = step(run(card_fn=lambda b, t: (200, card)), "card")
+    raw = s.observed["card_raw"]
+    assert len(raw) <= a2a_spike.CARD_CAP == 4096
+    assert "abc.def-123_xyz" not in raw
+    assert "supportedInterfaces[0].protocolVersion" in s.observed["card_version_fields"]
 
 
 def test_one_step_failing_does_not_hide_the_others() -> None:
