@@ -120,6 +120,35 @@ Receipts come from the two controlled endpoints' console logs. Section C passes 
 platform Deny row for the run id **and** no receipt, read at least 180 s after the call, with
 the allowed call's receipt as positive control.
 
+## Where to see the platform block (beyond the application)
+
+What blocks the call is the account-level **RAI network egress policy** (default-deny plus an exact-host allow rule) on each hosted agent's outbound traffic. It is a different mechanism from the managed VNet that hosts the agent container; the managed VNet is where the agent runs and is not the evidence source. Three independent places show the block. None of them is our code, and the application's own HTTP 403 is deliberately not one of them.
+
+| # | Where | What you see for the blocked call | Who writes it | Status |
+|---|---|---|---|---|
+| 1 | **Application Insights / Log Analytics** `AppDependencies`, `DependencyType == "NetworkEgressDecision"` (workspace `humble-phoenix-46689-logs`) | One row per outbound call. Blocked: `decision=Deny`, `decisionReasonCode=DefaultDeny`, `enforcement=Enforced`, `decisionResultCode=Deny`, `denyReasonCode=NoMatchingAllowRule`, `host`, and the URL with the `run-…` id in `Data`. Audit slot: `AuditWouldDeny` / `AuditWouldDefaultDeny` / `enforcement=Audit` | The Foundry platform, not our code. In v6 no application spans landed at all, yet these rows still did | **Observed** (telemetry-map §0.6, §0.12 to §0.14) |
+| 2 | **Destination receipt logs** `ContainerAppConsoleLogs_CL` (policy-api, test-receiver) | Enforced: **no** `test-receiver` row for that run id. Audit: a receipt with the same run id. The permitted call's receipt in the same query is the positive control | Our two controlled services; they only log what reaches them | **Observed.** Absence only counts if read at least 180 s after the call |
+| 3 | **Control plane** (ARM, `raiPolicies`, preview API) | `egress-enforced` has `mode=Enforced, defaultAction=Deny` with one allow rule; `egress-audit` has `mode=Audit`. Both attached to the right agent | Azure Resource Manager | **Observed** (telemetry-map §0.5). Shows configuration, not a decision |
+
+**The proof is rows 1 and 2 together, for the same `run-…` id:** a platform `Deny`/`Enforced` row and no receipt at the destination, next to an `Allow` row and a receipt for the permitted call, with the audit slot showing `AuditWouldDeny` and a receipt for the identical call. The identical image means the policy is the only variable.
+
+```kusto
+AppDependencies
+| where TimeGenerated between (datetime(<RUN_START>) .. datetime(<RUN_END>))
+| where DependencyType == "NetworkEgressDecision" and Data has "<run-id>"
+| extend p = parse_json(Properties)
+| project TimeGenerated, Data, decision = tostring(p.decision), reason = tostring(p.decisionReasonCode),
+          enforcement = tostring(p.enforcement), denyReason = tostring(p.denyReasonCode), host = tostring(p.host)
+```
+
+`scripts/verify_demo.py` sections B and C run this check and the receipt check and print the matched run ids.
+
+**Not evidence, and not shown:**
+- The agent's HTTP 403, a DNS error, a timeout or the model's reply. Those are application-layer.
+- `AMLManagedNetworkEvent` (the managed-network log category). It returned zero rows in 30 days on this account, and it is **not verified** to carry RAI egress decisions. It is not used here (telemetry-map §0.4).
+- Azure Firewall, NSG flow logs or other network-device logs. None are in this design, and no such source was queried.
+- The harness and the façades are not governed by the policy. Only the hosted agents' outbound calls are.
+
 ## Verified, proposed, blocked
 
 | Item | Status |
