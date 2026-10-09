@@ -163,6 +163,12 @@ variable "kubernetes_namespace" {
   default     = "agent-boundary-lab"
 }
 
+variable "demo_ui_service_account" {
+  description = "Kubernetes service account bound to the demo UI workload identity. Must match deploy/kustomize/demo-ui/serviceaccount.yaml."
+  type        = string
+  default     = "demo-ui"
+}
+
 variable "workflow_service_account" {
   description = "Kubernetes service account bound to the workflow workload identity."
   type        = string

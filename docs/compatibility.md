@@ -1083,6 +1083,19 @@ Nothing applied at the time of the proposal.
   (HTTP 200 from the account on re-invoke) is the only confirmation; the rule being Active
   proves the control plane accepted it, not that the data path works.
 
+### B9h. Demo UI identity (issue #1) — APPLIED 2026-10-09
+
+`infra/cloud/demo-ui-identity.tf`; plan and apply were 3 add / 0 change / 0 destroy.
+- Role verified read-only first: **Foundry Agent Consumer** (`eed3b665-ab3a-47b6-8f48-c9382fb1dad6`),
+  actions none, dataActions exactly `Microsoft.CognitiveServices/accounts/AIServices/endpoints/interact/action`,
+  no notDataActions. Narrower than Cognitive Services User, which the workflow identity holds.
+- Observed: user-assigned identity `humble-phoenix-46689-demo-ui-identity`, client id output
+  `demo_ui_identity_client_id` (`ec040ec9-ba15-4ccf-a55d-db0651bfd782`); federated credential subject
+  `system:serviceaccount:agent-boundary-lab:demo-ui`, audience `api://AzureADTokenExchange`; the only
+  role assignment is Foundry Agent Consumer at PROJECT scope.
+- NOT observed: an invocation actually succeeding with this identity. Whether `interact/action`
+  alone covers every UI call (e.g. a version read-back) is unverified. Agents and RAI policies untouched.
+
 ### C1. Where egress decisions surface
 
 Application Insights **`traces`** table, filtered on a literal message string:

@@ -128,6 +128,11 @@ output "aks_cluster_name" {
   value       = azurerm_kubernetes_cluster.main.name
 }
 
+output "demo_ui_identity_client_id" {
+  description = "Client ID to annotate the demo-ui service account with for workload identity."
+  value       = azurerm_user_assigned_identity.demo_ui.client_id
+}
+
 output "workflow_identity_client_id" {
   description = "Client ID to annotate the workflow service account with for workload identity."
   value       = azurerm_user_assigned_identity.workflow.client_id
