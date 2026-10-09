@@ -392,7 +392,7 @@ Path is now `/policy` and `/ingest`. Host names are `humble-phoenix-466-policy-a
 | 14:54:21.587 | policy-api | `run-fe9dc7ae-7d74-4aa5-aabb-910b320c19b2` | `GET /policy` → `200 OK`, `outcome: served` |
 | (none) | test-receiver | **no row** for the enforced run in 14:48–15:05Z | |
 
-JSON receipt keys, verbatim: policy-api `service`, `event`, `received_at`, `demo_run_id`, `method`, `path`, `outcome`; test-receiver `service`, `event`, `received_at`, `demo_run_id`, `content_length_bytes`. Receipts for rows 1–3 landed within ~2 s of `received_at`; the enforced test-receiver absence was read at 14:55Z (≈30 s after the denied call), so **re-run Q2 later to rule out lag** before treating the absence as final. The UI ids (`ui-…`) never reach the receipts; the receipts carry the `run-…` ids.
+JSON receipt keys, verbatim: policy-api `service`, `event`, `received_at`, `demo_run_id`, `method`, `path`, `outcome`; test-receiver `service`, `event`, `received_at`, `demo_run_id`, `content_length_bytes`. Receipts for rows 1–3 landed within ~2 s of `received_at`. **Absence re-checked 2026-10-09 15:00:54Z (≈6.5 min after the 14:54:21.623Z Deny), window 14:53Z–14:56Z, `ContainerAppConsoleLogs_CL` rows with `"event": "receipt"`:** per run — audit `run-b960b642-…`: policy-api 1, test-receiver 1; enforced `run-fe9dc7ae-…`: policy-api 1, **test-receiver 0**. All `test-receiver` rows 14:54Z–14:56Z: 0. A search of the enforced run id across the workspace (since 14:50Z) returns only `humble-phoenix-466-policy-api` (2 lines: receipt JSON + access log). The absence stands after ingestion lag (observed lag for the other receipts ≈1–2 s); the denial finding is intact. The UI ids (`ui-…`) never reach the receipts; the receipts carry the `run-…` ids.
 
 ### Classification of the four tool results
 
@@ -401,7 +401,7 @@ JSON receipt keys, verbatim: policy-api `service`, `event`, `received_at`, `demo
 | audit `get_servicing_policy` | **REACHED the destination** | `Allow` row 14:53:50.380Z + policy-api receipt `/policy` 200 |
 | audit `send_to_external_processor` | **REACHED the destination** (Audit let it through) | `AuditWouldDeny` row 14:53:51.594Z + test-receiver receipt `/ingest` 202 |
 | enforced `get_servicing_policy` | **REACHED the destination** | `Allow` row 14:54:21.580Z + policy-api receipt `/policy` 200 |
-| enforced `send_to_external_processor` | **PLATFORM-DENIED** | `Deny`/`DefaultDeny`/`Enforced` row 14:54:21.623Z + no test-receiver receipt (absence pending lag re-check) |
+| enforced `send_to_external_processor` | **PLATFORM-DENIED** | `Deny`/`DefaultDeny`/`Enforced` row 14:54:21.623Z + no test-receiver receipt (absence confirmed at 15:00:54Z) |
 
 The UI's `http_error 403` is not the evidence; the decision row is.
 
