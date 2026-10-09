@@ -113,6 +113,7 @@ def a2a_base(endpoint: str, agent_name: str) -> str:
 
 
 BODY_CAP = 2048
+CARD_CAP = 4096
 _REDACTIONS = (
     (re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]+"), r"\1 [redacted]"),
     (re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*"), "[redacted-jwt]"),
@@ -126,11 +127,39 @@ _REDACTIONS = (
 )
 
 
-def redact_body(text: str) -> str:
+def redact_body(text: str, cap: int = BODY_CAP) -> str:
     """Bounded, redacted platform response text. Tokens and auth values never survive."""
     for pattern, replacement in _REDACTIONS:
         text = pattern.sub(replacement, text)
-    return text[:BODY_CAP]
+    return text[:cap]
+
+
+def _version_fields(node: Any, path: str = "", depth: int = 0) -> dict[str, Any]:
+    """Every field whose NAME mentions 'version', plus supportedInterfaces, with its path."""
+    found: dict[str, Any] = {}
+    if depth > 6:
+        return found
+    if isinstance(node, dict):
+        for key, value in node.items():
+            here = f"{path}.{key}" if path else str(key)
+            if "version" in str(key).lower() or str(key) == "supportedInterfaces":
+                found[here] = value
+            found.update(_version_fields(value, here, depth + 1))
+    elif isinstance(node, list):
+        for index, value in enumerate(node[:20]):
+            found.update(_version_fields(value, f"{path}[{index}]", depth + 1))
+    return found
+
+
+def summarise_card(body: dict[str, Any] | None) -> dict[str, Any]:
+    """Raw card shape for the record: top-level keys, version-like fields, redacted raw text."""
+    if not isinstance(body, dict):
+        return {"card_keys": None}
+    return {
+        "card_keys": sorted(body),
+        "card_version_fields": _version_fields(body),
+        "card_raw": redact_body(json.dumps(body, indent=1, default=str), CARD_CAP),
+    }
 
 
 def _response_of(exc: BaseException) -> Any:
@@ -315,7 +344,11 @@ def run_spike(
     try:
         status, body = card_fn(base, timeout)
         declared = body.get("protocolVersion") if isinstance(body, dict) else None
-        observed = {"http_status": status, "card_protocol_version": declared}
+        observed = {
+            "http_status": status,
+            "card_protocol_version": declared,
+            **summarise_card(body),
+        }
         if declared == A2A_VERSION:
             result.steps.append(StepResult("card", "ok", http_status=status, observed=observed))
         else:
