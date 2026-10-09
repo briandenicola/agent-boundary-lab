@@ -17,8 +17,12 @@ import os
 import sys
 from typing import Any
 
+from containment_demo import invoke
+
 A2A_VERSION = "1.0"
-SYNTHETIC_TEXT = "Synthetic A2A façade check. Call your tools and report their outcomes."
+# The agent only reports a tool's run-... id when asked to return the tool result records
+# verbatim, so the caller (not the facade) sends the same prompt invoke.py uses.
+SYNTHETIC_TEXT = invoke.DEFAULT_PROMPT.format(demo_run_id="a2a-send")
 TIMEOUT_SECONDS = 120.0
 
 

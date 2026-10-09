@@ -62,3 +62,9 @@ def test_token_never_printed(monkeypatch, capsys):
 
 def test_client_pins_a2a_v1():
     assert client.A2A_VERSION == "1.0"
+
+
+def test_client_asks_for_verbatim_tool_records_so_run_ids_can_be_read():
+    assert "verbatim" in client.SYNTHETIC_TEXT
+    assert "get_servicing_policy" in client.SYNTHETIC_TEXT
+    assert "{demo_run_id}" not in client.SYNTHETIC_TEXT
