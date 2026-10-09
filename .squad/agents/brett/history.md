@@ -267,3 +267,7 @@ Decision: `.squad/decisions/inbox/brett-adapter-await.md`. 244 unit tests pass, 
 - a2a_spike: httpx.HTTPStatusError status lives on exc.response; body captured redacted <=2KB.
 
 - A2A card has no top-level protocolVersion; supportedInterfaces[].protocolVersion (1.0 JSONRPC, 0.3 x2). Card step records raw card redacted <=4KB.
+
+## Learnings: A2A send classification (2026-10-09)
+- A JSON-RPC error in an HTTP 200 body is a platform answer; a2a-sdk maps unknown codes to `A2AClientError("JSON-RPC Error {code}: {message}")`, so parse the text or the wire body (a2a/client/transports/jsonrpc.py ~321).
+- To force one option, trim the card's supported_interfaces to one entry and set ClientConfig.supported_protocol_bindings (client_factory.py `_find_best_interface` otherwise prefers 1.0). v1.0 method `SendMessage`; v0.3 compat `message/send`.

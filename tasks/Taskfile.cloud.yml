@@ -402,6 +402,14 @@ tasks:
         vars:
           SPIKE_ARGS: "--send"
 
+  a2a-send-options:
+    desc: CALLS THE AUDIT AGENT 3 times. Try each advertised A2A binding/version once, no retries
+    prompt: This invokes the audit agent once per advertised option (JSONRPC 1.0, JSONRPC 0.3, HTTP+JSON 0.3). Continue?
+    cmds:
+      - task: _a2a-spike
+        vars:
+          SPIKE_ARGS: "--send --send-option all"
+
   _a2a-spike:
     internal: true
     cmds:

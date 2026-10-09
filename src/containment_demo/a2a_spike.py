@@ -236,6 +236,93 @@ def classify_failure(name: str, exc: BaseException, *, may_signal_unsupported: b
     )
 
 
+@dataclass(frozen=True)
+class SendOption:
+    """One advertised (binding, protocolVersion) pair from the observed card."""
+
+    label: str
+    binding: str
+    version: str
+
+
+# The three interfaces the audit agent's card advertised on 2026-10-09 (B5c).
+SEND_OPTIONS: dict[str, SendOption] = {
+    "jsonrpc-1.0": SendOption("jsonrpc-1.0", "JSONRPC", "1.0"),
+    "jsonrpc-0.3": SendOption("jsonrpc-0.3", "JSONRPC", "0.3"),
+    "http-0.3": SendOption("http-0.3", "HTTP+JSON", "0.3"),
+}
+DEFAULT_OPTION = "jsonrpc-1.0"
+
+_JSONRPC_TEXT = re.compile(r"JSON-RPC Error (-?\d+): (.*)", re.S)
+# Codes where the platform itself says "this operation is not available here".
+_UNSUPPORTED_JSONRPC_CODES = frozenset({-32099, -32601})
+_UNSUPPORTED_MESSAGE = re.compile(r"not supported|unsupported|not enabled|not implemented", re.I)
+
+
+def jsonrpc_error_of(exc: BaseException, wire: list[dict[str, Any]]) -> tuple[int, str] | None:
+    """A JSON-RPC error the PLATFORM returned: from the captured wire body first, else the
+    SDK exception text. Returns (code, message) or None."""
+    for entry in reversed(wire):
+        body = entry.get("response_body")
+        if isinstance(body, str):
+            try:
+                error = json.loads(body).get("error")
+            except (ValueError, AttributeError):
+                continue
+            if isinstance(error, dict) and isinstance(error.get("code"), int):
+                return error["code"], str(error.get("message", ""))
+    for candidate in _chain_of(exc):
+        match = _JSONRPC_TEXT.search(str(candidate))
+        if match:
+            return int(match.group(1)), match.group(2).strip()
+    return None
+
+
+def classify_send_failure(
+    name: str, exc: BaseException, wire: list[dict[str, Any]], option: SendOption
+) -> StepResult:
+    """A JSON-RPC error body is the platform answering, so it is never our_call. It counts
+    as an unsupported-signal only when the code or the message says so."""
+    observed: dict[str, Any] = {**wire_summary(wire, option)}
+    rpc = jsonrpc_error_of(exc, wire)
+    if rpc is None:
+        step = classify_failure(name, exc, may_signal_unsupported=False)
+        step.observed = {**step.observed, **observed}
+        return step
+    code, message = rpc
+    observed["jsonrpc_code"] = code
+    observed["jsonrpc_message"] = redact_body(message)
+    unsupported = code in _UNSUPPORTED_JSONRPC_CODES or bool(_UNSUPPORTED_MESSAGE.search(message))
+    return StepResult(
+        name=name,
+        status="unsupported-signal" if unsupported else "failed",
+        origin="platform",
+        error_category=ErrorCategory.HTTP_ERROR.value,
+        http_status=observed.get("response_status"),
+        detail=f"JSON-RPC error {code}: {redact_body(message)}"[:300],
+        observed=observed,
+    )
+
+
+def wire_summary(wire: list[dict[str, Any]], option: SendOption) -> dict[str, Any]:
+    """What was actually sent, from the recorded request: nothing here is assumed."""
+    summary: dict[str, Any] = {
+        "binding": option.binding,
+        "protocolVersion": option.version,
+    }
+    request = next((e for e in wire if e.get("kind") == "request"), None)
+    response = next((e for e in reversed(wire) if e.get("kind") == "response"), None)
+    if request:
+        summary["a2a_version_header"] = request.get("a2a_version_header")
+        summary["jsonrpc_method"] = request.get("jsonrpc_method")
+        summary["http_method"] = request.get("http_method")
+        summary["url_path"] = request.get("url_path")
+    if response:
+        summary["response_status"] = response.get("status")
+        summary["response_body"] = response.get("response_body")
+    return summary
+
+
 # --- the three live operations. Each is injectable, and each is the only place its SDK
 # --- is imported. ------------------------------------------------------------------
 
@@ -301,29 +388,80 @@ def live_card(base: str, timeout: float) -> tuple[int, dict[str, Any] | None]:
     return response.status_code, body if isinstance(body, dict) else None
 
 
-def live_send(base: str, timeout: float) -> int:
-    """One A2A message via the Python A2A SDK, as in the Microsoft doc. Returns reply count."""
+def live_send(base: str, timeout: float, option: SendOption, wire: list[dict[str, Any]]) -> int:
+    """One A2A message via the Python A2A SDK. Returns the reply event count.
+
+    The card is trimmed to the ONE chosen interface so the SDK cannot pick another
+    (``ClientFactory._find_best_interface`` otherwise prefers 1.0). ``wire`` receives what
+    was really sent and returned, via httpx event hooks; the Authorization header is never
+    recorded.
+    """
     import asyncio
 
     import httpx
     from a2a.client import A2ACardResolver, ClientConfig, create_client
     from a2a.helpers import new_text_message
-    from a2a.types.a2a_pb2 import Role, SendMessageRequest
+    from a2a.types.a2a_pb2 import AgentCard, Role, SendMessageRequest
     from azure.identity import DefaultAzureCredential
 
     token = DefaultAzureCredential().get_token(TOKEN_SCOPE).token
 
+    async def on_request(request: Any) -> None:
+        method = None
+        try:
+            method = json.loads(request.content).get("method")
+        except (ValueError, AttributeError):
+            pass
+        wire.append(
+            {
+                "kind": "request",
+                "http_method": request.method,
+                "url_path": request.url.path,
+                "a2a_version_header": request.headers.get("A2A-Version"),
+                "jsonrpc_method": method,
+            }
+        )
+
+    async def on_response(response: Any) -> None:
+        await response.aread()
+        wire.append(
+            {
+                "kind": "response",
+                "status": response.status_code,
+                "response_body": redact_body(response.text),
+            }
+        )
+
     async def go() -> int:
-        # The header and the resolved v1.0 card agree, so there is no version-ambiguous 400.
         async with httpx.AsyncClient(
             headers={"Authorization": f"Bearer {token}", "A2A-Version": A2A_VERSION},
             timeout=httpx.Timeout(timeout),
             follow_redirects=False,
         ) as http:
             resolver = A2ACardResolver(httpx_client=http, base_url=base, agent_card_path=CARD_PATH)
-            card = await resolver.get_agent_card()
+            full = await resolver.get_agent_card()
+            card = AgentCard()
+            card.CopyFrom(full)
+            del card.supported_interfaces[:]
+            chosen = [
+                i
+                for i in full.supported_interfaces
+                if i.protocol_binding == option.binding and i.protocol_version == option.version
+            ]
+            if not chosen:
+                raise ValueError(f"card does not advertise {option.binding} {option.version}")
+            card.supported_interfaces.append(chosen[0])
+            # Hooks start AFTER the card fetch so the record is the send alone.
+            http.headers["A2A-Version"] = option.version
+            http.event_hooks["request"].append(on_request)
+            http.event_hooks["response"].append(on_response)
             client = await create_client(
-                agent=card, client_config=ClientConfig(streaming=False, httpx_client=http)
+                agent=card,
+                client_config=ClientConfig(
+                    streaming=False,
+                    httpx_client=http,
+                    supported_protocol_bindings=[option.binding],
+                ),
             )
             count = 0
             request = SendMessageRequest(message=new_text_message(_PROBE_TEXT, role=Role.ROLE_USER))
@@ -341,10 +479,11 @@ def run_spike(
     agent_name: str,
     enable: bool,
     send: bool,
+    send_options: list[str] | None = None,
     timeout: float = 60.0,
     enable_fn: Callable[[str, str], None] = live_enable,
     card_fn: Callable[[str, float], tuple[int, dict[str, Any] | None]] = live_card,
-    send_fn: Callable[[str, float], int] = live_send,
+    send_fn: Callable[[str, float, SendOption, list[dict[str, Any]]], int] = live_send,
 ) -> SpikeResult:
     base = a2a_base(endpoint, agent_name)
     result = SpikeResult(agent_name=agent_name, a2a_base=base)
@@ -383,19 +522,22 @@ def run_spike(
         result.steps.append(classify_failure("card", exc, may_signal_unsupported=True))
 
     if send:
-        try:
-            count = send_fn(base, timeout)
-            result.steps.append(StepResult("send", "ok", observed={"reply_events": count}))
-        except Exception as exc:
-            result.steps.append(classify_failure("send", exc, may_signal_unsupported=False))
+        for label in send_options or [DEFAULT_OPTION]:
+            option = SEND_OPTIONS[label]
+            wire: list[dict[str, Any]] = []
+            name = f"send:{option.label}"
+            try:
+                count = send_fn(base, timeout, option, wire)
+                result.steps.append(
+                    StepResult(
+                        name, "ok", observed={**wire_summary(wire, option), "reply_events": count}
+                    )
+                )
+            except Exception as exc:
+                result.steps.append(classify_send_failure(name, exc, wire, option))
     else:
         result.steps.append(StepResult("send", "skipped", detail="pass --send to call the agent"))
 
-    logger.info(
-        "a2a spike agent=%s steps=%s",
-        agent_name,
-        {s.name: s.status for s in result.steps},
-    )
     return result
 
 
@@ -406,6 +548,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--agent", required=True)
     parser.add_argument("--enable", action="store_true", help="PATCH the agent (changes Azure)")
     parser.add_argument("--send", action="store_true", help="send one A2A message")
+    parser.add_argument(
+        "--send-option",
+        choices=[*SEND_OPTIONS, "all"],
+        default=DEFAULT_OPTION,
+        help="advertised binding/version to use; 'all' tries each once, no retries",
+    )
     parser.add_argument("--timeout", type=float, default=60.0)
     args = parser.parse_args(argv)
 
@@ -414,6 +562,7 @@ def main(argv: list[str] | None = None) -> int:
         agent_name=args.agent,
         enable=args.enable,
         send=args.send,
+        send_options=list(SEND_OPTIONS) if args.send_option == "all" else [args.send_option],
         timeout=args.timeout,
     )
     json.dump(result.as_dict(), sys.stdout, indent=2)

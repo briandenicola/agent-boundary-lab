@@ -34,7 +34,7 @@ def card_ok(base: str, timeout: float) -> tuple[int, dict[str, Any] | None]:
     return 200, OBSERVED_CARD
 
 
-def send_ok(base: str, timeout: float) -> int:
+def send_ok(base: str, timeout: float, option: Any, wire: list[Any]) -> int:
     return 1
 
 
@@ -77,7 +77,7 @@ def test_enable_does_not_run_without_the_flag() -> None:
 
 def test_send_does_not_run_without_the_flag() -> None:
     calls: list[str] = []
-    result = run(send_fn=lambda b, t: calls.append(b) or 1)
+    result = run(send_fn=lambda b, t, o, w: calls.append(b) or 1)
     assert calls == []
     assert step(result, "send").status == "skipped"
 
@@ -122,10 +122,10 @@ def test_platform_500_is_failed_not_unsupported() -> None:
 
 
 def test_send_failure_is_never_an_unsupported_signal() -> None:
-    def send(base: str, timeout: float) -> int:
+    def send(base: str, timeout: float, option: Any, wire: list[Any]) -> int:
         raise StatusError(404)
 
-    s = step(run(send=True, send_fn=send), "send")
+    s = step(run(send=True, send_fn=send), "send:jsonrpc-1.0")
     assert s.status == "failed"
 
 
@@ -326,3 +326,102 @@ class TestHttpStatusErrorClassification:
         step = a2a_spike.classify_failure("card", TimeoutError("slow"), may_signal_unsupported=True)
         assert step.origin == "our_call"
         assert "response_body" not in step.observed
+
+
+RPC_32099 = (
+    "JSON-RPC Error -32099: The requested A2A operation is not supported "
+    "for this hosted-agent target."
+)
+WIRE = [
+    {
+        "kind": "request",
+        "http_method": "POST",
+        "url_path": "/a2a",
+        "a2a_version_header": "1.0",
+        "jsonrpc_method": "SendMessage",
+    },
+    {"kind": "response", "status": 200, "response_body": "{}"},
+]
+
+
+def _send_raising(exc: Exception, wire: list[Any] | None = None) -> a2a_spike.StepResult:
+    def send(base: str, timeout: float, option: Any, w: list[Any]) -> int:
+        w.extend(wire or [])
+        raise exc
+
+    return step(run(send=True, send_fn=send), "send:jsonrpc-1.0")
+
+
+class TestJsonRpcPlatformError:
+    def test_32099_not_supported_is_platform_and_unsupported_signal(self) -> None:
+        s = _send_raising(RuntimeError(RPC_32099), WIRE)
+        assert (s.status, s.origin) == ("unsupported-signal", "platform")
+        assert s.observed["jsonrpc_code"] == -32099
+        assert "not supported" in s.observed["jsonrpc_message"]
+
+    def test_unrelated_jsonrpc_code_is_platform_but_only_failed(self) -> None:
+        s = _send_raising(RuntimeError("JSON-RPC Error -32603: Internal error"), WIRE)
+        assert (s.status, s.origin) == ("failed", "platform")
+        assert s.observed["jsonrpc_code"] == -32603
+
+    def test_code_is_read_from_the_wire_body_when_text_has_none(self) -> None:
+        body = '{"jsonrpc":"2.0","error":{"code":-32601,"message":"Method not found"}}'
+        wire = [*WIRE[:1], {"kind": "response", "status": 200, "response_body": body}]
+        s = _send_raising(RuntimeError("boom"), wire)
+        assert (s.status, s.origin, s.observed["jsonrpc_code"]) == (
+            "unsupported-signal",
+            "platform",
+            -32601,
+        )
+
+    def test_transport_failure_without_a_platform_answer_stays_our_call(self) -> None:
+        class ConnectTimeout(Exception):
+            pass
+
+        s = _send_raising(ConnectTimeout("timed out"))
+        assert (s.status, s.origin) == ("failed", "our_call")
+
+
+class TestSendRecordsWire:
+    def test_exact_binding_version_header_and_method_are_recorded(self) -> None:
+        s = _send_raising(RuntimeError(RPC_32099), WIRE)
+        o = s.observed
+        assert (o["binding"], o["protocolVersion"]) == ("JSONRPC", "1.0")
+        assert (o["a2a_version_header"], o["jsonrpc_method"]) == ("1.0", "SendMessage")
+
+    def test_success_records_the_wire_too(self) -> None:
+        def send(base: str, timeout: float, option: Any, w: list[Any]) -> int:
+            w.extend(WIRE)
+            return 1
+
+        s = step(run(send=True, send_fn=send), "send:jsonrpc-1.0")
+        assert (s.status, s.observed["jsonrpc_method"]) == ("ok", "SendMessage")
+
+
+class TestSendOptions:
+    def test_all_three_advertised_options_exist(self) -> None:
+        got = {(o.binding, o.version) for o in a2a_spike.SEND_OPTIONS.values()}
+        assert got == {("JSONRPC", "1.0"), ("JSONRPC", "0.3"), ("HTTP+JSON", "0.3")}
+
+    def test_each_option_is_tried_exactly_once_with_no_retry(self) -> None:
+        calls: list[str] = []
+
+        def send(base: str, timeout: float, option: Any, w: list[Any]) -> int:
+            calls.append(option.label)
+            raise RuntimeError(RPC_32099)
+
+        result = run(send=True, send_fn=send, send_options=list(a2a_spike.SEND_OPTIONS))
+        assert calls == ["jsonrpc-1.0", "jsonrpc-0.3", "http-0.3"]
+        assert all(s.origin == "platform" for s in result.steps if s.name.startswith("send:"))
+
+    def test_one_option_failing_does_not_hide_the_next(self) -> None:
+        def send(base: str, timeout: float, option: Any, w: list[Any]) -> int:
+            if option.label == "jsonrpc-1.0":
+                raise RuntimeError(RPC_32099)
+            return 1
+
+        result = run(send=True, send_fn=send, send_options=["jsonrpc-1.0", "jsonrpc-0.3"])
+        assert [s.status for s in result.steps if s.name.startswith("send:")] == [
+            "unsupported-signal",
+            "ok",
+        ]

@@ -1788,3 +1788,19 @@ one-off spike, and each must be recorded here with its result before any claim d
 | [Connect agents to MCP server endpoints](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/tools/model-context-protocol) | 2026-10-08 |
 | [Limits, quotas and regions](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/limits-quotas-regions) (re-accessed for Sweden Central) | 2026-10-08 |
 | [Dapr supported state stores](https://docs.dapr.io/reference/components-reference/supported-state-stores/) | 2026-10-08 |
+
+
+### B5d. A2A send: JSON-RPC error classification and per-option send (accessed 2026-10-09)
+
+**OBSERVED** (cloud:a2a-send on audit, default SDK selection = JSONRPC 1.0): the platform answered
+`JSON-RPC Error -32099: The requested A2A operation is not supported for this hosted-agent target.`
+The spike first labelled this `our_call`; that was wrong, a JSON-RPC error body is the platform answering.
+
+**PROPOSED / UNVERIFIED**: `a2a_spike.classify_send_failure` labels any JSON-RPC error `origin=platform`
+with code and message recorded; it is an `unsupported-signal` only for code -32099 or -32601 or a
+message saying "not supported/unsupported/not enabled/not implemented". `send` records the binding,
+protocolVersion, `A2A-Version` header, JSON-RPC method and URL path actually sent (httpx event hooks;
+Authorization never recorded). `--send-option {jsonrpc-1.0,jsonrpc-0.3,http-0.3,all}` trims the card to one
+interface and pins `supported_protocol_bindings`. Source: a2a-sdk 1.0.2 `client/client_factory.py`,
+`client/transports/jsonrpc.py` (`SendMessage`), `compat/v0_3/jsonrpc_transport.py` (`message/send`).
+Results of each option: see below once run (none yet).
