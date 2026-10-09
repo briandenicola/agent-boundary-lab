@@ -415,6 +415,30 @@ class TestDiagnosticsRoute:
 # --- the offline guarantee ------------------------------------------------------------
 
 
+class TestEntrypointPrivacy:
+    def test_main_forces_content_capture_off_before_the_host_is_built(
+        self, monkeypatch: pytest.MonkeyPatch, settings: Settings
+    ) -> None:
+        import os
+
+        seen: dict[str, str | None] = {}
+
+        class Host:
+            def run(self) -> None:
+                return None
+
+        def fake_build_host(_: Settings) -> Host:
+            seen["adk"] = os.environ.get("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS")
+            seen["otel"] = os.environ.get("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT")
+            return Host()
+
+        monkeypatch.setenv("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", "true")
+        monkeypatch.setattr(protocol_adapter, "Settings", lambda: settings)
+        monkeypatch.setattr(protocol_adapter, "build_host", fake_build_host)
+        protocol_adapter.main()
+        assert seen == {"adk": "false", "otel": "false"}
+
+
 def test_no_azure_sdk_is_imported_by_these_tests(
     settings: Settings, offline_sdk: dict[str, Any]
 ) -> None:

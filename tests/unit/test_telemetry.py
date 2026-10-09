@@ -54,6 +54,11 @@ class TestContentCapture:
         telemetry.disable_content_capture()
         assert os.environ["AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"] == "false"
 
+    def test_adk_legacy_span_content_switch_is_covered(self) -> None:
+        # google-adk defaults this ON; without it llm_request/llm_response/tool_response
+        # land on spans (docs/telemetry-map.md 0.10).
+        assert telemetry._CONTENT_CAPTURE_OFF["ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS"] == "false"
+
 
 class TestEmittedFields:
     def test_only_allow_listed_keys_are_emitted(

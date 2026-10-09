@@ -20,6 +20,7 @@ import logging
 from typing import Any
 
 from containment_demo.settings import Settings
+from containment_demo.telemetry import disable_content_capture
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,8 @@ def main() -> None:
     non-zero rather than serving traffic with an unusable destination configuration.
     """
     logging.basicConfig(level=logging.INFO)
+    # Before anything that reads ADK's telemetry context, and for every mode.
+    disable_content_capture()
     settings = Settings()  # type: ignore[call-arg]
     logger.info(
         "starting hosted agent",

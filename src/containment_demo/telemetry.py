@@ -38,6 +38,10 @@ TRACER_NAME = "containment_demo"
 _CONTENT_CAPTURE_OFF = {
     "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED": "false",
     "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false",
+    # google-adk telemetry/context.py:132-136 (_read_add_content_to_legacy_spans): DEFAULTS ON,
+    # and is what puts gcp.vertex.agent.llm_request / llm_response / tool_response on spans
+    # (telemetry/tracing.py:319-358). Only 'false' or '0' turns it off.
+    "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS": "false",
 }
 
 

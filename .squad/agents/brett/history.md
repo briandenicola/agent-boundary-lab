@@ -254,3 +254,6 @@ Decision: `.squad/decisions/inbox/brett-adapter-await.md`. 244 unit tests pass, 
 
 ## Learnings: route paths
 - Test fixtures must use the deployed config shape; full-path fixtures hid a base-URL-vs-route mismatch.
+
+## Learnings (capture-off)
+- ADK `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` defaults ON (google/adk/telemetry/context.py:132-136); drives gcp.vertex.agent.* content attrs (tracing.py:319-358). Now forced off in protocol_adapter.main().
