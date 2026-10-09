@@ -499,6 +499,32 @@ Source: Dallas's `scripts/verify_demo.py` live runs, sections B (audit) and C (e
 
 **Proposed:** none added; this section records observation only.
 
+## 0.14 Local-model harness path — audit and enforced, `verify_demo.py` B/C PASS, observed 2026-10-09 (calls ~20:18:00Z, verified 20:28Z–20:40Z)
+
+Path: new harness, local Qwen2.5-3B model -> A2A facades -> Foundry hosted agents (audit and enforced). Verifier: Dallas, read-only Log Analytics (workspace `def03e45-a400-4fed-957f-25d133ab1993`), endpoints resolved from Terraform output.
+
+**Tested (observed):**
+
+| Mode | Run id (as printed in the harness evidence JSON, not inferred) | Decision row (`time`, `result`/`reason`/`enforcement`, path) | Receipt | Section |
+| --- | --- | --- | --- | --- |
+| audit | `run-533642af-d2db-4147-95bc-e9147145eedd` | 20:17:59.33Z `Allow`/`MatchedAllowRule`/`Audit`, `/policy/<run>` | 1 | B PASS (b1) |
+| audit | same | 20:18:00.24Z `AuditWouldDeny`/`AuditWouldDefaultDeny`/`Audit`, `/ingest/<run>` | 1 (202 Accepted) | B PASS (b2) |
+| enforced | `run-7b3574d2-d11c-4a7b-b4c8-122516a549c9` | 20:17:59.23Z `Allow`/`MatchedAllowRule`/`Enforced`, `/policy/<run>` | 1 (positive control, same query) | C PASS (c1) |
+| enforced | same | 20:18:00.40Z `Deny`/`DefaultDeny`/`Enforced`, `/ingest/<run>` | **0**, read 627 s after the call | C PASS (c2) |
+
+An independent read-only query (`AppDependencies`, `DependencyType == "NetworkEgressDecision"`, `Data has` the run id, plus `ContainerAppConsoleLogs_CL`) returned the same four decision rows and the receipts for both audit calls and the enforced policy call; no `/ingest/run-7b3574d2...` receipt line existed.
+
+**Caveats:**
+
+- n = 1 audit and 1 enforced run on this path.
+- First B attempt returned INCONCLUSIVE (`no platform decision row`) because I passed `--audit-called-at` as 20:19:30Z; the real calls were at ~20:18:00Z and the script's query window starts at `called-at`. Re-running with 20:17:59Z gave PASS. A wrong `--called-at` produces INCONCLUSIVE, never a false pass.
+- Model prose misreported the enforced 403 as a failure of the policy call. The structured `tool_results` were correct (policy 200, external 403 `http_error`). Prose is not evidence.
+- Agent-reported 202/403 are not platform evidence; only the decision rows and receipt presence/absence count.
+- The no-receipt read shows absence at 627 s only. `OperationId` still does not join egress rows to app telemetry.
+- Local model and facade hops are the on-prem stand-in and are not policy-governed.
+
+**Proposed:** none; observation only.
+
 ---
 
 ## 1. Layer 1 — application / tool traces (emitted by our own code)
