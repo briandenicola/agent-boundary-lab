@@ -182,6 +182,22 @@ rows (`AppDependencies`) and receipts (`ContainerAppConsoleLogs_CL`) sit in one 
 
 **Governance options (PROPOSED, none tested):** restrict who can create agent versions (RBAC); deploy only through a pipeline that always attaches a policy and reads it back; look for an Azure Policy or audit that flags agent versions with no `rai_config` (not verified that it can see this field).
 
+### PROPOSED: managed network `AllowOnlyApprovedOutbound` (not applied)
+
+**Today:** `managednetworks/default` is `AllowInternetOutbound`. No Terraform sets it; the platform created it (`compatibility.md` B9g). Do not describe the lab as default-deny at the network layer.
+
+**From Learn, managed-virtual-network (updated 2026-08-18, read 2026-10-09):**
+- The change is one-way: approved-only cannot go back to internet-outbound. Reverting means redeploying the account.
+- Any FQDN rule creates a managed Azure Firewall (Standard default, Basic selectable; SKU cannot change later; ports 80/443 only). Billable.
+- The platform adds required rules itself (private endpoints to Cosmos, Storage, Search; AAD service tag).
+- Listed as needed for Agents: `*.identity.azure.net`, `login.microsoftonline.com`, `*.login.microsoftonline.com`, `*.login.microsoft.com`, `mcr.microsoft.com` (or the AAD tag). For App Insights export: `*.in.applicationinsights.azure.com` and others.
+- "No logging of outbound traffic support yet" for the managed network. A network-layer block would **not** show in our evidence queries. The evidence stays the egress-policy decision rows.
+- Region list omits canadacentral (ours is Active; list may be stale). Unverified.
+
+**Design rule:** allow `policy-api` and `test-receiver` at the network layer for both agents, so the egress policy stays the only variable. Show the network default-deny separately, with a third host that is not allowed.
+
+**Unknowns to test, not assume:** whether the existing `foundry-account-pe` rule is enough for the model call; whether ACR image pulls for hosted agents need a rule; whether App Insights export needs a rule; whether the egress policy still logs decisions in this mode.
+
 ### Planned test: agent version with no policy
 
 Deploy a third agent version from the same image digest with **no** `rai_config`, call it through the lab path, and read the decision rows for its `run-...` id.
