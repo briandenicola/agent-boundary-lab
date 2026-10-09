@@ -1,0 +1,17 @@
+# ClusterIP only: no ingress, no LoadBalancer. Reach it with `kubectl port-forward`.
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-ui
+  namespace: REPLACE_WITH_NAMESPACE
+  labels:
+    app.kubernetes.io/part-of: agent-boundary-lab
+    app.kubernetes.io/name: demo-ui
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: demo-ui
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

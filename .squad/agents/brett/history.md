@@ -239,3 +239,8 @@ cancellation tests; registering diagnostics unconditionally failed
 
 Decision: `.squad/decisions/inbox/brett-adapter-await.md`. 244 unit tests pass, lint green.
 **Both agent versions need a rebuild and redeploy — the digest changes.**
+
+## Learnings: demo UI (issue #1)
+- Built `demo_ui.py` + `tests/unit/test_demo_ui.py` (19 tests). Tamper-tested six guards: auth (test_run_requires_auth), slot allowlist (test_unknown_slot_rejected), no-pass determination, our-call label, CSRF header, no-secret logging; each broke exactly its test.
+- The UI needs the SDK (lazy import in invoke) so it cannot run in the agent image; added `demo-ui` extra.
+- `lint:manifests` only builds deploy/kustomize/base; the demo-ui dir is dry-run-validated by hand only.

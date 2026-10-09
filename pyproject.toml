@@ -34,6 +34,12 @@ dependencies = [
 deploy = [
     "azure-ai-projects>=2.8.0,<3",
 ]
+# The demo UI image only. Kept out of the agent image: its digest is the control.
+demo-ui = [
+    "azure-ai-projects>=2.8.0,<3",
+    "starlette>=0.40",
+    "uvicorn[standard]>=0.32",
+]
 services = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",

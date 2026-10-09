@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-ui
+  namespace: REPLACE_WITH_NAMESPACE
+  labels:
+    app.kubernetes.io/part-of: agent-boundary-lab
+    app.kubernetes.io/name: demo-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: demo-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: demo-ui
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: demo-ui
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: demo-ui
+          # Needs starlette, uvicorn and azure-ai-projects: NOT the agent image, whose
+          # digest is the experiment's control. Built from the `demo-ui` extra.
+          image: REPLACE_WITH_DEMO_UI_IMAGE
+          command: ["python", "-m", "containment_demo.demo_ui"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: DEMO_RUN_LABEL
+              value: hosted
+            - name: DEMO_FOUNDRY_ACCOUNT_NAME
+              value: REPLACE_WITH_FOUNDRY_ACCOUNT_NAME
+            - name: DEMO_FOUNDRY_PROJECT_NAME
+              value: REPLACE_WITH_FOUNDRY_PROJECT_NAME
+            - name: DEMO_AGENT_NAME_AUDIT
+              value: REPLACE_WITH_AGENT_NAME_AUDIT
+            - name: DEMO_AGENT_NAME_ENFORCED
+              value: REPLACE_WITH_AGENT_NAME_ENFORCED
+          envFrom:
+            - secretRef:
+                name: demo-ui-config
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 256Mi}
