@@ -43,8 +43,9 @@ policy.
 
 ## GATE 0 — The correlation gate. Runs FIRST on the first real agent run.
 
-**Status: blocked — needs one successful hosted agent run. Nothing downstream is
-trustworthy until this is answered.**
+**Status (2026-10-09): ANSWERED — Q6 `joined == false` (0 of 129+ egress rows share an app `OperationId`); a different join is OBSERVED: the run id embedded in the URL path appears verbatim in the egress decision row's `Data` and `Properties.path` (`/policy/{run_id}`, `/ingest/{run_id}`). Evidence: `docs/telemetry-map.md` §0.12. Caveat: observed on one audit and one enforced run (agents v9/v7); enforced app telemetry does not reach App Insights. The UI's `ui-…` id is not linked to the `run-…` id by any row.**
+
+~~**Status: blocked — needs one successful hosted agent run.**~~ Superseded. Everything below is retained as the original gate definition.
 
 This is the top risk to the entire demo and it outranks every remaining build task.
 

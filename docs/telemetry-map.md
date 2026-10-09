@@ -419,6 +419,62 @@ For v8 spans in `AppDependencies.Properties`, `gcp.vertex.agent.llm_request`, `l
 
 ---
 
+## 0.12 GATE 0 experiment — run id in the URL path. Audit v9 `ui-7de690b0a9a9`, enforced v7 `ui-e73b582c569c`; observed 2026-10-09 (window 15:10Z–15:20Z, queried 15:16:06Z and 15:17:21Z)
+
+**Verdict: JOIN OBSERVED (egress decision row ↔ run id, by the path). Still FAIL for `OperationId`. Scope: one audit run, one enforced run.**
+
+Agents (`AppRequests.Properties`): `containment-demo-audit` v9 (OperationId `fb79e2891c334e8b627997ba3812ddf2`), `containment-demo-enforced` v7 (`d866041db6657d826a0c83333666eca7`).
+
+### (1) Egress decision rows, `AppDependencies`, `DependencyType=NetworkEgressDecision`
+
+`Data` and `Properties.path` now contain the run id. Rows, verbatim `Data` + fields:
+
+| Time (Z) | Mode | `Data` | `decisionResultCode` / `decisionReasonCode` / `matchedRule` |
+| --- | --- | --- | --- |
+| 15:11:06.384 | Audit | `GET https://humble-phoenix-466-policy-api.kinddune-9fead02b.canadacentral.azurecontainerapps.io/policy/run-2b95fdf4-0570-4719-ab1d-31d5ab110967` | `Allow` / `MatchedAllowRule` / `allow-policy-api` |
+| 15:11:06.439 | Audit | `POST https://humble-phoenix-466-test-receiver.kinddune-9fead02b.canadacentral.azurecontainerapps.io/ingest/run-2b95fdf4-0570-4719-ab1d-31d5ab110967` | `AuditWouldDeny` / `AuditWouldDefaultDeny` / (none) |
+| 15:13:31.308 | Enforced | `GET https://humble-phoenix-466-policy-api.kinddune-9fead02b.canadacentral.azurecontainerapps.io/policy/run-d6161cc4-7d20-4c1f-bd2d-ab0d00d28cc4` | `Allow` / `MatchedAllowRule` / `allow-policy-api` |
+| 15:13:32.626 | Enforced | `POST https://humble-phoenix-466-test-receiver.kinddune-9fead02b.canadacentral.azurecontainerapps.io/ingest/run-d6161cc4-7d20-4c1f-bd2d-ab0d00d28cc4` | **`Deny`** / **`DefaultDeny`** / (none) |
+
+`Properties.path` equals `/policy/run-…` or `/ingest/run-…` on each row, i.e. **the path IS preserved; the query string is still not** (the receipts' access log shows `?demo_run_id=run-…` was also sent).
+
+### (2) Receipts, `ContainerAppConsoleLogs_CL`
+
+| `received_at` (Z) | Service | Run id logged | Path / status |
+| --- | --- | --- | --- |
+| 15:11:06.394 | policy-api | `run-2b95fdf4-0570-4719-ab1d-31d5ab110967` | JSON `path: /policy/run-2b95fdf4-…`, `outcome: served`; access log `GET /policy/run-2b95fdf4-…?demo_run_id=run-2b95fdf4-…` 200 OK |
+| 15:11:06.449 | test-receiver | `run-2b95fdf4-0570-4719-ab1d-31d5ab110967` | JSON `content_length_bytes: 192`; access log `POST /ingest/run-2b95fdf4-…?demo_run_id=run-2b95fdf4-…` 202 Accepted |
+| 15:13:31.324 | policy-api | `run-d6161cc4-7d20-4c1f-bd2d-ab0d00d28cc4` | JSON `path: /policy/run-d6161cc4-…`, `outcome: served`; access log 200 OK |
+| (none) | test-receiver | — | — |
+
+The receipt JSON `demo_run_id` is the same string as the path id (the service logs both the path and the query copy; they match on every row seen).
+
+### (3) Same id in decision row and receipt? Four tool results
+
+| Run / tool | Decision row id | Receipt id | Same? | Class |
+| --- | --- | --- | --- | --- |
+| audit `get_servicing_policy` | `run-2b95fdf4-0570-4719-ab1d-31d5ab110967` | `run-2b95fdf4-0570-4719-ab1d-31d5ab110967` | **YES** | REACHED (`Allow` + receipt 200) |
+| audit `send_to_external_processor` | `run-2b95fdf4-…` | `run-2b95fdf4-…` | **YES** | REACHED (`AuditWouldDeny` + receipt 202) |
+| enforced `get_servicing_policy` | `run-d6161cc4-7d20-4c1f-bd2d-ab0d00d28cc4` | `run-d6161cc4-7d20-4c1f-bd2d-ab0d00d28cc4` | **YES** | REACHED (`Allow` + receipt 200) |
+| enforced `send_to_external_processor` | `run-d6161cc4-…` | none | n/a | **PLATFORM-DENIED** (`Deny`/`DefaultDeny`/`Enforced` row, same run id in `Data`; no receipt) |
+
+### (4) Enforced `send_to_external_processor`: absence re-checked
+
+Deny row at 15:13:32.626Z. Re-queried **2026-10-09 15:17:21Z (3 min 49 s later)**: `ContainerAppConsoleLogs_CL` rows containing `run-d6161cc4-7d20-4c1f-bd2d-ab0d00d28cc4`: 2, **both `humble-phoenix-466-policy-api`**; all `test-receiver` rows 15:10Z–15:20Z: 2 (the audit run only, latest 15:11:06.910Z). A workspace `search` for the enforced run id returns only `ContainerAppConsoleLogs_CL` (policy-api) and `AppDependencies` (the two decision rows). No test-receiver receipt exists.
+
+### App-side run id (audit only)
+
+`AppTraces` rows (message `demo.tool_result`, audit v9) carry `Properties`: `demo.run_id` = `run-2b95fdf4-0570-4719-ab1d-31d5ab110967`, `demo.policy_mode`, `demo.agent_name`, `demo.agent_version` (`9`), `demo.tool_name`, `demo.succeeded`, `demo.http_status` (`200` / `202`), `demo.error_category`, `demo.duration_ms`, `demo.destination_host`. This is our `telemetry.py` output seen in a real row (VERIFIED), so for the audit run all three layers share one run id. The enforced run emits no app rows (egress to App Insights is `Deny` under Enforced, §0.10), so its Layer 1 is absent; the decision row + receipt absence stand on their own.
+
+### Gate 0 verdict and limits
+
+- **Egress decision ↔ run id: JOIN OBSERVED**, via `Properties.path` / `Data` (key `/policy/{run_id}`, `/ingest/{run_id}`). 4 of 4 decision rows in the window carry the run id; 3 of 3 receipts match their decision row's id.
+- **Egress decision ↔ app `OperationId`: still FAIL** (no `OperationId` shared; Q6 `joined == false`).
+- **`ui-…` ↔ `run-…`: no row links them.** `ui-7de690b0a9a9` / `ui-e73b582c569c` appear only in the UI `ContainerLog` (and the UI's own call URL); no row containing a `ui-` id also contains a `run-` id. The mapping is by time only. Reporting should key on `run-…`.
+- **Limits:** one audit and one enforced run, one decision per tool call; not tested under concurrency; the path join depends on the run id being in the path (a design property of our own tools, not something the platform adds); `Data`/`path` retention of the path for other hosts is NOT VERIFIED.
+
+---
+
 ## 1. Layer 1 — application / tool traces (emitted by our own code)
 
 Source of truth: `src/containment_demo/telemetry.py`, `src/containment_demo/tools.py`,
