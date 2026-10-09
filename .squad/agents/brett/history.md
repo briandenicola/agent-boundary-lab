@@ -277,3 +277,7 @@ Decision: `.squad/decisions/inbox/brett-adapter-await.md`. 244 unit tests pass, 
 - Real defect: a2a/utils/proto_utils.py:217 uses `field.label`, removed in protobuf 7 => -32603 on every request. Cap protobuf<7. The harness deploy-venv has 7.36.2.
 - a2a's DEBUG logs dump request bodies; never run it at DEBUG. Facade keeps INFO.
 - `AgentsOperations.update_details(body=...)` accepts a raw merge-patch mapping (null removes), enabling `--disable`.
+
+## Learnings: UI via A2A (2026-10-09)
+- Run ids appear only when the prompt asks for verbatim tool records (invoke.DEFAULT_PROMPT); parsing is invoke.extract_json_objects -> tool_records -> build_outcomes.
+- UI = A2A client of facades via ui_a2a.invoke_via_a2a; Dockerfile.demo-ui has a2a-sdk 1.0.2 + protobuf<7, no azure.
