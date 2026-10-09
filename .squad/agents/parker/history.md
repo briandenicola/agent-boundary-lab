@@ -417,3 +417,4 @@ What actually happened:
 - Applied B9g (authorised): managed-network outbound rule + Approver at ACCOUNT scope. Rule Active,
   new PE connection auto-approved; Contributor-at-RG not needed. Model-call success still unobserved.
 - Demo UI identity applied (B9h): Foundry Agent Consumer = single dataAction interact/action, project scope; output demo_ui_identity_client_id.
+- A2A spike prereqs (B5b): deployer identity = Cognitive Services User @account, dataActions Microsoft.CognitiveServices/* covers update + interact; no change made.

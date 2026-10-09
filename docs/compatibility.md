@@ -1102,6 +1102,25 @@ Nothing applied at the time of the proposal.
 - NOT observed: an invocation actually succeeding with this identity. Whether `interact/action`
   alone covers every UI call (e.g. a version read-back) is unverified. Agents and RAI policies untouched.
 
+### B5b. Harness (deployer) identity vs the A2A spike — OBSERVED 2026-10-09, read-only, NO change made
+
+Identity `humble-phoenix-46689-agent-deployer-identity` holds exactly one role:
+**Cognitive Services User at ACCOUNT scope** (`azurerm_role_assignment.agent_deployer_foundry`).
+`az role definition list` shows that role (`a97b65f3-…`) has dataActions
+`Microsoft.CognitiveServices/*` with notDataActions limited to
+`…/AIServices/agents/endpoints/UserIdentityImpersonation/action`, `…/OpenAI/fine-tunes-deployments/write`
+and `…/AIServices/fine_tuning_deployments/write`.
+- **Agent update (`update_details` merge-patch):** the wildcard covers any other
+  `Microsoft.CognitiveServices` data action, and the same identity already creates agent versions
+  (also a data-plane write). By the role definition it is permitted; none of the three exclusions
+  apply. Not yet proven for this specific call: only running `--enable` shows it.
+- **Agent card and a2a call:** Foundry Agent Consumer's single dataAction,
+  `…/AIServices/endpoints/interact/action` (`eed3b665-…`), is inside `Microsoft.CognitiveServices/*`, so
+  the harness identity already covers it without a separate Agent Consumer grant.
+- Therefore no role was added and nothing was planned or applied. A 403 from `--enable` would name
+  the missing action; that is the evidence to act on. Least-privilege note: Foundry Agent Consumer
+  alone would NOT allow the PATCH, and a Foundry Project Manager grant would be broader than needed.
+
 ### C1. Where egress decisions surface
 
 Application Insights **`traces`** table, filtered on a literal message string:
