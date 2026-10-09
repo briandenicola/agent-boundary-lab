@@ -1424,6 +1424,11 @@ The image digest comes from `.task/local-model-digest`, same convention as the f
   Hugging Face's `X-Linked-ETag`. The URL pins the commit, not `main`.
 - Not verified: that `server-b11515` is a release anyone else has run with this model; the pin is a point-in-time build from the day of access.
 
+**Built in ACR 2026-10-09 (approved by Brian):** `task local-model:build` (ACR run `cxv`, 2m59s) produced
+`containment-demo-local-model@sha256:cb646e1ce39d04792d45016b6e48703a09c69c001f513693803374662b83fa8b` (index/manifest size 1583 B). The GGUF `sha256sum -c`
+step inside the build passed. Build context was the same repo-minus-`.dockerignore` tree as the harness build (731 KiB compressed upload). Digest recorded in
+`.task/local-model-digest` (gitignored). Not yet run: see the deploy note below once it exists.
+
 **OPEN RISK: speed.** On Brian's 8-CPU laptop (B11) Qwen2.5-3B ran at 0.6 tok/s (median 68.7 s/prompt) and the cause was never
 diagnosed. B10 notes 2 vCPU on a D4s_v3 will be no faster. Do not assume AKS fixes it. To measure on AKS (nothing measured yet):
 - Threads vs allocatable CPU: `LLAMA_THREADS` at 1, 2, 3 against the pod's CPU request and node allocatable (3860m); oversubscribed
@@ -1444,6 +1449,18 @@ Covers the code side of issues #2 and #3; both stay open. Nothing here was built
 - **Chat path:** a separate small service rather than an extension of `demo_ui`, because the demo UI's tests pin its two-button, no-model shape and the harness needs its own model settings and a slow-turn path. It reuses the demo UI's auth check. One stateless turn per POST; the page shows a live elapsed-time status, the model reply, per-tool results and run ids.
 - **Honest labelling:** the page states that the harness and the model are NOT governed by the Foundry egress policy and that a model reply or tool result is not containment evidence; the determination is always INCONCLUSIVE until `verify_demo` evidence is joined.
 - **Still unknown:** whether Qwen2.5-3B reliably calls both tools in one turn (B11 measured tool calling in isolation); end-to-end latency on AKS; the model-server manifests (Parker's, B12) and a harness Deployment/Service are not written here.
+
+### B14. Harness chat service: image and manifests (built in ACR 2026-10-09)
+
+Artifacts: `Dockerfile.harness` (google-adk, litellm, a2a-sdk 1.0.2, protobuf <7, no Azure SDK, `--no-deps` package install; imports and `build_agent` checked in a fresh venv),
+`deploy/kustomize/harness/` (Deployment + ClusterIP Service; `LOCAL_MODEL_BASE_URL` = `http://local-model.<ns>.svc.cluster.local/v1`; façade URLs by DNS; `DEMO_A2A_TOKEN` from the
+existing `a2a-facade-config` Secret; `HARNESS_UI_TOKEN` from Secret `harness-config` created by `task harness:secret`, never in a manifest), `tasks/Taskfile.harness.yml`
+(`harness:build|digest|secret|token|render|plan|up|open|verify`). It does not reuse the `demo-ui` ServiceAccount: the harness needs no Azure identity, so it uses the default
+account with no token mounted. `tests/unit/test_harness_manifests.py` guards DNS-only destinations, secret-sourced tokens, no Azure identity, image deps and the `.dockerignore`
+trailing-slash rule; `lint:manifests` also fails on an unsubstituted placeholder. Tamper-tested: injecting an IP and a serviceAccountName failed 2 tests; a `foo/` ignore rule failed
+1; an unsubstituted `REPLACE_WITH_TAMPER` failed `lint:manifests`.
+`task harness:build` (ACR run `cxw`, 53s): `containment-demo-harness@sha256:21260bc40c2cfbf0e467d0c444b0b3d38a26de4103e951d83fe511ebe69d2495`; context 731.236 KiB sent
+(1.301 MB as seen by the build daemon). Digest in `.task/harness-digest`.
 
 ---
 
