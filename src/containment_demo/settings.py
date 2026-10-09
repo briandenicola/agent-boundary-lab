@@ -120,7 +120,15 @@ class Settings(BaseSettings):
         default=None,
         description="Foundry/Azure OpenAI endpoint. Required when running against a model.",
     )
-    azure_openai_api_version: str = Field(default="2024-10-21")
+    azure_openai_api_version: str = Field(
+        default="v1",
+        description=(
+            "litellm api_version for the Azure model. For gpt-5.4+ with function tools litellm "
+            "routes to /openai/responses (litellm main.py responses_api_bridge_check), and a "
+            "dated 2024-10-21 predates the Responses API and 404s (docs/compatibility.md E2a). "
+            "'v1' makes litellm use /openai/v1/responses. UNVERIFIED until a live call succeeds."
+        ),
+    )
 
     # --- Diagnostics -------------------------------------------------------------------
 

@@ -125,3 +125,9 @@ class TestCaBundle:
         assert ca_bundle_path() == "/run/first.pem"
         monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/run/rotated.pem")
         assert ca_bundle_path() == "/run/rotated.pem"
+
+
+def test_azure_openai_api_version_default_is_v1_not_a_dated_version() -> None:
+    """2024-10-21 predates the Responses API; litellm routes gpt-5.4+ tool calls to
+    /openai/responses and the dated version 404'd live (2026-10-09)."""
+    assert Settings.model_fields["azure_openai_api_version"].default == "v1"

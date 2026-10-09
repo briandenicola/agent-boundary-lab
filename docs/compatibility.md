@@ -162,7 +162,7 @@ of the deployment shape.
 
 **NOT VERIFIED — three things, all on the model path rather than the containment path:**
 
-1. Whether `DEMO_AZURE_OPENAI_API_VERSION`, currently `2024-10-21`, serves the gpt-5
+1. Whether `DEMO_AZURE_OPENAI_API_VERSION` (was `2024-10-21`; see E2a), serves the gpt-5
    family. It was chosen for a GPT-4 model and has not been re-checked. Left unchanged
    rather than raised to a guessed value; confirm against the Azure OpenAI reference and
    record the result here before blaming a failure on anything else.
@@ -1215,6 +1215,44 @@ hosted agent session. No API key is used anywhere.
 - https://google.github.io/adk-docs/agents/models/litellm/
 - https://docs.litellm.ai/docs/providers/azure
 - `litellm/llms/azure/common_utils.py` (installed 1.104.0, read locally)
+
+### E2a. Model call 404: dated api-version on the Responses route
+
+**Access date 2026-10-09.**
+
+**OBSERVED** (Lambert, AppExceptions, run `invoke-2b418248a499`): the agent dies at its first model
+call with `litellm.NotFoundError {"error":{"code":"404","message":"Resource not found"}}` from
+`POST https://humble-phoenix-46689-foundry.cognitiveservices.azure.com/openai/responses?api-version=2024-10-21`.
+Deployment `gpt-5.4-mini` (version 2026-03-17) exists and is Succeeded, so the deployment is not the
+missing resource.
+
+**Read from installed litellm 1.104.0** (`.venv/.../litellm/`):
+
+* `main.py:1060` `responses_api_bridge_check` sets `mode="responses"` for an `azure/` GPT-5.4+ model
+  when function tools are present and reasoning is not `"none"` (`chat_rejects_function_tools`, ~`:1140-1170`;
+  `OpenAIGPT5Config.is_model_gpt_5_4_plus_model`). Our agent always has two function tools, so every call
+  is bridged to `/openai/responses`. The model-cost map also lists `/v1/responses` for it.
+* `llms/azure/common_utils.py:781-831` `_get_base_azure_url`: a supplied `api_version` is used verbatim
+  (`:806`); only `"preview"`, `"latest"`, `"v1"` (`_is_azure_v1_api_version`, `:859`) rewrite the path to
+  `/openai/v1/...`. Reproduced offline: `2024-10-21` -> `.../openai/responses?api-version=2024-10-21`
+  (byte-identical to the failing URL); `v1` -> `.../openai/v1/responses?api-version=v1`; litellm's own
+  Responses default is `"preview"` (`constants.py:9`).
+
+**Primary docs** (Microsoft Learn, accessed 2026-10-09):
+`https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle` — changelog lists the
+Responses API as introduced in `2025-03-01-preview`, so `2024-10-21` predates it; the v1 API
+(`/openai/v1/`) needs no dated `api-version`, and the page states v1 is required for latest features.
+`https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses` — lists `gpt-5.4-mini`
+(2026-03-17) as Responses-supported and shows `base_url=.../openai/v1/`.
+
+**Conclusion, hypothesis-grade:** the hypothesis fits all evidence (URL reproduced, route and API
+history), but the service's 404 does not name the cause and no live call has confirmed it.
+
+**PROPOSED, UNVERIFIED until a live model call succeeds:** `DEMO_AZURE_OPENAI_API_VERSION` default
+`2024-10-21` -> `v1` (settings only, no model-string change). Caveats: litellm still appends
+`?api-version=v1` to the v1 path (no primary source says the service tolerates it; the Foundry agent
+endpoint accepted `api-version=v1`, B9b); and the `azure_ad_token_provider` path on the Responses
+route is not exercised by any test. Fallback if it 404s again: `preview`, litellm's own default.
 
 ### E3. Avoiding duplicate tracer providers
 
