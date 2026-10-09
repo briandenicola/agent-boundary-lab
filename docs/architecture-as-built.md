@@ -164,6 +164,34 @@ rows (`AppDependencies`) and receipts (`ContainerAppConsoleLogs_CL`) sit in one 
 - The queries are **untested as written** until it is applied and one panel is run. Report any error before relying on it.
 - Seeing a panel is not proof of containment: the evidence is the decision rows plus receipts, with the 180 s rule for absence.
 
+## Who decides which policy applies (the "no policy" objection)
+
+**Observed in this lab:** the policy is a field on the *agent version* (`definition.rai_config.rai_policy_name`, full ARM id; `compatibility.md` B4). The agent code never names a policy: both agents run one image digest and only that field differs. The platform makes the egress decision; the agent cannot see, disable or argue with it.
+
+**The gap:** whoever creates the agent version chooses whether to attach a policy. Containment is enforced for an attached policy; it is **not** forced onto every agent.
+
+| Question | Answer | Status |
+| --- | --- | --- |
+| Can an agent version be created with no `rai_config`? | Yes. Learn (add-hosted-agent-guardrails, updated 2026-09-24, read 2026-10-09): "When you omit `rai_config`, the agent runs without a content safety guardrail." | Documented, content safety only |
+| Does a policy-less agent have open egress? | The page does not say. Egress rules live in the attached policy. | **UNKNOWN. Test planned (below)** |
+| Does a policy id that does not exist fail open? | Documented for content safety ("created successfully and reports `active`, but no content filtering is applied"). Not stated for egress. | Documented (content); egress UNKNOWN |
+| Is there an account-wide default egress policy? | Not found in the docs. "Default action Deny" is a setting *inside one policy*, which our `egress-enforced` policy already uses. The only system policy found, `Microsoft.DefaultV2`, carries no `egressPolicy`. | Not found; treat as absent until tested |
+| Could the managed network be the account-level default-deny? | The managed network has `isolationMode: AllowInternetOutbound` today (B10). `AllowOnlyApprovedOutbound` would be the deny-by-default candidate, but how it layers with the egress policy is an open documentation gap (`compatibility.md` D). | **PROPOSED, UNVERIFIED** |
+
+**What to say if challenged:** "The platform enforces the policy that is attached. It is the deployer, not the agent code, who attaches it. A governance control is still needed so every agent version gets one."
+
+**Governance options (PROPOSED, none tested):** restrict who can create agent versions (RBAC); deploy only through a pipeline that always attaches a policy and reads it back; look for an Azure Policy or audit that flags agent versions with no `rai_config` (not verified that it can see this field).
+
+### Planned test: agent version with no policy
+
+Deploy a third agent version from the same image digest with **no** `rai_config`, call it through the lab path, and read the decision rows for its `run-...` id.
+
+- Rows `Allow` with no policy named, test-receiver receipt present: a policy-less agent has open egress (a finding, not a failure).
+- Rows `Deny`: some account/network default applies; record which layer, do not assume.
+- No decision rows at all: **INCONCLUSIVE**, never a pass.
+
+Needs owner approval (creates a billable agent version in Azure). Result goes in `telemetry-map.md`.
+
 ## Verified, proposed, blocked
 
 | Item | Status |
