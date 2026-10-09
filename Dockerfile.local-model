@@ -1,10 +1,12 @@
 # CPU-only llama.cpp OpenAI-compatible server with the GGUF baked in (compatibility.md B12).
-# PROPOSED, not built or tested. Separate from the agent and facade images.
+# Separate from the agent and facade images. The flags used here were checked against the
+# llama.cpp server README on 2026-10-09 (B12).
 #
-# Required build args (the build fails closed if any is empty; nothing here is a verified value):
-#   LLAMA_CPP_IMAGE   llama.cpp server image reference, pinned by digest, e.g. <repo>:server@sha256:<fill>
-#   MODEL_URL         direct URL to the Qwen2.5-3B-Instruct Q4 GGUF (2105 MB)
-#   MODEL_SHA256      sha256 of that file, taken from the publisher's page, not computed from a download
+# Required build args (the build fails closed if any is empty; tasks/Taskfile.local-model.yml
+# supplies the verified pins):
+#   LLAMA_CPP_IMAGE   llama.cpp server image reference, pinned by digest
+#   MODEL_URL         direct URL to the Qwen2.5-3B-Instruct Q4_K_M GGUF at a fixed repo commit
+#   MODEL_SHA256      sha256 of that file (computed from the downloaded bytes, B12)
 ARG LLAMA_CPP_IMAGE=""
 
 FROM debian:bookworm-slim AS fetch

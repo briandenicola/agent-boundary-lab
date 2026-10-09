@@ -7,23 +7,29 @@ includes:
     taskfile: ./Taskfile.arm.yml
     internal: true
 
-# PROPOSED (compatibility.md B12): CPU-only llama.cpp server, ClusterIP only. Not built or
-# applied by anyone yet. Image digest is resolved into .task/local-model-digest, never typed.
+# CPU-only llama.cpp server, ClusterIP only (compatibility.md B12). Image digest is resolved
+# into .task/local-model-digest, never typed. The build pins below were verified on
+# 2026-10-09 (B12): the image index digest was read from ghcr.io and the GGUF sha256 was
+# computed from the downloaded bytes (and equals Hugging Face's X-Linked-ETag).
 
 env:
   CLOUD_DIR: infra/cloud
   LOCAL_MODEL_REPOSITORY: containment-demo-local-model
+  LLAMA_CPP_IMAGE_PIN: ghcr.io/ggml-org/llama.cpp:server-b11515@sha256:f8f71e3be397e868cdddfb9c404e3a263d9697f82fd7205f4737ac981feea4b8
+  MODEL_URL_PIN: https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/7dabda4d13d513e3e842b20f0d435c732f172cbe/qwen2.5-3b-instruct-q4_k_m.gguf
+  MODEL_SHA256_PIN: 626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d
 
 tasks:
   build:
-    desc: BUILDS IN AZURE. Build and push the local model image to ACR (needs LLAMA_CPP_IMAGE, MODEL_URL, MODEL_SHA256), print its digest
+    desc: BUILDS IN AZURE. Build and push the local model image to ACR (pins above; override LLAMA_CPP_IMAGE, MODEL_URL, MODEL_SHA256 together), print its digest
     prompt: This builds a ~2.5 GB image in ACR (billable). Continue?
     cmds:
       - |
         set -eu
-        : "${LLAMA_CPP_IMAGE:?set LLAMA_CPP_IMAGE (digest-pinned llama.cpp server image)}"
-        : "${MODEL_URL:?set MODEL_URL}"
-        : "${MODEL_SHA256:?set MODEL_SHA256}"
+        LLAMA_CPP_IMAGE="${LLAMA_CPP_IMAGE:-$LLAMA_CPP_IMAGE_PIN}"
+        MODEL_URL="${MODEL_URL:-$MODEL_URL_PIN}"
+        MODEL_SHA256="${MODEL_SHA256:-$MODEL_SHA256_PIN}"
+        case "$LLAMA_CPP_IMAGE" in *@sha256:*) ;; *) echo "LLAMA_CPP_IMAGE must be digest-pinned" >&2; exit 1 ;; esac
         ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)
         az acr build \
           --registry "$ACR" \

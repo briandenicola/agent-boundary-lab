@@ -1402,13 +1402,27 @@ Threshold applied: >=90% on both-tool prompts AND 0 invented tools AND 0 bad arg
 - NOT measured: the `chatml-function-calling` handler mode (skipped for time), a Foundry/ADK/LiteLLM round trip, accuracy at other quantisations,
   multi-turn conversations beyond the scripted loop, and the AKS node (this is laptop data, not B10's D4s_v3).
 
-### B12. PROPOSED: CPU-only llama.cpp server for Qwen2.5-3B Q4 on AKS (files only, not built, not applied, not tested, 2026-10-09)
+### B12. CPU-only llama.cpp server for Qwen2.5-3B Q4 on AKS (flags and pins verified 2026-10-09; build and deploy results below)
 
 Artifacts: `Dockerfile.local-model` (GGUF baked in; `LLAMA_CPP_IMAGE`, `MODEL_URL`, `MODEL_SHA256` are required build args with no
-defaults, so nothing unverified is pinned), `deploy/kustomize/local-model/` (1 replica, requests 2 CPU / 4Gi, memory limit 5Gi,
+defaults, supplied by `tasks/Taskfile.local-model.yml`), `deploy/kustomize/local-model/` (1 replica, requests 2 CPU / 4Gi, memory limit 5Gi,
 ClusterIP, readiness on `/health`), `tasks/Taskfile.local-model.yml` (`local-model:build|plan|up|status`; `build` and `up` prompt).
-Tool calling relies on llama.cpp `--jinja`; the flag and the `/health` path are from llama.cpp's server documentation and were not
-re-verified here. The image digest comes from `.task/local-model-digest`, same convention as the facade.
+The image digest comes from `.task/local-model-digest`, same convention as the facade.
+
+**Verified against primary sources, accessed 2026-10-09:**
+- llama.cpp server README, <https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md> (raw: `raw.githubusercontent.com/ggml-org/llama.cpp/master/tools/server/README.md`):
+  `--jinja, --no-jinja` ("whether to use jinja template engine for chat (default: enabled)"); OpenAI-style function calling "is supported with the `--jinja` flag";
+  `GET /health` exists; `--host` defaults to 127.0.0.1 (so `--host 0.0.0.0` is required in the pod); `--alias`, `--threads`, `--ctx-size`, `--port` exist.
+  Passing `--jinja` explicitly is kept so behaviour does not depend on the default.
+- llama.cpp function-calling doc, <https://github.com/ggml-org/llama.cpp/blob/master/docs/function-calling.md>: Qwen 2.5 uses the native "Hermes 2 Pro" style under `--jinja`;
+  `Qwen-Qwen2.5-3B-Instruct.jinja` is in its tested-template list.
+- Server image: `ghcr.io/ggml-org/llama.cpp:server-b11515@sha256:f8f71e3be397e868cdddfb9c404e3a263d9697f82fd7205f4737ac981feea4b8` (OCI index; `server` and
+  `server-b11515` resolved to the same digest on 2026-10-09; amd64 manifest `sha256:5ec15705...`). Its config: ENTRYPOINT `/app/llama-server`, `LLAMA_ARG_HOST=0.0.0.0`,
+  healthcheck `curl -f http://localhost:8080/health`. The Dockerfile's `/app/llama-server` path therefore matches the real image.
+- Model: `Qwen/Qwen2.5-3B-Instruct-GGUF` at repo commit `7dabda4d13d513e3e842b20f0d435c732f172cbe`, file `qwen2.5-3b-instruct-q4_k_m.gguf`, 2104932768 bytes,
+  sha256 `626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d`. The hash was computed by streaming the actual download through `sha256sum` and equals
+  Hugging Face's `X-Linked-ETag`. The URL pins the commit, not `main`.
+- Not verified: that `server-b11515` is a release anyone else has run with this model; the pin is a point-in-time build from the day of access.
 
 **OPEN RISK: speed.** On Brian's 8-CPU laptop (B11) Qwen2.5-3B ran at 0.6 tok/s (median 68.7 s/prompt) and the cause was never
 diagnosed. B10 notes 2 vCPU on a D4s_v3 will be no faster. Do not assume AKS fixes it. To measure on AKS (nothing measured yet):
