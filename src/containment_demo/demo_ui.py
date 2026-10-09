@@ -102,7 +102,8 @@ class UiSettings(BaseSettings):
         raise KeyError(slot)
 
 
-def _authorised(request: Request, settings: UiSettings) -> bool:
+def _authorised(request: Request, settings: Any) -> bool:
+    """``settings`` needs only ``ui_token``; the harness chat app reuses this."""
     header = request.headers.get("authorization", "")
     scheme, _, presented = header.partition(" ")
     if not presented:

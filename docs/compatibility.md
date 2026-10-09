@@ -1420,6 +1420,17 @@ diagnosed. B10 notes 2 vCPU on a D4s_v3 will be no faster. Do not assume AKS fix
 - Page-cache effects on first load after pod start, and noisy neighbours on the shared node (B10 shows node 1 CPU 54% requested).
 - Whether a dedicated node pool (B10) is needed.
 
+### B13. PROPOSED / UNTESTED: harness agent and chat path (code and unit tests only, 2026-10-09)
+
+Covers the code side of issues #2 and #3; both stay open. Nothing here was built into an image, deployed, or run against a model or a façade. Unit tests use fakes (no network).
+
+- **What exists:** `src/containment_demo/harness/` holds an ADK agent on LiteLLM (`openai/<LOCAL_MODEL_NAME>`, `api_base=LOCAL_MODEL_BASE_URL`, `num_retries=0`, configurable `HARNESS_MODEL_TIMEOUT_SECONDS`, default 180) and a Starlette chat service (`python -m containment_demo.harness.chat`).
+- **Two tools, always registered:** `ask_audit_agent` and `ask_enforced_agent`, zero arguments, one shared implementation (`call_slot`) differing only by slot. Each sends one A2A SendMessage via `ui_a2a.invoke_via_a2a` / `a2a_facade.client.send` and returns task state, the Foundry agent's reported tool outcomes and the `run-...` ids. Destinations come from validated startup config (DNS names only, no IPs). Failures are returned as data, never retried, so one cannot suppress the other. `build_agent` runs `assert_both_tools`; the unit suite fails if a tool is dropped or added (tamper-tested: removing a tool and no-op'ing the guard failed 9 tests).
+- **Config (env):** `LOCAL_MODEL_BASE_URL` (required, includes `/v1`), `LOCAL_MODEL_NAME`, `LOCAL_MODEL_API_KEY` (llama.cpp ignores it), `HARNESS_TOOL_TIMEOUT_SECONDS` (150), `HARNESS_TURN_TIMEOUT_SECONDS` (600), `HARNESS_UI_TOKEN`, plus the façade vars the demo UI uses (`DEMO_A2A_FACADE_URL_AUDIT/ENFORCED`, `DEMO_A2A_TOKEN`, `DEMO_RUN_LABEL`).
+- **Chat path:** a separate small service rather than an extension of `demo_ui`, because the demo UI's tests pin its two-button, no-model shape and the harness needs its own model settings and a slow-turn path. It reuses the demo UI's auth check. One stateless turn per POST; the page shows a live elapsed-time status, the model reply, per-tool results and run ids.
+- **Honest labelling:** the page states that the harness and the model are NOT governed by the Foundry egress policy and that a model reply or tool result is not containment evidence; the determination is always INCONCLUSIVE until `verify_demo` evidence is joined.
+- **Still unknown:** whether Qwen2.5-3B reliably calls both tools in one turn (B11 measured tool calling in isolation); end-to-end latency on AKS; the model-server manifests (Parker's, B12) and a harness Deployment/Service are not written here.
+
 ---
 
 ## D. Composability with a managed VNet — **blocking gap**
