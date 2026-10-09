@@ -1402,6 +1402,24 @@ Threshold applied: >=90% on both-tool prompts AND 0 invented tools AND 0 bad arg
 - NOT measured: the `chatml-function-calling` handler mode (skipped for time), a Foundry/ADK/LiteLLM round trip, accuracy at other quantisations,
   multi-turn conversations beyond the scripted loop, and the AKS node (this is laptop data, not B10's D4s_v3).
 
+### B12. PROPOSED: CPU-only llama.cpp server for Qwen2.5-3B Q4 on AKS (files only, not built, not applied, not tested, 2026-10-09)
+
+Artifacts: `Dockerfile.local-model` (GGUF baked in; `LLAMA_CPP_IMAGE`, `MODEL_URL`, `MODEL_SHA256` are required build args with no
+defaults, so nothing unverified is pinned), `deploy/kustomize/local-model/` (1 replica, requests 2 CPU / 4Gi, memory limit 5Gi,
+ClusterIP, readiness on `/health`), `tasks/Taskfile.local-model.yml` (`local-model:build|plan|up|status`; `build` and `up` prompt).
+Tool calling relies on llama.cpp `--jinja`; the flag and the `/health` path are from llama.cpp's server documentation and were not
+re-verified here. The image digest comes from `.task/local-model-digest`, same convention as the facade.
+
+**OPEN RISK: speed.** On Brian's 8-CPU laptop (B11) Qwen2.5-3B ran at 0.6 tok/s (median 68.7 s/prompt) and the cause was never
+diagnosed. B10 notes 2 vCPU on a D4s_v3 will be no faster. Do not assume AKS fixes it. To measure on AKS (nothing measured yet):
+- Threads vs allocatable CPU: `LLAMA_THREADS` at 1, 2, 3 against the pod's CPU request and node allocatable (3860m); oversubscribed
+  threads against a CFS quota throttle badly (check `container_cpu_cfs_throttled_*`).
+- Prompt processing vs generation separately, via llama.cpp's reported timings, not wall time over a multi-round prompt (the B11 method).
+- mlock / mmap: with and without `--mlock` (needs a memory limit above the model plus context; may need IPC_LOCK, which the pod drops).
+- Context size: `LLAMA_CTX` 2048 vs 4096 vs larger, and the prompt token count the tool schemas add.
+- Page-cache effects on first load after pod start, and noisy neighbours on the shared node (B10 shows node 1 CPU 54% requested).
+- Whether a dedicated node pool (B10) is needed.
+
 ---
 
 ## D. Composability with a managed VNet — **blocking gap**

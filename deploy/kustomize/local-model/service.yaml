@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: local-model
+  namespace: REPLACE_WITH_NAMESPACE
+  labels:
+    app.kubernetes.io/part-of: agent-boundary-lab
+    app.kubernetes.io/name: local-model
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: local-model
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

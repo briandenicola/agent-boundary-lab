@@ -33,6 +33,10 @@ includes:
     taskfile: ./tasks/Taskfile.a2a.yml
     internal: false
 
+  local-model:
+    taskfile: ./tasks/Taskfile.local-model.yml
+    internal: false
+
   spike:
     taskfile: ./tasks/Taskfile.spike.yml
     internal: false

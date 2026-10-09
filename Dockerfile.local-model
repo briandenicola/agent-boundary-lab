@@ -1,0 +1,39 @@
+# CPU-only llama.cpp OpenAI-compatible server with the GGUF baked in (compatibility.md B12).
+# PROPOSED, not built or tested. Separate from the agent and facade images.
+#
+# Required build args (the build fails closed if any is empty; nothing here is a verified value):
+#   LLAMA_CPP_IMAGE   llama.cpp server image reference, pinned by digest, e.g. <repo>:server@sha256:<fill>
+#   MODEL_URL         direct URL to the Qwen2.5-3B-Instruct Q4 GGUF (2105 MB)
+#   MODEL_SHA256      sha256 of that file, taken from the publisher's page, not computed from a download
+ARG LLAMA_CPP_IMAGE=""
+
+FROM debian:bookworm-slim AS fetch
+ARG MODEL_URL=""
+ARG MODEL_SHA256=""
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+    [ -n "$MODEL_URL" ] || { echo "MODEL_URL is required" >&2; exit 1; }; \
+    case "$MODEL_SHA256" in \
+      [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) [ "${#MODEL_SHA256}" -eq 64 ] || { echo "MODEL_SHA256 must be 64 hex" >&2; exit 1; } ;; \
+      *) echo "MODEL_SHA256 is required (64 hex)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL --proto '=https' --tlsv1.2 --max-time 1800 -o /model.gguf "$MODEL_URL"; \
+    echo "${MODEL_SHA256}  /model.gguf" | sha256sum -c -
+
+FROM ${LLAMA_CPP_IMAGE}
+COPY --from=fetch /model.gguf /models/model.gguf
+
+# Defaults only. Threads 0 lets llama.cpp choose; set LLAMA_THREADS to the pod's CPU request.
+ENV LLAMA_MODEL=/models/model.gguf \
+    LLAMA_ALIAS=local-model \
+    LLAMA_THREADS=0 \
+    LLAMA_CTX=4096 \
+    LLAMA_PORT=8080 \
+    LLAMA_EXTRA_ARGS=""
+
+USER 10001:10001
+EXPOSE 8080
+# --jinja enables the model's chat template, which tool calling needs. Host binds all
+# interfaces inside the pod only; exposure is the Service's job (ClusterIP).
+ENTRYPOINT ["/bin/sh", "-c", "set -eu; T=''; [ \"$LLAMA_THREADS\" != 0 ] && T=\"--threads $LLAMA_THREADS\"; exec /app/llama-server --jinja --model \"$LLAMA_MODEL\" --alias \"$LLAMA_ALIAS\" --ctx-size \"$LLAMA_CTX\" --host 0.0.0.0 --port \"$LLAMA_PORT\" $T $LLAMA_EXTRA_ARGS"]

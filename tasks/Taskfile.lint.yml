@@ -85,6 +85,9 @@ tasks:
         kustomize build deploy/kustomize/a2a-facade \
           | sed -e 's|REPLACE_WITH_[A-Z_]*|lint-placeholder|g' \
           | kubectl apply --dry-run=client --validate=ignore -f - >/dev/null
+        kustomize build deploy/kustomize/local-model \
+          | sed -e 's|REPLACE_WITH_[A-Z_]*|lint-placeholder|g' \
+          | kubectl apply --dry-run=client --validate=ignore -f - >/dev/null
         FACADE_MISSING=""
         for TOKEN in $(grep -rohE 'REPLACE_WITH_[A-Z_]+' deploy/kustomize/a2a-facade | sort -u); do
           grep -q "$TOKEN" tasks/Taskfile.a2a.yml || FACADE_MISSING="$FACADE_MISSING $TOKEN"

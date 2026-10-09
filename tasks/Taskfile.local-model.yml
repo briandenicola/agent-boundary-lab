@@ -1,0 +1,127 @@
+version: '3'
+
+silent: true
+
+includes:
+  arm:
+    taskfile: ./Taskfile.arm.yml
+    internal: true
+
+# PROPOSED (compatibility.md B12): CPU-only llama.cpp server, ClusterIP only. Not built or
+# applied by anyone yet. Image digest is resolved into .task/local-model-digest, never typed.
+
+env:
+  CLOUD_DIR: infra/cloud
+  LOCAL_MODEL_REPOSITORY: containment-demo-local-model
+
+tasks:
+  build:
+    desc: BUILDS IN AZURE. Build and push the local model image to ACR (needs LLAMA_CPP_IMAGE, MODEL_URL, MODEL_SHA256), print its digest
+    prompt: This builds a ~2.5 GB image in ACR (billable). Continue?
+    cmds:
+      - |
+        set -eu
+        : "${LLAMA_CPP_IMAGE:?set LLAMA_CPP_IMAGE (digest-pinned llama.cpp server image)}"
+        : "${MODEL_URL:?set MODEL_URL}"
+        : "${MODEL_SHA256:?set MODEL_SHA256}"
+        ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)
+        az acr build \
+          --registry "$ACR" \
+          --image "${LOCAL_MODEL_REPOSITORY}:${LOCAL_MODEL_IMAGE_TAG:-latest}" \
+          --file Dockerfile.local-model \
+          --build-arg "LLAMA_CPP_IMAGE=${LLAMA_CPP_IMAGE}" \
+          --build-arg "MODEL_URL=${MODEL_URL}" \
+          --build-arg "MODEL_SHA256=${MODEL_SHA256}" \
+          .
+      - task: digest
+
+  digest:
+    desc: Print the local model image digest the manifests will pin
+    vars:
+      ACR_NAME:
+        sh: terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name
+    cmds:
+      - mkdir -p .task
+      - task: arm:_acr-digest
+        vars:
+          ACR: '{{.ACR_NAME}}'
+          REPOSITORY: containment-demo-local-model
+          TAG: '{{.LOCAL_MODEL_IMAGE_TAG | default "latest"}}'
+          EXPLICIT: '{{.LOCAL_MODEL_IMAGE_DIGEST}}'
+          OUT: '{{.ROOT_DIR}}/.task/local-model-digest'
+      - |
+        set -eu
+        echo "$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_login_server)/${LOCAL_MODEL_REPOSITORY}@$(cat .task/local-model-digest)"
+
+  render:
+    desc: Print the substituted manifests to stdout (nothing written)
+    vars:
+      ACR_NAME:
+        sh: terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name
+    cmds:
+      - mkdir -p .task
+      - task: arm:_acr-digest
+        vars:
+          ACR: '{{.ACR_NAME}}'
+          REPOSITORY: containment-demo-local-model
+          TAG: '{{.LOCAL_MODEL_IMAGE_TAG | default "latest"}}'
+          EXPLICIT: '{{.LOCAL_MODEL_IMAGE_DIGEST}}'
+          OUT: '{{.ROOT_DIR}}/.task/local-model-digest'
+      - |
+        set -eu
+        TF="terraform -chdir=./{{.CLOUD_DIR}} output -raw"
+        DIGEST=$(cat .task/local-model-digest)
+        case "$DIGEST" in
+          sha256:*) ;;
+          *) echo "Local model image digest did not resolve to sha256:<64 hex>." >&2; exit 1 ;;
+        esac
+        IMAGE="$($TF acr_login_server)/${LOCAL_MODEL_REPOSITORY}@${DIGEST}"
+        NAMESPACE=$($TF kubernetes_namespace)
+        RENDERED=$(kustomize build deploy/kustomize/local-model \
+          | sed -e "s|REPLACE_WITH_NAMESPACE|${NAMESPACE}|g" \
+                -e "s|REPLACE_WITH_LOCAL_MODEL_IMAGE|${IMAGE}|g")
+        LEFTOVER=$(printf '%s\n' "$RENDERED" | grep -o 'REPLACE_WITH_[A-Z0-9_]*' | sort -u || true)
+        if [ -n "$LEFTOVER" ]; then
+          echo "Refusing: these placeholders were not substituted:" >&2
+          echo "$LEFTOVER" >&2
+          exit 1
+        fi
+        printf '%s\n' "$RENDERED"
+
+  plan:
+    desc: Server-side dry run of the local model manifests (changes nothing)
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        task local-model:render | kubectl apply --server-side --force-conflicts --dry-run=server -f -
+
+  up:
+    desc: CHANGES THE CLUSTER. Apply the local model Deployment and Service and wait for the rollout
+    prompt: This creates a CPU-heavy local model deployment (requests 2 CPU / 4Gi; ClusterIP only). Continue?
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        task local-model:render | kubectl apply --server-side --force-conflicts -f -
+        kubectl -n "$NS" rollout status deployment/local-model --timeout=600s
+
+  status:
+    desc: Show the local model deployment, pod and service (read-only)
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        kubectl -n "$NS" get deployment,pod,svc -l app.kubernetes.io/name=local-model -o wide
+
+  _require-kubectl:
+    internal: true
+    cmds:
+      - |
+        for TOOL in kubectl kustomize; do
+          command -v "$TOOL" >/dev/null 2>&1 || { echo "$TOOL not found on PATH." >&2; exit 1; }
+        done
+        kubectl config current-context >/dev/null 2>&1 || {
+          echo "No kubeconfig context. Run 'task cloud:kubeconfig' first." >&2; exit 1; }
