@@ -12,6 +12,80 @@ capability**, the same three labels `docs/PLAN.md` uses. They are never blended.
 
 ---
 
+## Presenter one-pager (A2A path), written 2026-10-09
+
+Labels: **TESTED** = we ran it and saw the result (2026-10-09); **PROPOSED** = designed, not
+yet shown. Everything in 1-4 is TESTED unless marked. The numbered sections below this page
+are the older audit procedure; where they say Sections B/C are "not implemented", this page
+supersedes them (Dallas ran B and C live, 4 runs PASS).
+
+### 1. Pre-flight (10 min before)
+```bash
+task cloud:kubeconfig                     # once per machine
+task cloud:app-insights-connection        # must list an AppInsights connection; else the platform layer is silent
+task cloud:harness-status                 # deploy init container exit 0; its log reads the versions back (see note)
+task build:agent-digest                   # the digest BOTH agents must pin
+task ui:verify                            # 401 without token, 200 with
+task a2a:verify                           # same, both facades (does not call an agent)
+```
+Note: `harness-status` shows the deployer's log, which reads each version back and fails on
+digest drift. Exit 0 means *accepted*, not *enforced*. No single task prints both versions;
+if asked, read them with `get_version` from the harness pod (TESTED ad hoc, no task).
+Stop if the two agents do not share one `sha256:` digest, or either status is not `active`.
+
+### 2. Open the UI and click
+```bash
+task ui:token        # prints the login password (any user name). Do this off-screen.
+task ui:open         # http://localhost:8081 ; Ctrl-C to stop
+```
+1. Log in. Click **Run audit**; wait about 25 s. Then click **Run enforced**; wait about 25 s.
+2. **Write down for each run:** the `run-...` id and the UTC time you clicked. Section 4 needs both.
+
+### 3. What to point at
+- **A2A task state** `TASK_STATE_COMPLETED`: the UI called the facade over A2A; the facade called the agent over Responses.
+- **Tool table:** both tools attempted. Audit: `send_to_external_processor` 202. Enforced: the same tool 403 `http_error`. `get_servicing_policy` is 200 in both.
+- **`run-...` id**, labelled as the id platform egress rows join on. The `ui-...` id is UI-only and joins nothing.
+- **"UI does not read platform evidence ... inconclusive-without-platform-evidence".** Say it out loud: the page alone proves nothing; section 4 is the proof.
+
+### 4. Platform proof (wait at least 3 minutes after the click; ingestion lags)
+```bash
+.venv/bin/python scripts/verify_demo.py --section b \
+  --audit-run-id <run-... from the audit click> --audit-called-at <UTC ISO, e.g. 2026-10-09T17:27:02Z>
+.venv/bin/python scripts/verify_demo.py --section c \
+  --enforced-run-id <run-... from the enforced click> --enforced-called-at <UTC ISO>
+```
+Exit codes: `0` **PASS**, `1` FAIL, `2` **INCONCLUSIVE**. PASS means the platform's egress
+decision row and the receipt log both joined on that `run-...` id. For enforced, PASS needs the
+platform's denial row *and* no receipt at the test receiver. INCONCLUSIVE means evidence is
+missing or too fresh (under 180 s): wait and re-run; never call it a pass. Needs the `verify`
+extra and a login that can read Log Analytics. (TESTED by Dallas, 4 of 4 PASS.)
+
+### 5. Honest claims
+**Shows (TESTED):** the platform, not our code, denied the enforced agent's call to the
+unlisted host at the network layer; both agents run the **same image digest** and only the
+attached policy differs; the facade exposes Foundry-hosted agents as A2A while they are
+invoked through Responses.
+
+**Does NOT show:** native inbound A2A on hosted agents (the platform says unsupported, B5d; the
+facade is the supported route, it stands in for an on-prem caller and is not policy-governed);
+that an agent-reported 403 is proof (it is not; only the platform row is); statistics (n is
+4 runs: one audit and one enforced, each through the facade and the UI); strong auth (one shared
+bearer token; Entra is issue #4); a chat model experience (the agent runs a fixed two-tool prompt).
+
+### 6. If it goes wrong, check first
+| Symptom | First check |
+| --- | --- |
+| Tool 404 at policy-api / test-receiver | Double slash or path from a trailing-slash URL; fixed in `26a0b1c`. Rebuild images if older. |
+| `403 Public access is disabled` | The Foundry data plane is private. Call only from inside the VNet (harness pod, facade, UI), never a laptop. |
+| Agent dies at its first model call (404 / 401) | Model RBAC for the agent's own identity (B9f) and the model api-version (E2a). |
+| Version `failed`, `ImageError` | Registry pull role (B9e); a failed version is never healed, create a new one. |
+| 400 "Unsupported responses protocol version" | Protocol version must be `2.0.0` (B9d). |
+| Facade JSON-RPC -32603 | protobuf must be below 7 in the facade image (B5e). |
+| Prompts or responses visible in telemetry | ADK content capture must be off (`telemetry-map.md` 0.10); stop and tell Lambert. |
+| Verify says INCONCLUSIVE | Under 3 min since the call, wrong run id, or no App Insights connection. Not a failure, not a pass. |
+
+---
+
 ## 0. Read this before you do anything
 
 ### 0.1 What is executable today
