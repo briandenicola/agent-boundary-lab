@@ -400,6 +400,17 @@
 **Date:** 2026-10-08  
 **Status:** ⚠️ **DISPROVEN — superseded 2026-10-08 19:35Z. The reasoning below is wrong.**
 
+> **CORRECTION 2026-10-09 — the DISPROVEN label below overreached.**
+> **Disproven:** that "stuck in `creating`" signals a missing pull permission (the poller
+> `str(enum)` bug caused the hang), and that the *account* grant fixed anything.
+> **Not disproven:** that a pull permission is required. A version reports `active` at
+> acceptance; the pull happens afterwards. `containment-demo-audit:4` then failed with
+> `ImageError: Container registry authentication failed. Verify the workspace managed
+> identity has AcrPull...`. The *project* identity (7b9ae858-…) lacked AcrPull; the
+> account identity had it. **STRONGLY INDICATED, UNVERIFIED** that the project identity is
+> the one that needs it, until a version reaches a pulled/running state. See
+> `docs/compatibility.md` B9e.
+
 > **DO NOT USE THE DEBUGGING HEURISTIC IN THIS ENTRY.** It is the exact false lead that
 > cost a day. Preserved unedited because this ledger is append-only and because the
 > mistake is more instructive than its removal would be.

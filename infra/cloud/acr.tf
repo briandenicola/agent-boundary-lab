@@ -34,7 +34,14 @@ resource "azurerm_role_assignment" "apps_acr_pull" {
   principal_id         = azurerm_user_assigned_identity.apps.principal_id
 }
 
-# The Foundry account pulls the AGENT image.
+# The Foundry ACCOUNT identity is granted AcrPull. KEPT, but see foundry_project_acr_pull
+# below: the project identity is the one strongly indicated to do the pull. This grant is
+# already applied and harmless, and removing it would be a change on a theory. Drop it once
+# a version has pulled successfully with only the project grant, which is the experiment
+# that would show whether it was ever needed.
+#
+# Original rationale follows; its "hangs in creating" claim was wrong (the poller bug), the
+# registry-pull reasoning was not.
 #
 # This is a DIFFERENT principal from aks_acr_pull above. The kubelet identity pulls the
 # harness image onto a node in our cluster; this one is the hosted-agent runtime pulling
@@ -56,6 +63,30 @@ resource "azurerm_role_assignment" "foundry_acr_pull" {
   scope                = azurerm_container_registry.main.id
   role_definition_name = "AcrPull"
   principal_id         = azapi_resource.foundry.output.identity.principalId
+}
+
+# The Foundry PROJECT pulls the AGENT image. STRONGLY INDICATED, UNVERIFIED.
+#
+# Observed 2026-10-09: agent version containment-demo-audit:4 reported status `failed`,
+# error ImageError, "Container registry authentication failed. Verify the workspace
+# managed identity has AcrPull permissions on the target registry." Read-only inspection
+# showed AcrPull on this registry held by three principals, including the Foundry ACCOUNT
+# identity (foundry_acr_pull above) but NOT the PROJECT identity. The working reference
+# (briandenicola/banking-agent-foundry-orchestrator apps/roles.tf) grants AcrPull to the
+# project's identity. The error text says "workspace", which is AzureML vocabulary for the
+# project, so the project principal is the likely puller -- but nothing here has been
+# observed pulling successfully yet. It is verified only when a version gets past
+# ImageError.
+#
+# A version reports `active` at ACCEPTANCE; the image pull happens afterwards. So the
+# permission failure surfaces later as `failed`, and the version LIST endpoint can still
+# show `active` while get_version shows `failed` (compatibility.md B9b).
+#
+# AcrPull only, registry scope, same as the other assignments.
+resource "azurerm_role_assignment" "foundry_project_acr_pull" {
+  scope                = azurerm_container_registry.main.id
+  role_definition_name = "AcrPull"
+  principal_id         = azapi_resource.project.output.identity.principalId
 }
 
 # The operator running `az acr build` needs to push.

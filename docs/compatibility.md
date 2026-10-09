@@ -654,6 +654,19 @@ best; it tells you nothing about whether the version would have become active.
 
 #### ~~OBSERVED 2026-10-08 — a version stuck in `creating`~~ **The premise was false. See B9c.**
 
+> **CORRECTED 2026-10-09 — read B9e before trusting the paragraph below.** An earlier
+> revision of this block went further than the evidence: it implied a pull permission was
+> not needed. That overreached. Precisely:
+>
+> * **Disproven:** that a version stuck in `creating` indicates a missing pull permission.
+>   The `creating` was never observed (B9c), and the 45-minute hang was the `str(enum)`
+>   poller bug.
+> * **NOT disproven:** that a pull permission is required. `active` was reported at
+>   acceptance, before any pull. The pull happens afterwards and its failure surfaces later
+>   as `failed` (B9e).
+> * **Disproven in particular:** that the ACCOUNT identity's grant fixed anything — it was
+>   applied after the version was `active` and the version later failed with ImageError.
+
 > **The version was never stuck.** The Azure portal showed
 > `containment-demo-audit | Version: 1 | Status: Running` at **18:39:26Z**, under a minute
 > after creation. The init container was not observing a hung provision; it was failing to
@@ -876,6 +889,61 @@ reading, not an explained cause. Create-time acceptance proves nothing about inv
 Invoke client (read from azure-ai-projects 2.8.0 `_patch.py:55-86`): `get_openai_client(agent_name=...)`
 sends only the `api-version` query and the `Foundry-Features` header. It sends no protocol-version
 header or parameter, so the registered version is the only input; `invoke.py` needs no change.
+
+### B9e. ImageError on a registry the account identity can pull from — OBSERVED 2026-10-09
+
+**Observed by read-only platform queries, 2026-10-09.** Agent version
+`containment-demo-audit:4`, via `get_version`:
+
+```
+status: failed
+error:  {code: 'ImageError',
+         message: 'Container registry authentication failed. Verify the workspace managed
+                   identity has AcrPull permissions on the target registry.'}
+```
+
+#### Verified
+
+* The version FAILED on registry authentication, after having been accepted. The platform
+  itself names the cause and the remedy (AcrPull for "the workspace managed identity").
+* `AcrPull` on `humblephoenix46689acr` was held by **three** principals, including the
+  Foundry **account** identity `ca6f9297-24b0-495e-ace9-d08612b126f1` (our
+  `foundry_acr_pull`) and **not** the Foundry **project** identity
+  `7b9ae858-ac04-4374-ab45-224f89b4451b`.
+* The working reference (`banking-agent-foundry-orchestrator` `apps/roles.tf`, fetched
+  2026-10-08) grants `AcrPull` to the **project** identity
+  (`data.azapi_resource.foundry_project.identity[0].principal_id`).
+
+#### What this changes about B9b and B9c
+
+* **`active` means accepted, not pulled.** A version reports `active` when the control
+  plane accepts it; the image pull happens afterwards. Readiness must therefore be judged
+  by a state reached after the pull, not by the first `active`. Open: which state that is.
+* **Both defects were real.** The `str(enum)` poller bug (B9c) was real and is fixed. A
+  pull permission is *also* required. The earlier "DISPROVEN" wording conflated them.
+* **The earlier 19:35Z "healthy" observation did not demonstrate a successful pull**, only
+  acceptance — so it cannot be cited as evidence the pull worked without a role.
+
+#### STRONGLY INDICATED, UNVERIFIED — the PROJECT identity is the one that needs it
+
+Three things point at the project: the error text says "workspace" (AzureML's word for the
+project), the project identity is the one without the grant, and the working reference
+grants it. That is strong circumstantial evidence, **not a verification.** It is verified
+only when a version reaches a pulled/running state after the grant. Until then the account
+grant is neither shown required nor shown unnecessary; it is kept (`acr.tf`) and can be
+pruned once a version pulls with only the project grant.
+
+Proposed, not applied: `azurerm_role_assignment.foundry_project_acr_pull`
+(`infra/cloud/acr.tf`), principal `azapi_resource.project.output.identity.principalId`.
+`task cloud:plan` renders `1 to add, 1 to change, 0 to destroy`; the change is the
+project's `response_export_values` gaining `identity.principalId` (a read-back, no
+property change).
+
+#### The version LIST endpoint is not trustworthy for readiness
+
+The same v4 showed **ACTIVE** from the version list endpoint while `get_version` returned
+**FAILED**. Do not use list status to decide readiness or failure; use `get_version` (and
+even then, see the open question above about what state proves a pull).
 
 ### C1. Where egress decisions surface
 

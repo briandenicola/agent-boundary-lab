@@ -383,3 +383,17 @@ What actually happened:
 - **Decided:** `infra/spike` still defaults to `eastus2` because spike has no state file (bare plan has nothing to destroy) and module is disposable by design. Remove only if it gains persistent state.
 - **Role reference notes:** Compared Brian's deployer roles (`briandenicola/banking-agent-foundry-orchestrator`, fetched 2026-10-08) against ours in `docs/compatibility.md` B9d. **Not applied.** Likely need `Foundry Agent Consumer` scoped to project (for Dallas's invocation work); add with that work. `AcrPull` on project vs. account identity noted; ours kept (harmless, least-privilege, registry-scoped, proven) but unproven-necessary.
 
+
+### 2026-10-09 — the pull permission was real after all
+
+- A version reports `active` at acceptance; the image pull happens afterwards. So "it went
+  active in 4s" never showed the pull worked. v4 later failed with ImageError. The poller
+  bug and the missing pull permission were both real; I (and the DISPROVEN label) conflated
+  them. Lesson: don't swing from "wrong diagnosis" to "opposite claim" — state exactly what
+  was and wasn't disproven.
+- Project identity (not account) is strongly indicated: error says "workspace", reference
+  grants the project, project had no grant. Unverified until a version actually pulls.
+- Kept the account grant (applied, harmless); prune only with evidence.
+- Version list status can say ACTIVE while get_version says FAILED. Never gate on list.
+- Exporting `identity.principalId` from the azapi project causes a harmless in-place
+  "update" (export list change) in plan.

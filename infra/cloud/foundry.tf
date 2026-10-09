@@ -96,7 +96,9 @@ resource "azapi_resource" "project" {
     }
   }
 
-  response_export_values = ["properties.endpoints"]
+  # identity.principalId is exported for the AcrPull grant in acr.tf. Exporting it only
+  # adds a read-back; it changes nothing on the resource.
+  response_export_values = ["properties.endpoints", "identity.principalId"]
 }
 
 #############################################
