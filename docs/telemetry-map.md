@@ -473,6 +473,32 @@ Deny row at 15:13:32.626Z. Re-queried **2026-10-09 15:17:21Z (3 min 49 s later)*
 - **`ui-…` ↔ `run-…`: no row links them.** `ui-7de690b0a9a9` / `ui-e73b582c569c` appear only in the UI `ContainerLog` (and the UI's own call URL); no row containing a `ui-` id also contains a `run-` id. The mapping is by time only. Reporting should key on `run-…`.
 - **Limits:** one audit and one enforced run, one decision per tool call; not tested under concurrency; the path join depends on the run id being in the path (a design property of our own tools, not something the platform adds); `Data`/`path` retention of the path for other hosts is NOT VERIFIED.
 
+## 0.13 A2A-path evidence — four `verify_demo.py` live runs through the A2A facade, observed 2026-10-09 (~17:22Z–17:28Z)
+
+Source: Dallas's `scripts/verify_demo.py` live runs, sections B (audit) and C (enforced). Agents: audit v15, enforced v13, both on digest `sha256:33dbbf379282e675a5ef43c0cb37cfab3dac456695ff70f3b75eb63fa33e37b3`. A2A is off on the audit agent.
+
+**Tested (observed, all four PASS):**
+
+| Path | Mode | Run id | Tools at | Section | Result |
+| --- | --- | --- | --- | --- | --- |
+| direct `a2a:send` | audit | `run-ebc8e204-9f05-4068-a9cd-8daf8c0d7723` | ~17:22:39Z | B PASS | `Allow` + receipt; `AuditWouldDeny` + receipt |
+| direct `a2a:send` | enforced | `run-a86344d2-5c00-44f1-803c-771e8682af6c` | ~17:23:08Z | C PASS | `Allow` + receipt; `Deny`/`Enforced`, no receipt (read 333 s after) |
+| via UI | audit | `run-c9e4afa5-fd3e-4afa-953c-e8b048776fef` | ~17:27:20Z | B PASS | as above |
+| via UI | enforced | `run-ac17f6c6-02f4-4e77-b697-35d73bab3e06` | ~17:27:40Z | C PASS | `Allow` + receipt; `Deny`/`Enforced`, no receipt (read 220 s after) |
+
+**Caveats:**
+
+- n = 2 audit and 2 enforced runs on this path.
+- The harness did not print the matched egress/receipt ids. That each decision row matched its own run id is **inferred** from the script querying by run id; it was not independently re-queried here.
+- The run id is generated per agent process, not per request.
+- `OperationId` still does not join egress rows to app telemetry (§0.12, Q6 unchanged).
+- The facade / A2A hop is the on-prem stand-in and is not policy-governed; the policy-governed hops are the agent's outbound tool calls.
+- Agent-reported tool outcomes (202 / 403) are not platform evidence; only the egress decision rows and receipt presence/absence count.
+- The A2A face is a facade over Responses; native A2A is unsupported for hosted agents (`docs/compatibility.md` B5d/B5e).
+- The no-receipt reads at 333 s / 220 s show absence at that read time only, not forever.
+
+**Proposed:** none added; this section records observation only.
+
 ---
 
 ## 1. Layer 1 — application / tool traces (emitted by our own code)

@@ -43,7 +43,7 @@ policy.
 
 ## GATE 0 — The correlation gate. Runs FIRST on the first real agent run.
 
-**Status (2026-10-09): ANSWERED — Q6 `joined == false` (0 of 129+ egress rows share an app `OperationId`); a different join is OBSERVED: the run id embedded in the URL path appears verbatim in the egress decision row's `Data` and `Properties.path` (`/policy/{run_id}`, `/ingest/{run_id}`). Evidence: `docs/telemetry-map.md` §0.12. Caveat: observed on one audit and one enforced run (agents v9/v7); enforced app telemetry does not reach App Insights. The UI's `ui-…` id is not linked to the `run-…` id by any row.**
+**Status (2026-10-09): ANSWERED — Q6 `joined == false` (0 of 129+ egress rows share an app `OperationId`); a different join is OBSERVED: the run id embedded in the URL path appears verbatim in the egress decision row's `Data` and `Properties.path` (`/policy/{run_id}`, `/ingest/{run_id}`). Evidence: `docs/telemetry-map.md` §0.12. Update 2026-10-09: the run-id join has now been observed on 3 audit + 3 enforced runs total — 1 + 1 in §0.12 (agents v9/v7), 1 + 1 in the first live `verify_demo.py` B/C pair (audit `run-58966667-4e0a-4191-8a2f-f885dc031ce4`, enforced `run-aa986839-f167-46af-bfd2-b4233f19b6b3`, both PASS; recorded here from the harness report, not separately in telemetry-map), and 2 + 2 through the A2A facade (§0.13, agents v15/v13); the §0.13 id match is inferred from the harness querying by run id. Original caveat: observed on one audit and one enforced run (agents v9/v7); enforced app telemetry does not reach App Insights. The UI's `ui-…` id is not linked to the `run-…` id by any row.**
 
 ~~**Status: blocked — needs one successful hosted agent run.**~~ Superseded. Everything below is retained as the original gate definition.
 
