@@ -21,6 +21,9 @@ plus presence or absence of a receipt. Missing evidence is **INCONCLUSIVE**, nev
 
 ## Diagram
 
+A detailed Excalidraw version (all zones, flows F1 to F11, verified vs proposed styling) is in
+[`diagrams/environment.excalidraw`](diagrams/environment.excalidraw); see [`diagrams/README.md`](diagrams/README.md).
+
 ```mermaid
 flowchart LR
   subgraph AKS["AKS namespace agent-boundary-lab (NOT governed by the Foundry policy)"]

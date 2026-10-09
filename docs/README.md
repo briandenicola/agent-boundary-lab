@@ -15,6 +15,7 @@ This repository began as a build specification and is now partly built and teste
 | Doc | Read it for |
 | --- | --- |
 | [`architecture-as-built.md`](architecture-as-built.md) | The system as deployed, trust boundaries, verified vs proposed vs blocked |
+| [`diagrams/README.md`](diagrams/README.md) | Excalidraw diagram of the whole environment (zones, flows F1-F11, legend) |
 | [`demo-runbook.md`](demo-runbook.md) | Presenter one-pager, harness chat path, full audit procedure |
 | [`PLAN.md`](PLAN.md) | Phases, status, gates, backlog |
 | [`compatibility.md`](compatibility.md) | Platform research and observed facts (B-sections: hosted agents, A2A, local model, harness) |
