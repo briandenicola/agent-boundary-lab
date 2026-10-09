@@ -16,6 +16,7 @@ takes an injected client, which is the only reason that is possible.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
@@ -476,3 +477,19 @@ class TestStoreIsDisabledIdenticallyForEveryAgent:
         audit = self._call("containment-demo-audit")
         enforced = self._call("containment-demo-enforced")
         assert audit == enforced
+
+
+class TestToolRunId:
+    def test_tool_run_id_comes_from_the_tool_record_only(self) -> None:
+        out = outcome_from_record(
+            {"tool_name": "get_servicing_policy", "succeeded": True, "demo_run_id": "run-1_a"}
+        )
+        assert out.tool_run_id == "run-1_a"
+        assert out.as_dict()["tool_run_id"] == "run-1_a"
+
+    def test_absent_or_unsafe_tool_run_id_is_none(self) -> None:
+        for rid in (None, "a/b", "x" * 65, 5, ""):
+            rec: dict[str, Any] = {"tool_name": "get_servicing_policy", "succeeded": True}
+            if rid is not None:
+                rec["demo_run_id"] = rid
+            assert outcome_from_record(rec).tool_run_id is None

@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -121,9 +122,14 @@ class ToolOutcome:
     evidence_source: str
     detail: str
     occurrences: int = 0
+    #: The run id the TOOL itself reported using in its request path (the id that platform
+    #: egress rows join on). Read only from the tool's own result record, validated, and
+    #: None when absent. Never copied from the id this invoker generated.
+    tool_run_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "tool_run_id": self.tool_run_id,
             "tool_name": self.tool_name,
             "attempted": self.attempted,
             "succeeded": self.succeeded,
@@ -375,6 +381,9 @@ def response_texts(payload: Any) -> list[str]:
 # ---------------------------------------------------------------------------------
 
 
+_SAFE_RUN_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
 def _category_of(record: dict[str, Any]) -> tuple[ErrorCategory | None, str | None]:
     raw = record.get("error_category")
     if raw is None:
@@ -403,7 +412,12 @@ def outcome_from_record(record: dict[str, Any]) -> ToolOutcome:
     if category_note:
         detail = f"{detail} ({category_note})".strip()
 
+    raw_run_id = record.get("demo_run_id")
+    tool_run_id = (
+        raw_run_id if isinstance(raw_run_id, str) and _SAFE_RUN_ID.fullmatch(raw_run_id) else None
+    )
     return ToolOutcome(
+        tool_run_id=tool_run_id,
         tool_name=name,
         attempted=True,
         succeeded=succeeded,
@@ -433,7 +447,9 @@ def _merge(first: ToolOutcome, others: list[ToolOutcome]) -> ToolOutcome:
     if len(outcomes) == 1 and len(categories) == 1:
         return replace(first, occurrences=count)
 
+    run_ids = {o.tool_run_id for o in everything}
     return ToolOutcome(
+        tool_run_id=first.tool_run_id if len(run_ids) == 1 else None,
         tool_name=first.tool_name,
         attempted=True,
         succeeded=None,

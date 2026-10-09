@@ -133,7 +133,13 @@ def build_view(result: invoke.InvocationResult, *, slot: str, run_label: str) ->
         "slot": slot,
         "run_label": run_label,
         "agent_name": record["agent_name"],
-        "demo_run_id": record["demo_run_id"],
+        # UI-only id: generated here, appears in no platform row. Do not join on it.
+        "ui_run_id": record["demo_run_id"],
+        # The id(s) the tools reported using; this is what platform egress rows join on.
+        # Empty when no tool record carried one. Never filled from the UI id.
+        "tool_run_ids": sorted(
+            {t["tool_run_id"] for t in record["results"] if t.get("tool_run_id")}
+        ),
         "determination": invoke.DETERMINATION,
         "platform_evidence": "not joined: no telemetry field joins to demo_run_id (GATE 0)",
         "our_call": {
@@ -230,7 +236,9 @@ async function runSlot(slot){
   out.replaceChildren();
   if(!r.ok){ add(out,'p','UI error: '+(d.error||r.status),'ours'); return;}
   add(out,'p','run: '+d.run_label+' / '+d.agent_name);
-  add(out,'p','demo_run_id: '+d.demo_run_id);
+  add(out,'p','tool run id (joins platform egress rows): '+
+    (d.tool_run_ids.length?d.tool_run_ids.join(', '):'not available in the invoke result'));
+  add(out,'p','UI-only id (joins nothing): '+d.ui_run_id);
   add(out,'p','determination: '+d.determination);
   add(out,'p','platform evidence: '+d.platform_evidence);
   if(!d.our_call.ok){

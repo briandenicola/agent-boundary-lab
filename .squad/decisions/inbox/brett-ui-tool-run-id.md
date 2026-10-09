@@ -1,0 +1,3 @@
+# Demo UI shows the tool's run id (Brett, 2026-10-09)
+Platform rows join on the `run-...` id the tools put in the URL path (telemetry-map §0.12). The UI now shows `tool_run_ids` read ONLY from each tool's own result record (`ToolOutcome.tool_run_id`, charset-validated), and labels its own `ui-...` id "UI-only id (joins nothing)". If no record carries one the page says "not available in the invoke result"; it is never filled from the UI id. The id is per agent PROCESS (settings default_factory), not per invocation, so two runs on one container share it: still UNVERIFIED that it is live-available in the invoke text. No pass path added.
+Tamper: ui id as tool id / no validation / no absent label / unlabelled ui id each fail a named test.

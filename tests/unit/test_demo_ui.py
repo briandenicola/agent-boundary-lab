@@ -223,3 +223,37 @@ def test_bad_agent_name_rejected() -> None:
 
 def test_token_not_in_repr() -> None:
     assert TOKEN not in repr(make_settings())
+
+
+# --- which run id is shown (GATE 0: platform rows join on the TOOL's run id) --------------
+
+
+def _with_tool_ids(first: str | None, second: str | None) -> dict[str, Any]:
+    rec = record()
+    rec["results"][0]["tool_run_id"] = first
+    rec["results"][1]["tool_run_id"] = second
+    return rec
+
+
+def test_the_tool_run_id_is_shown_and_the_ui_id_is_labelled_ui_only() -> None:
+    c, _ = client(Invoker(_with_tool_ids("run-abc", "run-abc")))
+    body = c.post("/run/audit", headers=AUTH).json()
+    assert body["tool_run_ids"] == ["run-abc"]
+    assert body["ui_run_id"].startswith("ui-")
+    assert "demo_run_id" not in body
+    page = c.get("/", headers=AUTH).text
+    assert "joins platform egress rows" in page
+    assert "UI-only id (joins nothing)" in page
+
+
+def test_missing_tool_run_id_is_stated_not_invented() -> None:
+    c, _ = client(Invoker(_with_tool_ids(None, None)))
+    body = c.post("/run/audit", headers=AUTH).json()
+    assert body["tool_run_ids"] == []
+    assert not any(v.startswith("ui-") for v in body["tool_run_ids"])
+    assert "not available in the invoke result" in c.get("/", headers=AUTH).text
+
+
+def test_disagreeing_tool_run_ids_are_both_shown() -> None:
+    c, _ = client(Invoker(_with_tool_ids("run-a", "run-b")))
+    assert c.post("/run/audit", headers=AUTH).json()["tool_run_ids"] == ["run-a", "run-b"]
