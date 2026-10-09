@@ -945,6 +945,77 @@ The same v4 showed **ACTIVE** from the version list endpoint while `get_version`
 **FAILED**. Do not use list status to decide readiness or failure; use `get_version` (and
 even then, see the open question above about what state proves a pull).
 
+### B9f. The agent's model call needs a role for the agent's OWN identity — OBSERVED 2026-10-09
+
+**Access date 2026-10-09.** Evidence: App Insights (Lambert), run `invoke-acad5487adaa`,
+agent `containment-demo-audit` version 7. The model call
+`POST https://humble-phoenix-46689-foundry.cognitiveservices.azure.com/openai/v1/responses?api-version=v1`
+was **allowed by egress** and failed authorisation: *"The principal 842d7e21-e602-4dc1-812e-947fd5833cb3
+lacks the required data action Microsoft.CognitiveServices/accounts/OpenAI/responses/write
+to perform POST /openai/v1/responses operation."* Read-only `az` showed that principal
+held no role assignment.
+
+#### Which principal — VERIFIED against Entra (read-only Graph, 2026-10-09)
+
+* `842d7e21-…` is a Graph `agentIdentity` service principal named
+  `<account>-<project>-containment-demo-audit-AgentIdentity`, tagged
+  `agentName:containment-demo-audit`, `accountName`, `projectName`, `agentGuid:148cc3f7-…`.
+  **It is the principal that needs the role.**
+* `9260cba6-…` is the sibling `…-containment-demo-audit-148cc-AgentIdentityBlueprint`. Per
+  the docs the blueprint authenticates to Entra via the project's managed identity; it "doesn't
+  directly access the downstream resource" and needs no role. It carries the same tags, so a
+  tag-only lookup returns BOTH — filter to `-AgentIdentity`.
+* **Per agent, not per version.** Exactly one `-AgentIdentity` exists per agent, created at
+  the first version create (audit 2026-10-08T18:39:19Z, enforced 19:35:22Z), though audit
+  has had ≥7 versions. **Distinct per agent**: audit `842d7e21`, enforced `4c7579f9`. A
+  separate project-level shared `-project-AgentIdentity` also exists (`21c0c3e7`).
+  Observed, not documented as a contract: recreating an agent can mint a new identity, so
+  nothing may hardcode these ids.
+
+#### Which role — dataActions read verbatim from `az role definition list`, 2026-10-09
+
+| Role | dataActions covering the failing action |
+| --- | --- |
+| **Cognitive Services OpenAI User** (`5e0bd9bd-7b93-4f28-af87-19fc36ad61bd`) | `…/accounts/OpenAI/responses/*`, plus chat/completions, embeddings, `*/read`, assistants/*, etc. NotDataActions: `OpenAI/stored-completions/read` |
+| Cognitive Services OpenAI Contributor (`a001fd3d-…`) | `Microsoft.CognitiveServices/accounts/OpenAI/*` |
+| Azure AI Developer (`64702f94-…`) | `OpenAI/*` + Speech, ContentSafety, MaaS. Docs say it is **insufficient for hosted agents** |
+| Foundry User (`53ca6127-…`) | `Microsoft.CognitiveServices/*` minus three NotDataActions |
+| Cognitive Services User (`a97b65f3-…`) | `Microsoft.CognitiveServices/*` minus the same three |
+| "Azure AI User" | returned no definition by that name; it is the **old name of Foundry User** (docs: renamed, same id) |
+
+**Least privilege: Cognitive Services OpenAI User.** `responses/*` covers `responses/write`;
+Foundry User / Cognitive Services User are far wider. The docs name exactly this as the
+account-level answer.
+
+Primary source: `learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agent-permissions`
+("Account-level access" and "Agent access beyond defaults"), accessed 2026-10-09: when agent
+code **bypasses the project endpoint and calls the account-level OpenAI endpoint directly**
+(`https://{account}.cognitiveservices.azure.com`), the agent identity needs Cognitive Services
+OpenAI User or Foundry User at account scope. Via the project endpoint, inference is
+**implicit** and needs no assignment. Our `agent.py:83` uses the account endpoint with scope
+`https://cognitiveservices.azure.com/.default`, which is exactly the documented case.
+
+#### Same page, two statements that bear on B9e (accessed 2026-10-09)
+
+* The **project's** managed identity pulls the image; docs prefer **Container Registry
+  Repository Reader** over AcrPull, at registry scope. Consistent with the project grant.
+* ACR must have `azureADAuthenticationAsArmPolicy` enabled, and the project has an **ACR
+  connection**. We have not verified either on our registry/project. Not implemented.
+
+#### Options and failure modes — PROPOSED / UNVERIFIED
+
+| Option | How | Failure mode |
+| --- | --- | --- |
+| **A. Use the project endpoint** | Agent code calls `…services.ai.azure.com/api/projects/<p>` — implicit access, **no role at all** (docs) | Changes the model HOST, which is on the egress allowlist, so Brett + Lambert + Ripley own it; unverified that it works under our private networking. Best least-privilege outcome if it does. |
+| **B. Task step (recommended)** `task cloud:agent-access-up` | Tag-keyed lookup of each `-AgentIdentity`, grant OpenAI User on the account, idempotent; `…-plan` is read-only | Operator can forget it (symptom: the exact error above); recreating an agent mints a new identity and the grant must be re-run; uses `az`, allowed in `tasks/` only |
+| C. Terraform data lookup | `azuread` data source on the identity | Needs a new provider; the identity does not exist at first plan so a fresh environment fails to plan (forces a two-phase apply); drifts when an agent is recreated |
+| D. A scope that covers the identities | none | There is no such scope: the identities are principals. Granting the role to the project identity does not help, the token is the agent identity's |
+
+Recommendation: **B now**, same role at the same scope for both agents so audit-vs-enforced
+stays the only variable; **A** as a follow-up if Brett can prove it under the egress policy,
+which would remove the grant entirely. Nothing applied. `task cloud:agent-access-plan`
+reported both identities MISSING the role on 2026-10-09.
+
 ### C1. Where egress decisions surface
 
 Application Insights **`traces`** table, filtered on a literal message string:

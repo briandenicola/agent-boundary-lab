@@ -397,3 +397,15 @@ What actually happened:
 - Version list status can say ACTIVE while get_version says FAILED. Never gate on list.
 - Exporting `identity.principalId` from the azapi project causes a harmless in-place
   "update" (export list change) in plan.
+
+### 2026-10-09 — agent identity model access
+
+- Agent runtime token = the Entra `-AgentIdentity` SP (per agent, stable across versions,
+  distinct per agent; verified via Graph creation times and tags), NOT the blueprint, which
+  shares its tags so a tag-only filter returns both. Filter `-AgentIdentity`.
+- Our code calls the account-level OpenAI endpoint, bypassing the project's implicit
+  inference access; that needs Cognitive Services OpenAI User (responses/* verified).
+- Read the primary docs page rather than trusting a web-search summary; it also said the
+  PROJECT identity pulls the image and prefers Repository Reader over AcrPull.
+- Terraform is wrong for identities that exist only after deploy; a tag-keyed task with an
+  exactly-one-match guard is the honest design.

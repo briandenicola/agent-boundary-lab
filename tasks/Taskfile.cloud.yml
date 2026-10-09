@@ -248,6 +248,83 @@ tasks:
         echo "Confirm actual evidence with the KQL in docs/demo-runbook.md after a run."
 
   #############################################
+  # AGENT MODEL ACCESS
+  #
+  # Each hosted agent calls the model at the ACCOUNT-level OpenAI endpoint
+  # (https://<account>.cognitiveservices.azure.com), which the project does NOT proxy, so
+  # the agent's own Entra identity needs a data-plane role on the account. Observed
+  # 2026-10-09: "The principal ... lacks the required data action
+  # Microsoft.CognitiveServices/accounts/OpenAI/responses/write". See compatibility.md B9f.
+  #
+  # WHY A TASK AND NOT TERRAFORM. The agent identities are created by Foundry at the first
+  # version create, AFTER terraform has finished, and get fresh object ids whenever an agent
+  # is recreated. Terraform cannot name them at plan time, and a data lookup would fail the
+  # plan on a fresh environment. `az` is allowed here: tasks/ is operator tooling, not
+  # shipped code.
+  #
+  # NO RECONSTRUCTED NAMES, NO GUIDS. Identities are found by the tags Foundry puts on them
+  # (agentName + accountName) and filtered to the `-AgentIdentity` service principal; the
+  # sibling `-AgentIdentityBlueprint` carries the same tags and must NOT be granted (the
+  # blueprint authenticates to Entra, it does not call the model). Zero or more than one
+  # match is an error, never a guess.
+  #
+  # BOTH agents get the SAME role at the SAME scope, by construction: one loop, one role,
+  # one scope. Audit-vs-enforced stays the only variable.
+  #
+  # Cognitive Services OpenAI User (5e0bd9bd-...) carries OpenAI/responses/* and is the
+  # narrowest built-in role that includes responses/write.
+  #############################################
+
+  agent-access-plan:
+    desc: READ-ONLY. Show which agent identities lack model access on the account
+    cmds:
+      - task: _agent-access
+        vars: {APPLY: 'false'}
+
+  agent-access-up:
+    desc: Grant Cognitive Services OpenAI User on the account to both agent identities (idempotent)
+    cmds:
+      - task: _agent-access
+        vars: {APPLY: 'true'}
+
+  _agent-access:
+    internal: true
+    requires:
+      vars: [APPLY]
+    cmds:
+      - |
+        set -eu
+        ROLE_ID=5e0bd9bd-7b93-4f28-af87-19fc36ad61bd
+        T="terraform -chdir=./{{.CLOUD_DIR}} output -raw"
+        SCOPE=$($T foundry_account_id)
+        ACCOUNT=$($T foundry_account_name)
+        PROJECT=$($T project_name)
+        FAIL=0
+        for AGENT in $($T agent_name_audit) $($T agent_name_enforced); do
+          IDS=$(az ad sp list \
+            --filter "tags/any(t:t eq 'agentName:$AGENT') and tags/any(t:t eq 'accountName:$ACCOUNT') and tags/any(t:t eq 'projectName:$PROJECT')" \
+            --query "[?ends_with(displayName,'-AgentIdentity')].id" -o tsv --only-show-errors)
+          N=$(printf '%s\n' "$IDS" | grep -c . || true)
+          if [ "$N" -ne 1 ]; then
+            echo "$AGENT: expected exactly 1 agent identity, found $N. Has a version been created yet?" >&2
+            FAIL=1
+            continue
+          fi
+          HAVE=$(az role assignment list --assignee "$IDS" --scope "$SCOPE" \
+            --query "[?roleDefinitionId!=null && ends_with(roleDefinitionId,'$ROLE_ID')] | length(@)" -o tsv --only-show-errors)
+          if [ "$HAVE" != "0" ]; then
+            echo "$AGENT ($IDS): already has Cognitive Services OpenAI User on the account"
+          elif [ "{{.APPLY}}" = "true" ]; then
+            az role assignment create --assignee-object-id "$IDS" --assignee-principal-type ServicePrincipal \
+              --role "$ROLE_ID" --scope "$SCOPE" --only-show-errors -o none
+            echo "$AGENT ($IDS): GRANTED Cognitive Services OpenAI User on the account"
+          else
+            echo "$AGENT ($IDS): MISSING Cognitive Services OpenAI User on the account (plan only, nothing changed)"
+          fi
+        done
+        exit $FAIL
+
+  #############################################
   # Client harness on AKS (deploy/kustomize/base)
   #
   # kubectl + kustomize, NOT terraform.
