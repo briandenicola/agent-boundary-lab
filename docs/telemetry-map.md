@@ -281,6 +281,29 @@ Source: https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/monitor-ho
 
 ---
 
+## 0.7 Run `invoke-2b418248a499` — audit v6, `store=False`, observed 2026-10-09 (window 13:05:00Z–13:07:30Z, same workspace)
+
+**Verdict: INCONCLUSIVE for Gate 0 (no tool ran, no `demo_run_id` in any row). The 500 root cause IS now observed: the model call 404s.**
+
+1. **Exceptions, time order (`AppExceptions`; 3 identical sequences, one per attempt at 13:06:00, 13:06:19, 13:06:38Z):**
+   - 13:05:52Z (startup) `Failed to set up A365 OpenAI Agents instrumentation.` (`ModuleNotFoundError`, Warning; unrelated noise)
+   - `litellm.NotFoundError: AzureException NotFoundError - {"error":{"code":"404","message": "Resource not found"}}` ×3 (type `litellm.exceptions.NotFoundError`)
+   - `Node execution failed with exception`
+   - `Root node servicing_assistant failed.`
+   - `litellm.NotFoundError: …` (same text, 4th)
+   - `Handler raised before response.created (response_id=caresp_…)`
+   - `Handler error in sync create (response_id=caresp_…)`
+2. **`FoundryApiError … Persistence failed … Public access is disabled` is GONE** (0 rows, all 3 attempts). `store=False` removed it, as intended; log line confirms `store=False`. Verified by absence in this window only.
+3. **Full NotFoundError text (verbatim, in `Details[].message` and `rawStack`):** `litellm.NotFoundError: AzureException NotFoundError - {"error":{"code":"404","message": "Resource not found"}}`. The stack names the failing request: `Client error '404 Not Found' for url 'https://humble-phoenix-46689-foundry.cognitiveservices.azure.com/openai/responses?api-version=2024-10-21'`. The 404 comes from the **model endpoint** itself, not egress and not Foundry persistence. The service does not say which resource is missing. Candidate causes, NOT VERIFIED: deployment name `gpt-5.4-mini` not present on the account, or `api-version=2024-10-21` not supporting `/openai/responses`. Check deployments and the LiteLLM api-version setting.
+4. **`NetworkEgressDecision` rows (`Properties.host` / `decisionResultCode`, verbatim):**
+   - **Model endpoint:** `humble-phoenix-46689-foundry.cognitiveservices.azure.com` `/openai/responses` → `Allow` (rule `foundry-bizops-baggage-cognitive-services-openai`), 3 rows, 13:06:00.278Z (the 404 exception follows at 13:06:00.299Z).
+   - Everything else is `AuditWouldDeny`: `canadacentral-1.in.applicationinsights.azure.com` (`//v2.1/track`), `westus-0.in.applicationinsights.azure.com`, `canadacentral.livediagnostics.monitor.azure.com`, `settings.sdk.monitor.azure.com`, `agent365.svc.cloud.microsoft`, `raw.githubusercontent.com` (`/BerriAI/litellm/main/model_prices_and_context_window.json`). No Foundry storage call this run (consistent with `store=False`).
+5. **Tools: NOT attempted.** 0 rows in AppDependencies/AppTraces/AppExceptions mention `policy-api`, `test-receiver` or `invoke-2b418248a499`. Dependency spans present: `invocation`, `invoke_agent servicing_assistant`, `call_llm`, `generate_content azure/gpt-5.4-mini`, all `Success=False`, 3 each. The agent dies at the first model call.
+
+Correlation (unchanged): `x-request-id` = `trace-id` = app `OperationId` (e.g. `6c1bd415487d978fae8db1ddb416a485`); `demo_run_id` unobserved. Our app emits no `AppTraces` bearing the run id because no tool ran. Gate 0 remains open until a run gets past the model call.
+
+---
+
 ## 1. Layer 1 — application / tool traces (emitted by our own code)
 
 Source of truth: `src/containment_demo/telemetry.py`, `src/containment_demo/tools.py`,
