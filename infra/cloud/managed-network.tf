@@ -45,32 +45,18 @@ resource "azapi_resource" "foundry_self_pe_rule" {
 }
 
 #############################################
-# ISOLATION MODE (PROPOSED, ONE-WAY, NOT APPLIED)
+# ISOLATION MODE: AllowOnlyApprovedOutbound (ONE-WAY)
 #
-# managednetworks/default already exists (the platform created it as AllowInternetOutbound), so
-# this updates it in place rather than creating it. It touches only isolationMode and firewallSku;
-# the foundry-account-pe rule above stays a separate resource.
+# NOT managed by Terraform. managednetworks/default is created by the platform, and
+# azapi_update_resource could not read it ("update target does not exist") although a plain GET
+# works. The flip was made ONCE with `task cloud:network-probe` (PATCH; the call timed out but the
+# readback showed isolationMode AllowOnlyApprovedOutbound, firewallSku Standard). On a rebuilt
+# account run network-probe once before cloud:up. The FQDN rules below exist only in that mode.
 #
 # Experimental design: the two controlled hosts are allowed at the NETWORK layer for BOTH agents,
 # so the egress RAI policy stays the only variable between audit and enforced. See
 # test_endpoints_public in variables.tf. Hosts derive from the live ingress, never hardcoded.
 #############################################
-resource "azapi_update_resource" "managed_network_isolation" {
-  type        = "Microsoft.CognitiveServices/accounts/managednetworks@2025-10-01-preview"
-  resource_id = "${azapi_resource.foundry.id}/managednetworks/default"
-
-  body = {
-    properties = {
-      managedNetwork = {
-        isolationMode = var.managed_network_isolation_mode
-        firewallSku   = var.managed_network_firewall_sku
-      }
-    }
-  }
-
-  depends_on = [azapi_resource.foundry_self_pe_rule]
-}
-
 locals {
   approved_only = var.managed_network_isolation_mode == "AllowOnlyApprovedOutbound"
 
@@ -99,5 +85,5 @@ resource "azapi_resource" "network_fqdn_rule" {
     }
   }
 
-  depends_on = [azapi_update_resource.managed_network_isolation]
+  depends_on = [azapi_resource.foundry_self_pe_rule]
 }

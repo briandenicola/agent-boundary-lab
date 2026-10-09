@@ -298,20 +298,6 @@ variable "managed_network_isolation_mode" {
   }
 }
 
-variable "managed_network_firewall_sku" {
-  description = <<-EOT
-    SKU of the managed Azure Firewall that FQDN rules create. Learn: cannot be changed after the
-    firewall exists. Basic is cheaper; Standard is the documented default. OWNER DECISION before apply.
-  EOT
-  type        = string
-  default     = "Basic"
-
-  validation {
-    condition     = contains(["Basic", "Standard"], var.managed_network_firewall_sku)
-    error_message = "Use Basic or Standard."
-  }
-}
-
 variable "managed_network_extra_fqdns" {
   description = <<-EOT
     Extra FQDNs (ports 80/443 only) allowed at the network layer, beyond the two controlled

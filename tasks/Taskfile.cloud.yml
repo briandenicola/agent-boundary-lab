@@ -122,20 +122,20 @@ tasks:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
 
   network-plan:
-    desc: Show what the managed-network isolation change would do (creates nothing). Read before network-up
+    desc: Show the managed-network FQDN rules that network-up would create (creates nothing)
     cmds:
       - task: _init-once
-      - terraform -chdir=./{{.CLOUD_DIR}} plan -compact-warnings -target=azapi_update_resource.managed_network_isolation -target=azapi_resource.network_fqdn_rule -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" {{.EXTRA}}
+      - terraform -chdir=./{{.CLOUD_DIR}} plan -compact-warnings -target=azapi_resource.network_fqdn_rule -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" {{.EXTRA}}
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
       EXTRA: '{{default "" .TF_EXTRA}}'
 
   network-up:
-    desc: IRREVERSIBLE + BILLABLE. Sets the managed network to the configured isolation mode and creates the FQDN rules (managed Azure Firewall)
-    prompt: This is ONE-WAY (cannot return to AllowInternetOutbound without redeploying the account) and creates a billable Azure Firewall. Apply only the managed-network change?
+    desc: BILLABLE. Creates the managed-network FQDN rules, which creates the managed Azure Firewall (Standard; cannot change later)
+    prompt: This creates the billable managed Azure Firewall (Standard, cannot be changed later). Apply only the FQDN rules?
     cmds:
       - task: _init-once
-      - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -target=azapi_update_resource.managed_network_isolation -target=azapi_resource.network_fqdn_rule -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" {{.EXTRA}}
+      - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -target=azapi_resource.network_fqdn_rule -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" {{.EXTRA}}
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
       EXTRA: '{{default "" .TF_EXTRA}}'

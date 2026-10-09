@@ -182,9 +182,11 @@ rows (`AppDependencies`) and receipts (`ContainerAppConsoleLogs_CL`) sit in one 
 
 **Governance options (PROPOSED, none tested):** restrict who can create agent versions (RBAC); deploy only through a pipeline that always attaches a policy and reads it back; look for an Azure Policy or audit that flags agent versions with no `rai_config` (not verified that it can see this field).
 
-### PROPOSED: managed network `AllowOnlyApprovedOutbound` (not applied)
+### Managed network `AllowOnlyApprovedOutbound`
 
-**Today:** `managednetworks/default` is `AllowInternetOutbound`. No Terraform sets it; the platform created it (`compatibility.md` B9g). Do not describe the lab as default-deny at the network layer.
+**OBSERVED 2026-10-09 16:58 CT:** a one-time `task cloud:network-probe` PATCH (API 2025-10-01-preview) returned a service `TransientError` timeout, yet the readback showed `isolationMode: AllowOnlyApprovedOutbound`, `firewallSku: Standard`, `provisioningState: Succeeded`. Before the PATCH the account reported `changeableIsolationModes: []` and `firewallSku: Standard`. The flip is not in Terraform (azapi_update_resource could not read the resource although a GET works). **No FQDN rules exist yet**, so the managed firewall has not been created and agent behaviour after the flip is NOT yet verified.
+
+**Before the flip:** `managednetworks/default` was `AllowInternetOutbound` (`compatibility.md` B9g).
 
 **From Learn, managed-virtual-network (updated 2026-08-18, read 2026-10-09):**
 - The change is one-way: approved-only cannot go back to internet-outbound. Reverting means redeploying the account.
