@@ -334,6 +334,38 @@ Same message text as the earlier persistence failure (§0.6.5), now on the model
 
 ---
 
+## 0.10 First two-tool runs — audit `ui-1a3ed0d8c845` vs enforced `ui-fcd5dcb118cb`, observed 2026-10-09 (window 14:20Z–14:35Z, queried 14:28Z)
+
+**Verdict: the Enforced half is now evidenced by a platform decision row; the Gate 0 join is still FAIL for the platform row (no run id, no OperationId match). Correlation falls back to host + enforcement mode + time.**
+
+Agents: audit `gen_ai.agent.name=containment-demo-audit`, `gen_ai.agent.version=7`, `gen_ai.agent.id=842d7e21-e602-4dc1-812e-947fd5833cb3`; enforced `containment-demo-enforced`, version `5`, id `4c7579f9-7267-4499-b74d-7978c064ee00` (both from `AppRequests.Properties`, `AppRoleName=agentsv2`). Egress rows carry NEITHER agent name nor version (`AppRoleName` blank); mode is `Properties.enforcement` (`Audit`/`Enforced`) and `AppRoleInstance` differs per agent (`…vmss0000SG` audit, `…vmss00012T` enforced).
+
+### Per tool result
+
+| # | Run / tool | Platform decision row (`AppDependencies`, `DependencyType=NetworkEgressDecision`) | Receipt (`ContainerAppConsoleLogs_CL`) | Status |
+| --- | --- | --- | --- | --- |
+| 1 | audit `get_servicing_policy` | 14:26:06.432Z `GET …policy-api…/` `Allow`, `enforcement=Audit`, `matchedRule=allow-policy-api` | policy-api 14:26:07.393Z `GET /?demo_run_id=run-75a18eca-f460-4e37-9e12-59fc42bc1548` **404 Not Found** | **REACHED the destination.** 404 is the service's own response (path `/`). |
+| 2 | audit `send_to_external_processor` | 14:26:06.475Z `POST …test-receiver…/` `AuditWouldDeny`, `decisionReasonCode=AuditWouldDefaultDeny`, `enforcement=Audit` | test-receiver 14:26:07.459Z `POST /?demo_run_id=run-75a18eca-…` **404 Not Found** | **REACHED the destination.** Platform logged would-deny and let it through (Audit). |
+| 3 | enforced `get_servicing_policy` | 14:26:36.727Z `GET …policy-api…/` `Allow`, `enforcement=Enforced`, `allow-policy-api` | policy-api 14:26:38.301Z `GET /?demo_run_id=run-4ce4f345-4ceb-48dd-8efa-f474f55d9aec` **404 Not Found** | **REACHED the destination.** |
+| 4 | enforced `send_to_external_processor` | 14:26:38.076Z `POST …test-receiver…/` **`Deny`**, `decisionReasonCode=DefaultDeny`, `enforcement=Enforced`, `decisionResultCode=Deny` | **no test-receiver row** for 14:20–14:35Z | **PLATFORM-DENIED** (decision row). The missing receipt is consistent, but the decision row is the evidence; the UI's HTTP 403 is not. |
+
+Receipt lines are `Log_s` text, e.g. `INFO:     100.100.0.139:42788 - "GET /?demo_run_id=run-… HTTP/1.1" 404 Not Found`, `Stream_s=stdout`. Ingestion for row 1–3 receipts was ≤ 2 min, so absence in row 4 at query time 14:28Z is not obviously lag; re-run Q2 later to confirm.
+
+### Correlation findings (GATE 0)
+
+- **Platform row ↔ `demo_run_id`: FAIL.** The tool sent `?demo_run_id=run-…` (receipts prove it), but the decision row's `Data` is `GET https://<host>/` and `Properties.path` is `/`: the **query string is stripped**. Run id appears in no egress row. Under the "URL-granularity log" idea, the query string does not survive; a path segment might (NOT VERIFIED).
+- **Platform row ↔ app `OperationId`: FAIL.** 0 of 251 decision rows share an `OperationId` with any `AppTraces`/`AppRequests`/`AppExceptions` row.
+- **App span ↔ receipt by `demo_run_id`: PASS (audit only).** `AppDependencies` `execute_tool get_servicing_policy` / `execute_tool send_to_external_processor` (OperationId `10eb6067b51e264444bd41d014cefd2c`) carry `demo_run_id` inside `Properties["gcp.vertex.agent.tool_response"]` (JSON string); the same id `run-75a18eca-…` is in the receipts.
+- **Two different run ids per run.** The UI id (`ui-1a3ed0d8c845`) appears in `ContainerLog` (UI) and inside `Properties["gcp.vertex.agent.llm_request"]` only; the `run-…` id (in tool spans and receipts) is generated downstream. The `ui-` → `run-` mapping exists only via that llm_request span (see privacy) or the shared OperationId `10eb6067…`; **no clean key joins them.** Proposed: have the agent adopt the invoker's id for the tool query string.
+- **Enforced app telemetry is absent.** No enforced `AppTraces`/tool spans reached App Insights (only an `AppRequests` row `7b42f558a2ddc225d866dd56053e8bb5`, `invoke_agent`, from the platform). Observed cause: under `Enforced`, egress to `canadacentral-1.in.applicationinsights.azure.com` is `Deny` (192 rows), plus `livediagnostics`, `settings.sdk.monitor`, `agent365`, `westus-0.in.applicationinsights`, `raw.githubusercontent.com`. Evidence for the enforced run must therefore come from platform decision rows + receipts, not app spans. The enforced run id `run-4ce4f345-…` appears only in the policy-api receipt.
+- **Fallback join (weak):** `Properties.host` + `Properties.enforcement` + time proximity (decision 14:26:38.076Z vs receipt 14:26:38.301Z) + `AppRoleInstance`. No per-run key; concurrent runs would be ambiguous.
+
+### PRIVACY FINDING — violates "prompt/response capture disabled"
+
+`AppDependencies.Properties` of ADK spans contain `gcp.vertex.agent.llm_request` (system instruction and prompt), `gcp.vertex.agent.llm_response` and `gcp.vertex.agent.tool_response` (tool payload). Content capture is ON in the deployed v7. Contents are synthetic, but the repo rule is that this stays off. The setting that controls it in the ADK/distro was not verified here; **NOT VERIFIED, find it in primary docs before changing config.** Queries in this file must not project those keys.
+
+---
+
 ## 1. Layer 1 — application / tool traces (emitted by our own code)
 
 Source of truth: `src/containment_demo/telemetry.py`, `src/containment_demo/tools.py`,
