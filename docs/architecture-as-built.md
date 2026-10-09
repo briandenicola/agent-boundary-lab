@@ -184,7 +184,14 @@ rows (`AppDependencies`) and receipts (`ContainerAppConsoleLogs_CL`) sit in one 
 
 ### Managed network `AllowOnlyApprovedOutbound`
 
-**OBSERVED 2026-10-09 16:58 CT:** a one-time `task cloud:network-probe` PATCH (API 2025-10-01-preview) returned a service `TransientError` timeout, yet the readback showed `isolationMode: AllowOnlyApprovedOutbound`, `firewallSku: Standard`, `provisioningState: Succeeded`. Before the PATCH the account reported `changeableIsolationModes: []` and `firewallSku: Standard`. The flip is not in Terraform (azapi_update_resource could not read the resource although a GET works). **No FQDN rules exist yet**, so the managed firewall has not been created and agent behaviour after the flip is NOT yet verified.
+**OBSERVED 2026-10-09 16:58 CT:** a one-time `task cloud:network-probe` PATCH (API 2025-10-01-preview) returned a service `TransientError` timeout, yet the readback showed `isolationMode: AllowOnlyApprovedOutbound`, `firewallSku: Standard`, `provisioningState: Succeeded`. Before the PATCH the account reported `changeableIsolationModes: []` and `firewallSku: Standard`. The flip is not in Terraform (azapi_update_resource could not read the resource although a GET works).
+
+**OBSERVED 2026-10-09 17:30–17:55 CT (after the flip, before and after the FQDN rules):**
+- Before any FQDN rule: UI runs on both agents behaved exactly as before the flip, and `verify_demo.py` B and C PASSED (run ids `run-e9a8e59a-…`, `run-42bbd349-…`). So the flip alone changed nothing observable.
+- FQDN rules created with `task cloud:network-up` (Terraform, `-parallelism=1`; the first attempt created the three rules in parallel and ARM returned `Conflict`: "has an ongoing operation running"). Rules now `Active`: `fqdn-policy-api`, `fqdn-test-receiver`, `fqdn-appinsights` (`*.in.applicationinsights.azure.com`). The platform added `AzureActiveDirectory` and `AzureMachineLearning` service-tag rules itself. `firewallSku: Standard`, `enableFirewallLog: false`. `task cloud:plan` then reported no changes.
+- After the rules: `task a2a:send` on both slots (synthetic, no model) gave audit 200 + 202 and enforced 200 + 403, and `verify_demo.py` B and C PASSED (`run-dcd20774-…`, `run-b8bb0977-…`; enforced absence read 253 s after the call, with the positive control).
+- **NOT verified:** that the network layer itself denies an unlisted host. No third host was called. Both controlled hosts are on the network allow list, so these passes still prove only the egress RAI policy, not the managed network. Network-layer blocks are not logged ("no logging of outbound traffic support yet", Learn 2026-08-18); `enableFirewallLog` is untested.
+- **Not verified:** that App Insights export, the model call or ACR pulls needed the rules we added. None was removed to test.
 
 **Before the flip:** `managednetworks/default` was `AllowInternetOutbound` (`compatibility.md` B9g).
 
