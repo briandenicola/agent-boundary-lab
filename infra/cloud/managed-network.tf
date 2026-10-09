@@ -43,3 +43,61 @@ resource "azapi_resource" "foundry_self_pe_rule" {
 
   depends_on = [azurerm_role_assignment.foundry_network_approver]
 }
+
+#############################################
+# ISOLATION MODE (PROPOSED, ONE-WAY, NOT APPLIED)
+#
+# managednetworks/default already exists (the platform created it as AllowInternetOutbound), so
+# this updates it in place rather than creating it. It touches only isolationMode and firewallSku;
+# the foundry-account-pe rule above stays a separate resource.
+#
+# Experimental design: the two controlled hosts are allowed at the NETWORK layer for BOTH agents,
+# so the egress RAI policy stays the only variable between audit and enforced. See
+# test_endpoints_public in variables.tf. Hosts derive from the live ingress, never hardcoded.
+#############################################
+resource "azapi_update_resource" "managed_network_isolation" {
+  type        = "Microsoft.CognitiveServices/accounts/managednetworks@2025-10-01-preview"
+  resource_id = "${azapi_resource.foundry.id}/managednetworks/default"
+
+  body = {
+    properties = {
+      managedNetwork = {
+        isolationMode = var.managed_network_isolation_mode
+        firewallSku   = var.managed_network_firewall_sku
+      }
+    }
+  }
+
+  depends_on = [azapi_resource.foundry_self_pe_rule]
+}
+
+locals {
+  approved_only = var.managed_network_isolation_mode == "AllowOnlyApprovedOutbound"
+
+  network_fqdn_rules = local.approved_only ? merge(
+    {
+      "fqdn-policy-api"    = local.policy_api_host
+      "fqdn-test-receiver" = local.test_receiver_host
+      "fqdn-appinsights"   = "*.in.applicationinsights.azure.com"
+    },
+    { for i, h in var.managed_network_extra_fqdns : "fqdn-extra-${i}" => h }
+  ) : {}
+}
+
+resource "azapi_resource" "network_fqdn_rule" {
+  for_each                  = local.network_fqdn_rules
+  type                      = "Microsoft.CognitiveServices/accounts/managednetworks/outboundrules@2025-10-01-preview"
+  name                      = each.key
+  parent_id                 = "${azapi_resource.foundry.id}/managednetworks/default"
+  schema_validation_enabled = false
+
+  body = {
+    properties = {
+      type        = "FQDN"
+      category    = "UserDefined"
+      destination = each.value
+    }
+  }
+
+  depends_on = [azapi_update_resource.managed_network_isolation]
+}

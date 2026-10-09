@@ -272,3 +272,52 @@ variable "postgres_admin_username" {
   type        = string
   default     = "pgadmin"
 }
+
+#############################################
+# MANAGED NETWORK ISOLATION (PROPOSED, ONE-WAY)
+#############################################
+
+variable "managed_network_isolation_mode" {
+  description = <<-EOT
+    Outbound isolation mode of the Foundry managed network (hosted agents run in it).
+
+    AllowOnlyApprovedOutbound is deny-by-default at the NETWORK layer. Learn
+    (managed-virtual-network, read 2026-10-09): switching to it cannot be undone
+    (no return to AllowInternetOutbound; reverting means redeploying the account), and any FQDN rule
+    creates a managed Azure Firewall (billable). Managed-network outbound traffic is not logged
+    yet, so a network-layer block will NOT appear in our evidence queries.
+
+    The account was created as AllowInternetOutbound (compatibility.md B9g); nothing set it.
+  EOT
+  type        = string
+  default     = "AllowOnlyApprovedOutbound"
+
+  validation {
+    condition     = contains(["AllowInternetOutbound", "AllowOnlyApprovedOutbound"], var.managed_network_isolation_mode)
+    error_message = "Use AllowInternetOutbound or AllowOnlyApprovedOutbound."
+  }
+}
+
+variable "managed_network_firewall_sku" {
+  description = <<-EOT
+    SKU of the managed Azure Firewall that FQDN rules create. Learn: cannot be changed after the
+    firewall exists. Basic is cheaper; Standard is the documented default. OWNER DECISION before apply.
+  EOT
+  type        = string
+  default     = "Basic"
+
+  validation {
+    condition     = contains(["Basic", "Standard"], var.managed_network_firewall_sku)
+    error_message = "Use Basic or Standard."
+  }
+}
+
+variable "managed_network_extra_fqdns" {
+  description = <<-EOT
+    Extra FQDNs (ports 80/443 only) allowed at the network layer, beyond the two controlled
+    endpoints and Application Insights. Learn lists identity and mcr.microsoft.com hosts for Agents;
+    add only what testing shows is needed, so the allow list stays minimal.
+  EOT
+  type        = list(string)
+  default     = []
+}
