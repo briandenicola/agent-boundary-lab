@@ -121,6 +121,7 @@ for each side. Do **not** trust the model's prose: it misreported an enforced 40
   (the decision row times), at or just before the tool calls, not when the chat reply finished. On 2026-10-09 passing a time ~90 s
   after the real calls gave INCONCLUSIVE (`no platform decision row`); the correct time gave PASS. A wrong value yields INCONCLUSIVE, never a false pass.
   Use the earliest decision-row time (or your send time if the turn's tools start immediately) and re-run.
+- **Matched run ids (since `585ecf1`):** B and C print the run ids their queries actually returned for each check, and put them in the evidence JSON as `matched_run_ids`. Check that they equal the id you passed in. If rows come back but none carry that id, the result is INCONCLUSIVE ("run id mismatch"), never PASS. When no rows are found, the INCONCLUSIVE reason now says if `called-at` is later than the query time, later than query time minus the 180 s ingestion lag, or too late for the 30 s window. Runs before this change (§0.13) have inferred ids; §0.14 ids were printed.
 - **180 s wait:** enforced PASS needs the receipt log read at least 180 s after the call (under that it is INCONCLUSIVE). Wait, then run.
 - `--no-terraform` makes endpoints unresolvable (INCONCLUSIVE); run from a machine with Terraform state and a login that can read Log Analytics.
 - Exit `0` PASS, `1` FAIL, `2` INCONCLUSIVE. Only the platform decision rows and receipt presence or absence count, not agent-reported 202/403 and not the model's reply.
