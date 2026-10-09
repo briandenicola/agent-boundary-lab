@@ -244,3 +244,7 @@ Decision: `.squad/decisions/inbox/brett-adapter-await.md`. 244 unit tests pass, 
 - Built `demo_ui.py` + `tests/unit/test_demo_ui.py` (19 tests). Tamper-tested six guards: auth (test_run_requires_auth), slot allowlist (test_unknown_slot_rejected), no-pass determination, our-call label, CSRF header, no-secret logging; each broke exactly its test.
 - The UI needs the SDK (lazy import in invoke) so it cannot run in the agent image; added `demo-ui` extra.
 - `lint:manifests` only builds deploy/kustomize/base; the demo-ui dir is dry-run-validated by hand only.
+
+## Learnings: demo UI deploy
+- Included Taskfile tasks run with dir = the included file's dir; pass `{{.ROOT_DIR}}`-absolute paths. Task's shell lacks `$!`; use `timeout`.
+- Parker's client id output: `demo_ui_identity_client_id`. Tamper-tested: leftover-placeholder guard, bad-digest guard.

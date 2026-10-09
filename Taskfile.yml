@@ -25,6 +25,10 @@ includes:
     taskfile: ./tasks/Taskfile.build.yml
     internal: false
 
+  ui:
+    taskfile: ./tasks/Taskfile.ui.yml
+    internal: false
+
   spike:
     taskfile: ./tasks/Taskfile.spike.yml
     internal: false

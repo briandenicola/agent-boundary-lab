@@ -1,0 +1,200 @@
+version: '3'
+
+silent: true
+
+includes:
+  arm:
+    taskfile: ./Taskfile.arm.yml
+    internal: true
+
+# Demo test UI (issue #1). ClusterIP only: nothing is exposed beyond the cluster, and the
+# operator reaches it through `task ui:open` (a kubectl port-forward).
+#
+# The UI image is separate from the agent image. Nothing here reads, rebuilds or re-pins
+# the agent image digest, which is the experiment's control.
+#
+# Nothing rendered here is written to disk or to git. The UI token never appears on a
+# command line (no argv, so not in `ps`), in task output, or in a manifest.
+
+env:
+  CLOUD_DIR: infra/cloud
+  UI_REPOSITORY: containment-demo-ui
+  UI_SECRET: demo-ui-config
+  UI_LOCAL_PORT: '8080'
+
+tasks:
+  build:
+    desc: BUILDS IN AZURE. Build and push the demo UI image to ACR, print its digest
+    # .dockerignore rule: no entry may end in a slash (az acr build ignores such rules).
+    cmds:
+      - |
+        set -eu
+        ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)
+        echo "building demo UI image in $ACR"
+        az acr build \
+          --registry "$ACR" \
+          --image "${UI_REPOSITORY}:${UI_IMAGE_TAG:-latest}" \
+          --file Dockerfile.demo-ui \
+          .
+      - task: digest
+
+  digest:
+    desc: Print the demo UI image digest the manifests will pin
+    vars:
+      ACR_NAME:
+        sh: terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name
+    cmds:
+      - mkdir -p .task
+      - task: arm:_acr-digest
+        vars:
+          ACR: '{{.ACR_NAME}}'
+          REPOSITORY: containment-demo-ui
+          TAG: '{{.UI_IMAGE_TAG | default "latest"}}'
+          EXPLICIT: '{{.UI_IMAGE_DIGEST}}'
+          OUT: '{{.ROOT_DIR}}/.task/ui-digest'
+      - |
+        set -eu
+        echo "$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_login_server)/${UI_REPOSITORY}@$(cat .task/ui-digest)"
+
+  secret:
+    desc: CHANGES THE CLUSTER. Create the UI token Secret (random, never printed). Keeps an existing one unless ROTATE=1
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        if kubectl -n "$NS" get secret "$UI_SECRET" >/dev/null 2>&1 && [ "${ROTATE:-}" != "1" ]; then
+          echo "secret $UI_SECRET already exists in $NS; kept. Rotate with ROTATE=1 task ui:secret"
+          exit 0
+        fi
+        # Token goes through a pipe into --from-file, never argv.
+        openssl rand -hex 32 | tr -d '\n' \
+          | kubectl -n "$NS" create secret generic "$UI_SECRET" \
+              --from-file=DEMO_UI_TOKEN=/dev/stdin \
+              --dry-run=client -o yaml \
+          | kubectl -n "$NS" apply -f - >/dev/null
+        echo "secret $UI_SECRET written in $NS. Read it with: task ui:token"
+        if kubectl -n "$NS" get deployment demo-ui >/dev/null 2>&1; then
+          kubectl -n "$NS" rollout restart deployment/demo-ui >/dev/null
+          echo "restarted demo-ui to pick up the new token"
+        fi
+
+  token:
+    desc: PRINTS THE UI TOKEN. Use it as the password in the browser login prompt (any user name)
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        kubectl -n "$NS" get secret "$UI_SECRET" -o jsonpath='{.data.DEMO_UI_TOKEN}' | base64 -d
+        echo
+
+  render:
+    desc: Print the substituted UI manifests to stdout (no secrets in them; nothing written)
+    vars:
+      ACR_NAME:
+        sh: terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name
+    # Renders to stdout only. Prints placeholder NAMES, never values, on failure.
+    cmds:
+      - mkdir -p .task
+      - task: arm:_acr-digest
+        vars:
+          ACR: '{{.ACR_NAME}}'
+          REPOSITORY: containment-demo-ui
+          TAG: '{{.UI_IMAGE_TAG | default "latest"}}'
+          EXPLICIT: '{{.UI_IMAGE_DIGEST}}'
+          OUT: '{{.ROOT_DIR}}/.task/ui-digest'
+      - |
+        set -eu
+        TF="terraform -chdir=./{{.CLOUD_DIR}} output -raw"
+        DIGEST=$(cat .task/ui-digest)
+        case "$DIGEST" in
+          sha256:*) ;;
+          *) echo "UI image digest did not resolve to sha256:<64 hex>." >&2; exit 1 ;;
+        esac
+        IMAGE="$($TF acr_login_server)/${UI_REPOSITORY}@${DIGEST}"
+        NAMESPACE=$($TF kubernetes_namespace)
+        CLIENT_ID=$($TF demo_ui_identity_client_id)
+        ACCOUNT=$($TF foundry_account_name)
+        PROJECT=$($TF project_name)
+        AUDIT=$($TF agent_name_audit)
+        ENFORCED=$($TF agent_name_enforced)
+        RENDERED=$(kustomize build deploy/kustomize/demo-ui \
+          | sed -e "s|REPLACE_WITH_NAMESPACE|${NAMESPACE}|g" \
+                -e "s|REPLACE_WITH_DEMO_UI_CLIENT_ID|${CLIENT_ID}|g" \
+                -e "s|REPLACE_WITH_DEMO_UI_IMAGE|${IMAGE}|g" \
+                -e "s|REPLACE_WITH_FOUNDRY_ACCOUNT_NAME|${ACCOUNT}|g" \
+                -e "s|REPLACE_WITH_FOUNDRY_PROJECT_NAME|${PROJECT}|g" \
+                -e "s|REPLACE_WITH_AGENT_NAME_AUDIT|${AUDIT}|g" \
+                -e "s|REPLACE_WITH_AGENT_NAME_ENFORCED|${ENFORCED}|g")
+        LEFTOVER=$(printf '%s\n' "$RENDERED" | grep -o 'REPLACE_WITH_[A-Z0-9_]*' | sort -u || true)
+        if [ -n "$LEFTOVER" ]; then
+          echo "Refusing: these placeholders were not substituted:" >&2
+          echo "$LEFTOVER" >&2
+          exit 1
+        fi
+        printf '%s\n' "$RENDERED"
+
+  plan:
+    desc: Server-side dry run of the UI manifests (changes nothing)
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        task ui:render | kubectl apply --server-side --force-conflicts --dry-run=server -f -
+
+  up:
+    desc: CHANGES THE CLUSTER. Apply the UI manifests and wait for the rollout
+    prompt: This creates the demo UI deployment in the cluster (ClusterIP only). Continue?
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        kubectl -n "$NS" get secret "$UI_SECRET" >/dev/null 2>&1 || {
+          echo "Secret $UI_SECRET missing. Run 'task ui:secret' first." >&2; exit 1; }
+        task ui:render | kubectl apply --server-side --force-conflicts -f -
+        kubectl -n "$NS" rollout status deployment/demo-ui --timeout=180s
+
+  open:
+    desc: Reach the UI at http://localhost:8080 (port-forward; Ctrl-C to stop). Login password = task ui:token
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        echo "http://localhost:${UI_LOCAL_PORT}  (password: task ui:token)"
+        kubectl -n "$NS" port-forward svc/demo-ui "${UI_LOCAL_PORT}:80"
+
+  verify:
+    desc: Through a port-forward, expect 401 without the token and 200 with it
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        PORT="${UI_VERIFY_PORT:-18080}"
+        # Bounded by timeout rather than a PID: the task shell does not expose $!.
+        timeout 40 kubectl -n "$NS" port-forward svc/demo-ui "${PORT}:80" >/dev/null 2>&1 &
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+          curl -s -o /dev/null --max-time 2 "http://127.0.0.1:${PORT}/healthz" && break
+          sleep 1
+        done
+        NOAUTH=$(curl -s -o /dev/null --max-time 5 -w '%{http_code}' "http://127.0.0.1:${PORT}/")
+        # The header goes to curl on stdin so the token is not in argv.
+        WITH=$(kubectl -n "$NS" get secret "$UI_SECRET" -o jsonpath='{.data.DEMO_UI_TOKEN}' | base64 -d \
+          | { read -r T; printf 'header = "Authorization: Bearer %s"\n' "$T"; } \
+          | curl -s -o /dev/null --max-time 5 -w '%{http_code}' -K - "http://127.0.0.1:${PORT}/")
+        echo "without token: $NOAUTH (want 401)"
+        echo "with token:    $WITH (want 200)"
+        [ "$NOAUTH" = "401" ] && [ "$WITH" = "200" ]
+
+  _require-kubectl:
+    internal: true
+    cmds:
+      - |
+        for TOOL in kubectl kustomize openssl; do
+          command -v "$TOOL" >/dev/null 2>&1 || { echo "$TOOL not found on PATH." >&2; exit 1; }
+        done
+        kubectl config current-context >/dev/null 2>&1 || {
+          echo "No kubeconfig context. Run 'task cloud:kubeconfig' first." >&2; exit 1; }
