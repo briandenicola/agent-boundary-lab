@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: harness
+  namespace: REPLACE_WITH_NAMESPACE
+  labels:
+    app.kubernetes.io/part-of: agent-boundary-lab
+    app.kubernetes.io/name: harness
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: harness
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: harness
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: harness
+          # Own image (Dockerfile.harness): google-adk + litellm + a2a-sdk. NOT the agent image,
+          # whose digest is the experiment's control.
+          image: REPLACE_WITH_HARNESS_IMAGE
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: DEMO_RUN_LABEL
+              value: hosted
+            - name: LOCAL_MODEL_BASE_URL
+              value: http://local-model.REPLACE_WITH_NAMESPACE.svc.cluster.local/v1
+            - name: LOCAL_MODEL_NAME
+              value: local-model
+            - name: DEMO_A2A_FACADE_URL_AUDIT
+              value: http://a2a-facade-audit.REPLACE_WITH_NAMESPACE.svc.cluster.local
+            - name: DEMO_A2A_FACADE_URL_ENFORCED
+              value: http://a2a-facade-enforced.REPLACE_WITH_NAMESPACE.svc.cluster.local
+            - name: DEMO_A2A_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: a2a-facade-config
+                  key: DEMO_A2A_TOKEN
+            - name: DEMO_AGENT_NAME_AUDIT
+              value: REPLACE_WITH_AGENT_NAME_AUDIT
+            - name: DEMO_AGENT_NAME_ENFORCED
+              value: REPLACE_WITH_AGENT_NAME_ENFORCED
+          envFrom:
+            - secretRef:
+                name: harness-config
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {memory: 768Mi}
