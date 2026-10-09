@@ -1803,4 +1803,8 @@ protocolVersion, `A2A-Version` header, JSON-RPC method and URL path actually sen
 Authorization never recorded). `--send-option {jsonrpc-1.0,jsonrpc-0.3,http-0.3,all}` trims the card to one
 interface and pins `supported_protocol_bindings`. Source: a2a-sdk 1.0.2 `client/client_factory.py`,
 `client/transports/jsonrpc.py` (`SendMessage`), `compat/v0_3/jsonrpc_transport.py` (`message/send`).
-Results of each option: see below once run (none yet).
+**OBSERVED 2026-10-09** (audit only, one call each, digest sha256:7d99da3b...990bed, audit v14):
+- JSONRPC 1.0 (`SendMessage`, A2A-Version 1.0): HTTP 200, JSON-RPC -32099, reason `HOSTED_AGENT_NOT_SUPPORTED`, "Use a prompt agent as the A2A target."
+- JSONRPC 0.3 (`message/send`, A2A-Version 0.3): HTTP 200, -32099, `HostedAgentNotSupported`, same detail.
+- HTTP+JSON 0.3 (POST .../a2a/v1/message:send): HTTP 400 problem+json `hosted-agent-not-supported`, same detail. Labelled `failed/platform` by the spike (HTTP body not scanned for "not supported"); semantically the same signal.
+Conclusion (platform statement, not ours): the card advertises interfaces but the platform refuses message send to a hosted-agent target; a prompt agent is required.
