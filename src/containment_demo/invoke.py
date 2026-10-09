@@ -10,7 +10,8 @@ definitions of "the tool failed".
 
 The invocation contract, verified not invented
 ----------------------------------------------
-Our agent registers ``ProtocolVersionRecord(protocol="responses", version="v1")``
+Our agent registers a ``ProtocolVersionRecord`` for protocol ``responses`` (the version
+string lives in ``build_definition`` and is not repeated here, where it would go stale)
 (``containment_demo/deploy.py`` ``build_definition``) and is served by
 ``ResponsesAgentServerHost`` from ``azure-ai-agentserver-responses`` 2.2.0
 (``containment_demo/protocol_adapter.py``). So the ingress is the **Responses
@@ -67,6 +68,11 @@ from typing import Any
 from containment_demo.settings import ErrorCategory
 
 logger = logging.getLogger(__name__)
+
+#: Sent identically to every agent invoked. Our Foundry account has public access
+#: disabled, so the responses host's own persistence call fails after the handler has
+#: run. store=False asks the host not to persist; it is not a containment control.
+STORE_RESPONSE = False
 
 #: The two business tools. Both are always reported, in every result, in this order.
 #: Mirrors ``containment_demo.agent.REQUIRED_TOOL_NAMES`` and is asserted against it by
@@ -661,6 +667,7 @@ def invoke_agent(
             metadata={"demo_run_id": demo_run_id},
             extra_headers={"X-Demo-Run-Id": demo_run_id},
             extra_query={"demo_run_id": demo_run_id},
+            store=STORE_RESPONSE,
             timeout=timeout_seconds,
         )
     except Exception as exc:  # every failure kind is classified below, none masked

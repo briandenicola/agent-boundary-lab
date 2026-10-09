@@ -449,3 +449,30 @@ class TestTheControlIsAssertedNotAssumed:
 
     def test_the_control_check_result_is_a_plain_verdict(self) -> None:
         assert isinstance(compare_control(self._facts()), ControlCheck)
+
+
+class TestStoreIsDisabledIdenticallyForEveryAgent:
+    """The host's persistence call fails when the account has public access disabled.
+
+    store=False must go to every agent the same way, or audit-vs-enforced stops being
+    the only variable.
+    """
+
+    @staticmethod
+    def _call(agent: str) -> dict[str, object]:
+        client = _FakeClient(_response("{}"))
+        invoke_agent(
+            endpoint="https://example.invalid/api/projects/p",
+            agent_name=agent,
+            demo_run_id="run-store",
+            client=client,
+        )
+        return client.responses.calls[0]
+
+    def test_store_false_is_sent(self) -> None:
+        assert self._call("containment-demo-audit")["store"] is False
+
+    def test_both_agents_get_identical_request_parameters(self) -> None:
+        audit = self._call("containment-demo-audit")
+        enforced = self._call("containment-demo-enforced")
+        assert audit == enforced
