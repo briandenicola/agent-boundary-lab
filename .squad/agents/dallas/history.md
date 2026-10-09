@@ -326,3 +326,16 @@ produce exactly the correlation gap this change exists to close.
 - **Next:** Run Q0 with first invocation to test Layer 1 ↔ Layer 2 correlation. If Q0c shows URL-logged pattern, apply mitigation. Run Layer-3 queries.
 - **Note on deployment coupling:** This batch did not change deployed digests (decision merging only). However, Brett's poller fix changes `src/containment_demo/deploy.py`, so image digest changes on next build. Dallas's earlier `protocol_adapter.py` fix also changed digest (bug: `context.get_input_text()` not awaited). Until Brian rebuilds and redeploys both versions, live runs will carry Brett's fix but not the marker-in-query-string pattern if Dallas's PR is merged. Sequencing is Brian's call.
 
+
+### 2026-10-09 — Sections B and C: verdicts as pure functions
+
+Implemented B/C in `verify_demo.py` as functions of supplied rows, so the whole absence
+logic is testable offline. Key judgement: the permitted call's receipt for the same run,
+read in the same query, is the positive control for "no receiver receipt" — no extra
+query needed, and it reuses `classify_receipt_absence`. The 3-minute wait is measured
+from the later of the call and the Deny row, and `queried_at` is taken from the clock,
+not the operator. Exact-path matching matters: a prefix match lets run-abc claim run-abcd.
+Tamper-testing found five guards my tests did not actually pin (redundant checks whose
+removal changed nothing, or a verdict reachable through a later branch); I added tests
+asserting the *reason text* or the one-signal-of-two cases. 38+2 tests. Live KQL for
+decision rows is unexecuted; field locations come from telemetry-map §0.6.3.

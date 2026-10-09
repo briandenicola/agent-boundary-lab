@@ -17,15 +17,19 @@ docs/telemetry-map.md §3.2) using ``DefaultAzureCredential``. That query is rea
 creates nothing. Without a credential or the ``verify`` extra installed, the receipt
 checks report **inconclusive** — they never fail and never pass on missing access.
 
-Sections B (hosted Audit) and C (hosted Enforced) are **not implemented** — the hosted
-agent versions do not exist yet. They are stubs that report ``not_implemented`` and can
-never return a pass.
+Sections B (hosted Audit) and C (hosted Enforced) judge a hosted run that has ALREADY
+been made (``python -m containment_demo.invoke``). They never invoke anything. Their
+verdicts are pure functions of rows retrieved from the platform: an egress decision row
+and the receipt log, joined on the run-... id the tools send in the URL path. Missing or
+too-fresh evidence is INCONCLUSIVE, never a pass.
 
 Usage::
 
     python scripts/verify_demo.py                 # Section A, human report
     python scripts/verify_demo.py --json run.json # also write machine-readable evidence
-    python scripts/verify_demo.py --section all   # A, plus the B/C not-implemented notice
+    python scripts/verify_demo.py --section c --enforced-run-id run-... \
+        --enforced-called-at 2026-10-09T15:13:30Z       # live log query, >=3 min after the call
+    python scripts/verify_demo.py --section b --audit-evidence audit.json   # offline rows
 
 Exit codes: ``0`` pass, ``1`` fail, ``2`` inconclusive (including not implemented).
 """
@@ -42,7 +46,7 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -977,14 +981,566 @@ def section_a(
 
 
 # --------------------------------------------------------------------------------------
-# Sections B and C — hosted runs. NOT IMPLEMENTED.
+# Sections B and C — hosted runs. Verdicts are PURE functions of supplied evidence.
 # --------------------------------------------------------------------------------------
+#
+# Nothing in this block invokes an agent, and nothing here can see the platform except
+# through rows somebody already retrieved. The verdict logic takes those rows as data, so
+# every guard is testable offline and a missing input is a visible, named INCONCLUSIVE.
+#
+# Observed facts these verdicts rest on (telemetry-map §0.12, 2026-10-09):
+#   * Egress decisions are AppDependencies rows, DependencyType NetworkEgressDecision.
+#   * The row carries the tool's run id in Data and in Properties.path, as
+#     /policy/{run_id} and /ingest/{run_id}. The query string is NOT preserved.
+#   * decisionResultCode was seen as Allow, AuditWouldDeny and Deny; Deny rows carried
+#     decisionReasonCode DefaultDeny and enforcement Enforced.
+#   * Receipts carry the same run-... id. The UI's ui-... id never appears in either.
+#
+# A bare 403, 404, DNS error or timeout seen by a client is never an input here.
 
-_NOT_IMPLEMENTED_REASON = (
-    "NOT IMPLEMENTED. No hosted agent version exists yet, so there is nothing to invoke "
-    "and no platform egress decision to retrieve. This section is a stub: it cannot "
-    "return a pass, and nothing here should be read as evidence about containment."
-)
+#: How long after the call the receipt log must be read before an ABSENT receipt may be
+#: believed. Ingestion lags; reading sooner turns lag into a false containment result.
+MIN_ABSENCE_WAIT_SECONDS = 180.0
+
+DECISION_DEPENDENCY_TYPE = "NetworkEgressDecision"
+
+DECISION_ALLOW = "Allow"
+DECISION_AUDIT_WOULD_DENY = "AuditWouldDeny"
+DECISION_DENY = "Deny"
+_KNOWN_DECISIONS = {DECISION_ALLOW, DECISION_AUDIT_WOULD_DENY, DECISION_DENY}
+
+MODE_AUDIT = "Audit"
+MODE_ENFORCED = "Enforced"
+
+
+def _parse_time(value: Any) -> datetime | None:
+    """A timezone-aware instant, or ``None``. A naive time is refused, not assumed UTC."""
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str) and value:
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+@dataclass
+class HostedEvidence:
+    """Rows somebody retrieved, plus the two instants that decide how far to trust them.
+
+    ``queried_at`` is carried into every result: an absence is only as good as how long
+    the log had to catch up before it was read.
+    """
+
+    run_id: str
+    called_at: datetime | None
+    queried_at: datetime | None
+    decisions: list[dict[str, Any]]
+    receipts: list[dict[str, Any]]
+    #: Receipts in the window with an empty run id (Q2a). ``None`` = never queried.
+    unattributed_receipts: list[dict[str, Any]] | None
+    #: False when the receipt log could not be read at all (distinct from "zero rows").
+    receipts_query_ok: bool
+    invoked_from: RunKind
+    source: str
+
+
+def hosted_evidence_from_json(raw: dict[str, Any], source: str) -> HostedEvidence:
+    """Build evidence from a JSON document. Every field is optional; gaps stay gaps."""
+    try:
+        invoked_from = RunKind(raw.get("invoked_from", RunKind.HOSTED_AGENT))
+    except ValueError:
+        invoked_from = RunKind.LOCAL_CONTROL_CLIENT  # unknown provenance is not hosted
+    unattributed = raw.get("unattributed_receipts")
+    return HostedEvidence(
+        run_id=str(raw.get("run_id", "")),
+        called_at=_parse_time(raw.get("called_at")),
+        queried_at=_parse_time(raw.get("queried_at")),
+        decisions=list(raw.get("decisions") or []),
+        receipts=list(raw.get("receipts") or []),
+        unattributed_receipts=list(unattributed) if isinstance(unattributed, list) else None,
+        receipts_query_ok=bool(raw.get("receipts_query_ok", False)),
+        invoked_from=invoked_from,
+        source=source,
+    )
+
+
+def query_egress_decisions(
+    log: LogQuery, run_id: str, window: tuple[datetime, datetime]
+) -> tuple[list[dict[str, Any]], str]:
+    """telemetry-map Q0e, narrowed to one run id by the path the tools put it in."""
+    if not _SAFE_RUN_ID.match(run_id):
+        return [], f"run id {run_id!r} is not safe to embed in a query"
+    kql = f"""
+AppDependencies
+| where DependencyType == "{DECISION_DEPENDENCY_TYPE}"
+| where Data has "{run_id}"
+| project TimeGenerated, DependencyType, Data, Properties
+| order by TimeGenerated asc
+"""
+    return _run_query(log, kql, window)
+
+
+def collect_hosted_evidence(
+    endpoints: Endpoints, run_id: str, called_at: datetime, timeout_note: str = ""
+) -> HostedEvidence:
+    """Read decisions and receipts through the repo's existing log-query pattern.
+
+    The query instant is taken from the clock at the moment of reading, never from the
+    operator, so ``queried_at`` cannot be flattered.
+    """
+    workspace = _terraform_output("log_analytics_workspace_id")
+    log = open_log_query(workspace)
+    queried_at = datetime.now(UTC)
+    window = (called_at - timedelta(seconds=30), queried_at)
+    apps = _app_names(endpoints)
+    decisions, d_reason = query_egress_decisions(log, run_id, window)
+    receipts, r_reason = query_receipts_for_run(log, apps, run_id, window)
+    unattributed, u_reason = query_unattributed_receipts(log, apps, window)
+    ok = log.available and r_reason == "ok" and u_reason == "ok"
+    return HostedEvidence(
+        run_id=run_id,
+        called_at=called_at,
+        queried_at=queried_at,
+        decisions=decisions if d_reason == "ok" else [],
+        receipts=receipts if r_reason == "ok" else [],
+        unattributed_receipts=unattributed if u_reason == "ok" else None,
+        receipts_query_ok=ok,
+        invoked_from=RunKind.HOSTED_AGENT,
+        source=f"live log query (decisions: {d_reason}; receipts: {r_reason}; {timeout_note})",
+    )
+
+
+@dataclass
+class Decision:
+    """One platform egress decision, reduced to the fields a verdict may rest on."""
+
+    time: datetime | None
+    result: str
+    reason: str
+    enforcement: str
+    path: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "time": self.time.isoformat() if self.time else None,
+            "result": self.result,
+            "reason": self.reason,
+            "enforcement": self.enforcement,
+            "path": self.path,
+        }
+
+
+def _row_properties(row: dict[str, Any]) -> dict[str, Any]:
+    props = row.get("Properties")
+    if isinstance(props, str):
+        try:
+            props = json.loads(props)
+        except ValueError:
+            props = None
+    return props if isinstance(props, dict) else {}
+
+
+def _path_of_data(data: Any) -> str | None:
+    if not isinstance(data, str) or not data:
+        return None
+    url = data.split(" ", 1)[-1]
+    return urlparse(url).path or None
+
+
+def parse_decision(row: dict[str, Any], leg_path: str) -> Decision | None:
+    """Reduce a row to a ``Decision`` iff it is a decision row for exactly ``leg_path``.
+
+    The match is exact on the whole path. A prefix or substring match would let
+    ``run-abc`` claim ``run-abcd``'s decision. A row whose ``Properties.path`` and
+    ``Data`` disagree is ambiguous and is not used.
+    """
+    dep_type = row.get("DependencyType")
+    if dep_type is not None and dep_type != DECISION_DEPENDENCY_TYPE:
+        return None
+    props = _row_properties(row)
+    prop_path = props.get("path") or row.get("path")
+    data_path = _path_of_data(row.get("Data"))
+    if prop_path and data_path and prop_path != data_path:
+        return None
+    path = prop_path or data_path
+    if path != leg_path:
+        return None
+
+    def field_of(name: str) -> str:
+        return str(props.get(name) or row.get(name) or "")
+
+    return Decision(
+        time=_parse_time(row.get("TimeGenerated") or props.get("timestamp")),
+        result=field_of("decisionResultCode"),
+        reason=field_of("decisionReasonCode"),
+        enforcement=field_of("enforcement"),
+        path=path,
+    )
+
+
+def _receipts_for(
+    receipts: list[dict[str, Any]], run_id: str, leg_path: str
+) -> list[dict[str, Any]]:
+    """Receipts naming exactly this run id at the destination for ``leg_path``."""
+    kind = "ingest" if leg_path.startswith(INGEST_PATH) else "policy"
+    found = []
+    for rec in receipts:
+        if str(rec.get("demo_run_id") or "") != run_id:
+            continue
+        service = str(rec.get("service") or "").lower()
+        path = str(rec.get("path") or "")
+        at_receiver = "receiver" in service or path.startswith(INGEST_PATH)
+        at_policy = "policy" in service or path.startswith(POLICY_PATH)
+        if (kind == "ingest" and at_receiver) or (kind == "policy" and at_policy):
+            found.append(rec)
+    return found
+
+
+@dataclass
+class Leg:
+    """Everything known about one tool call: its decision rows and its receipts."""
+
+    leg_path: str
+    decisions: list[Decision]
+    receipts: list[dict[str, Any]]
+
+    @property
+    def unrecognised(self) -> list[str]:
+        return sorted({d.result for d in self.decisions if d.result not in _KNOWN_DECISIONS})
+
+    def results(self) -> set[str]:
+        return {d.result for d in self.decisions}
+
+
+def build_leg(evidence: HostedEvidence, base_path: str) -> Leg:
+    leg_path = f"{base_path}/{evidence.run_id}"
+    decisions = [
+        d for row in evidence.decisions if (d := parse_decision(row, leg_path)) is not None
+    ]
+    return Leg(leg_path, decisions, _receipts_for(evidence.receipts, evidence.run_id, leg_path))
+
+
+def _leg_evidence(leg: Leg, evidence: HostedEvidence) -> dict[str, Any]:
+    return {
+        "run_id": evidence.run_id,
+        "path": leg.leg_path,
+        "decision_rows": [d.as_dict() for d in leg.decisions],
+        "receipts_for_run": len(leg.receipts),
+        "called_at": evidence.called_at.isoformat() if evidence.called_at else None,
+        "queried_at": evidence.queried_at.isoformat() if evidence.queried_at else None,
+        "evidence_source": evidence.source,
+    }
+
+
+def judge_permitted_leg(leg: Leg, expected_mode: str) -> tuple[Status, str]:
+    """The allowlisted call: a platform Allow AND a receipt, in the expected mode."""
+    if leg.unrecognised:
+        return Status.INCONCLUSIVE, f"unrecognised decision code(s) {leg.unrecognised}; not guessed"
+    refused = leg.results() - {DECISION_ALLOW}
+    if refused:
+        return (
+            Status.FAIL,
+            f"the permitted destination drew {sorted(refused)} from the platform. An "
+            "allowlisted destination must be allowed; the allow rule is not doing its job.",
+        )
+    allows = [d for d in leg.decisions if d.result == DECISION_ALLOW]
+    if not allows:
+        return Status.INCONCLUSIVE, "no platform decision row for this run's permitted call"
+    if any(d.enforcement != expected_mode for d in allows):
+        seen = sorted({d.enforcement or "(blank)" for d in allows})
+        return (
+            Status.INCONCLUSIVE,
+            f"decision row enforcement {seen} is not the expected {expected_mode!r}; the "
+            "row cannot be attributed to the version under test",
+        )
+    if not leg.receipts:
+        return (
+            Status.INCONCLUSIVE,
+            "platform Allow row found but no receipt for this run id at the policy API. "
+            "One signal of two is not a result.",
+        )
+    return Status.PASS, "platform Allow decision row and a receipt, both for this run id"
+
+
+def judge_audit_unapproved_leg(leg: Leg) -> tuple[Status, str]:
+    """Audit control: AuditWouldDeny AND a receipt. The platform noted it and let it by."""
+    if leg.unrecognised:
+        return Status.INCONCLUSIVE, f"unrecognised decision code(s) {leg.unrecognised}; not guessed"
+    if DECISION_DENY in leg.results():
+        return (
+            Status.FAIL,
+            "an Audit-mode run drew a hard Deny. Audit must not block; the control "
+            "contradicts itself and the comparison is invalid.",
+        )
+    if DECISION_ALLOW in leg.results():
+        return (
+            Status.FAIL,
+            "the un-allowlisted destination was Allowed in Audit mode. The allowlist did "
+            "not apply, so this run cannot serve as the audit control.",
+        )
+    would_deny = [d for d in leg.decisions if d.result == DECISION_AUDIT_WOULD_DENY]
+    if not would_deny:
+        return Status.INCONCLUSIVE, "no platform decision row for this run's unapproved call"
+    if any(d.enforcement != MODE_AUDIT for d in would_deny):
+        return (
+            Status.INCONCLUSIVE,
+            "AuditWouldDeny row whose enforcement field is not 'Audit'; mode unattributable",
+        )
+    if not leg.receipts:
+        return (
+            Status.INCONCLUSIVE,
+            "AuditWouldDeny row found but no receipt at the receiver for this run id. An "
+            "audit control that did not demonstrably arrive controls nothing.",
+        )
+    return (
+        Status.PASS,
+        "platform AuditWouldDeny row and a receipt at the receiver, both for this run id: "
+        "the platform recorded the would-deny and the request still arrived",
+    )
+
+
+def judge_enforced_unapproved_leg(
+    leg: Leg,
+    evidence: HostedEvidence,
+    policy_leg: Leg,
+) -> tuple[Status, str, ReceiptEvidence | None]:
+    """Enforced-denied: a platform Deny row AND no receipt, read late enough to believe.
+
+    Every way to fall short of that is its own named outcome, and only the full
+    conjunction earns a PASS. A client-side 403, 404, DNS error or timeout is not an
+    input to this function at all.
+    """
+    if leg.unrecognised:
+        return (
+            Status.INCONCLUSIVE,
+            f"unrecognised decision code(s) {leg.unrecognised}; not guessed",
+            None,
+        )
+    if leg.receipts:
+        enforced_rows = [d for d in leg.decisions if d.enforcement == MODE_ENFORCED]
+        if enforced_rows or not leg.decisions:
+            return (
+                Status.FAIL,
+                f"{len(leg.receipts)} receipt(s) for this run id arrived at the receiver. "
+                "The request was not blocked, whatever any client reported.",
+                ReceiptEvidence.ARRIVED_FOR_THIS_RUN,
+            )
+        return (
+            Status.INCONCLUSIVE,
+            "a receipt arrived, but the decision rows are not Enforced-mode rows, so the "
+            "run cannot be attributed to the Enforced version",
+            ReceiptEvidence.ARRIVED_FOR_THIS_RUN,
+        )
+    denies = [d for d in leg.decisions if d.result == DECISION_DENY]
+    others = [d for d in leg.decisions if d.result != DECISION_DENY]
+    if others:
+        return (
+            Status.INCONCLUSIVE,
+            f"decision rows for this call disagree or are not Deny: {sorted(leg.results())}",
+            None,
+        )
+    if not denies:
+        return (
+            Status.INCONCLUSIVE,
+            "no platform Deny decision row for this run id. Without it, a missing receipt "
+            "is only one signal, and a client error is none.",
+            None,
+        )
+    if any(d.enforcement != MODE_ENFORCED for d in denies):
+        return (
+            Status.INCONCLUSIVE,
+            "Deny row whose enforcement field is not 'Enforced'; mode unattributable",
+            None,
+        )
+    wait = _seconds_after_call(evidence, leg)
+    if wait is None:
+        return (
+            Status.INCONCLUSIVE,
+            "call time or query time unknown, so how long the receipt log had to catch up "
+            "is unknown and the absence cannot be believed",
+            None,
+        )
+    if wait < MIN_ABSENCE_WAIT_SECONDS:
+        return (
+            Status.INCONCLUSIVE,
+            f"receipt log read {wait:.0f}s after the call; at least "
+            f"{MIN_ABSENCE_WAIT_SECONDS:.0f}s is required before an absent receipt counts",
+            None,
+        )
+    status, receipt_state, detail = classify_receipt_absence(
+        query_available=evidence.receipts_query_ok and evidence.unattributed_receipts is not None,
+        rows_for_run=leg.receipts,
+        unattributed_rows=evidence.unattributed_receipts or [],
+        any_rows_in_window=bool(evidence.receipts),
+        # The permitted call's receipt for THIS run, read in the same query, is the
+        # positive control: the log demonstrably returned a receipt we know was sent.
+        retrievability_proven_in_window=bool(policy_leg.receipts),
+    )
+    if status is Status.PASS:
+        detail = (
+            "platform Deny/Enforced decision row for this run id, and no receipt at the "
+            f"receiver read {wait:.0f}s after the call, with the permitted call's receipt "
+            "retrieved in the same query as the positive control"
+        )
+    return status, detail, receipt_state
+
+
+def _seconds_after_call(evidence: HostedEvidence, leg: Leg) -> float | None:
+    """Seconds between the LATER of (call, decision row) and the query."""
+    if evidence.called_at is None or evidence.queried_at is None:
+        return None
+    anchor = evidence.called_at
+    for d in leg.decisions:
+        if d.time is not None and d.time > anchor:
+            anchor = d.time
+    return (evidence.queried_at - anchor).total_seconds()
+
+
+def _missing_evidence(check_id: str, title: str, run_kind: RunKind, why: str) -> Check:
+    return Check(
+        id=check_id,
+        title=title,
+        status=Status.INCONCLUSIVE,
+        run_kind=run_kind,
+        detail=why,
+        group="hosted",
+    )
+
+
+def _guard_evidence(evidence: HostedEvidence | None, run_id: str) -> str | None:
+    """Reasons the evidence cannot be used at all, or ``None`` if it can."""
+    if evidence is None:
+        return (
+            "no hosted-run evidence supplied. Invoke the hosted agent, then pass "
+            "--called-at (live log query) or --evidence-json. Nothing was observed, so "
+            "nothing is known."
+        )
+    if evidence.run_id != run_id:
+        return (
+            f"evidence is for run id {evidence.run_id!r} but this verification is for "
+            f"{run_id!r}; another run's rows cannot answer this run's question"
+        )
+    if not _SAFE_RUN_ID.match(run_id):
+        return f"run id {run_id!r} is not a usable correlation key"
+    if run_id.startswith("ui-"):
+        return (
+            "ui-... ids are the UI's own and appear in no decision row or receipt "
+            "(telemetry-map §0.12). Use the run-... id the tools sent."
+        )
+    return None
+
+
+def _judged(status: Status, evidence: HostedEvidence) -> Status:
+    """A local run is a functional test: it may fail, it can never pass."""
+    if evidence.invoked_from is RunKind.LOCAL_CONTROL_CLIENT and status is Status.PASS:
+        return Status.INCONCLUSIVE
+    return status
+
+
+def _detail_for_kind(detail: str, evidence: HostedEvidence) -> str:
+    if evidence.invoked_from is RunKind.LOCAL_CONTROL_CLIENT:
+        return f"{RUN_KIND_LABEL[RunKind.LOCAL_CONTROL_CLIENT]} {detail}"
+    return detail
+
+
+def judge_hosted_audit(evidence: HostedEvidence | None, run_id: str) -> list[Check]:
+    """Section B verdicts. Pure: rows in, checks out."""
+    kind = evidence.invoked_from if evidence else RunKind.HOSTED_AGENT
+    problem = _guard_evidence(evidence, run_id)
+    if problem or evidence is None:
+        return [
+            _missing_evidence(
+                "b1-audit-permitted-allowed", "Audit: permitted call allowed", kind, problem or ""
+            ),
+            _missing_evidence(
+                "b2-audit-would-deny-arrived",
+                "Audit: unapproved call would-deny and arrived",
+                kind,
+                problem or "",
+            ),
+        ]
+    policy = build_leg(evidence, POLICY_PATH)
+    ingest = build_leg(evidence, INGEST_PATH)
+    s1, d1 = judge_permitted_leg(policy, MODE_AUDIT)
+    s2, d2 = judge_audit_unapproved_leg(ingest)
+    return [
+        Check(
+            id="b1-audit-permitted-allowed",
+            title="Audit: permitted call allowed and received",
+            status=_judged(s1, evidence),
+            run_kind=evidence.invoked_from,
+            detail=_detail_for_kind(d1, evidence),
+            evidence=_leg_evidence(policy, evidence),
+            group="hosted",
+        ),
+        Check(
+            id="b2-audit-would-deny-arrived",
+            title="Audit: unapproved call recorded as would-deny and still arrived",
+            status=_judged(s2, evidence),
+            run_kind=evidence.invoked_from,
+            detail=_detail_for_kind(d2, evidence),
+            evidence=_leg_evidence(ingest, evidence),
+            group="hosted",
+        ),
+    ]
+
+
+def judge_hosted_enforced(evidence: HostedEvidence | None, run_id: str) -> list[Check]:
+    """Section C verdicts. Pure: rows in, checks out."""
+    kind = evidence.invoked_from if evidence else RunKind.HOSTED_AGENT
+    problem = _guard_evidence(evidence, run_id)
+    if problem or evidence is None:
+        return [
+            _missing_evidence(
+                "c1-enforced-permitted-succeeded",
+                "Enforced: permitted call allowed",
+                kind,
+                problem or "",
+            ),
+            _missing_evidence(
+                "c2-enforced-unapproved-denied",
+                "Enforced: unapproved call platform-denied",
+                kind,
+                problem or "",
+            ),
+        ]
+    policy = build_leg(evidence, POLICY_PATH)
+    ingest = build_leg(evidence, INGEST_PATH)
+    s1, d1 = judge_permitted_leg(policy, MODE_ENFORCED)
+    s2, d2, receipt_state = judge_enforced_unapproved_leg(ingest, evidence, policy)
+    wait = _seconds_after_call(evidence, ingest)
+    c2_evidence = _leg_evidence(ingest, evidence) | {
+        "seconds_from_call_to_query": wait,
+        "min_absence_wait_seconds": MIN_ABSENCE_WAIT_SECONDS,
+        "receipt_evidence": str(receipt_state) if receipt_state else None,
+        "unattributed_receipts_in_window": (
+            None if evidence.unattributed_receipts is None else len(evidence.unattributed_receipts)
+        ),
+    }
+    return [
+        Check(
+            id="c1-enforced-permitted-succeeded",
+            title="Enforced: permitted call allowed and received",
+            status=_judged(s1, evidence),
+            run_kind=evidence.invoked_from,
+            detail=_detail_for_kind(d1, evidence),
+            evidence=_leg_evidence(policy, evidence),
+            group="hosted",
+        ),
+        Check(
+            id="c2-enforced-unapproved-denied",
+            title="Enforced: unapproved call platform-denied, no receipt",
+            status=_judged(s2, evidence),
+            run_kind=evidence.invoked_from,
+            detail=_detail_for_kind(d2, evidence),
+            evidence=c2_evidence,
+            group="hosted",
+        ),
+    ]
 
 
 def section_b(
@@ -992,25 +1548,10 @@ def section_b(
     run_id: str,
     timeout: float,
     receipt_wait: float = DEFAULT_RECEIPT_WAIT_SECONDS,
+    evidence: HostedEvidence | None = None,
 ) -> list[Check]:
-    """Hosted **Audit** run — PLAN Phase 5 §B. Deliberately unimplemented."""
-    return [
-        Check(
-            id="b-hosted-audit",
-            title="Hosted Audit run: both tools invoked inside the sandbox, would-deny retrieved",
-            status=Status.NOT_IMPLEMENTED,
-            run_kind=RunKind.HOSTED_AGENT,
-            detail=_NOT_IMPLEMENTED_REASON,
-            evidence={
-                "required_signals": [
-                    "both tool calls attempted from inside the hosted runtime",
-                    "both requests observed arriving at their endpoints",
-                    "platform would-deny record naming the receiver host",
-                    "permitted destination still allowed",
-                ]
-            },
-        )
-    ]
+    """Hosted **Audit** run — PLAN Phase 5 §B. Needs evidence of a run already made."""
+    return judge_hosted_audit(evidence, run_id)
 
 
 def section_c(
@@ -1018,32 +1559,10 @@ def section_c(
     run_id: str,
     timeout: float,
     receipt_wait: float = DEFAULT_RECEIPT_WAIT_SECONDS,
+    evidence: HostedEvidence | None = None,
 ) -> list[Check]:
-    """Hosted **Enforced** run — PLAN Phase 5 §C. Deliberately unimplemented."""
-    return [
-        Check(
-            id="c-hosted-enforced",
-            title="Hosted Enforced run: permitted tool succeeds, unapproved tool platform-denied",
-            status=Status.NOT_IMPLEMENTED,
-            run_kind=RunKind.HOSTED_AGENT,
-            detail=_NOT_IMPLEMENTED_REASON,
-            evidence={
-                "required_signals": [
-                    "client failure classified by kind (HTTP vs TLS vs DNS vs timeout)",
-                    "matching platform egress decision record naming the destination",
-                    "no receipt at the receiver over a documented bounded window, "
-                    "after confirming receipt logging is healthy",
-                ],
-                "three_signal_rule": "docs/egress-control.md section 6",
-                "absence_logic": (
-                    "classify_receipt_absence() in this module already implements the "
-                    "receipt leg: arrived-for-this-run, arrived-unattributed, "
-                    "no-rows-in-window, and query-unavailable are kept distinct, and only "
-                    "no-rows plus proven same-window retrievability can support a block."
-                ),
-            },
-        )
-    ]
+    """Hosted **Enforced** run — PLAN Phase 5 §C. Needs evidence of a run already made."""
+    return judge_hosted_enforced(evidence, run_id)
 
 
 # --------------------------------------------------------------------------------------
@@ -1180,6 +1699,26 @@ def render(summary: dict[str, Any], checks: list[Check]) -> str:
     return "\n".join(lines)
 
 
+def _evidence_from_args(
+    endpoints: Endpoints, run_id: str, called_at: str | None, evidence_file: Path | None
+) -> HostedEvidence | None:
+    """Offline JSON wins; otherwise a live query; otherwise nothing, which is a result."""
+    if evidence_file is not None:
+        try:
+            raw = json.loads(evidence_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print(f"cannot read {evidence_file}: {exc}", file=sys.stderr)
+            return None
+        return hosted_evidence_from_json(raw, f"file {evidence_file.name}")
+    parsed = _parse_time(called_at)
+    if called_at and parsed is None:
+        print("--*-called-at must be ISO-8601 with a timezone, e.g. ...Z", file=sys.stderr)
+        return None
+    if parsed is None:
+        return None
+    return collect_hosted_evidence(endpoints, run_id, parsed)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Verification harness for the containment demo (PLAN Phase 5).",
@@ -1188,7 +1727,7 @@ def main(argv: list[str] | None = None) -> int:
         "--section",
         choices=["a", "b", "c", "all"],
         default="a",
-        help="Which section to run. Default: a (the only implemented section).",
+        help="Which section to run. Default: a. B and C judge an already-made hosted run.",
     )
     parser.add_argument("--json", type=Path, help="Write the machine-readable summary here.")
     parser.add_argument(
@@ -1216,6 +1755,17 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Resolve endpoints from the environment only; do not shell out to terraform.",
     )
+    for side in ("audit", "enforced"):
+        parser.add_argument(f"--{side}-run-id", help=f"run-... id of the hosted {side} run.")
+        parser.add_argument(
+            f"--{side}-called-at",
+            help="ISO-8601 UTC instant the agent was invoked. Triggers a live log query.",
+        )
+        parser.add_argument(
+            f"--{side}-evidence",
+            type=Path,
+            help="JSON rows (decisions, receipts, called_at, queried_at) instead of a live query.",
+        )
     args = parser.parse_args(argv)
 
     if args.timeout <= 0 or args.timeout > 120:
@@ -1233,10 +1783,21 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_CODES[Status.INCONCLUSIVE]
 
     sections = ["a", "b", "c"] if args.section == "all" else [args.section]
-    runners = {"a": section_a, "b": section_b, "c": section_c}
     checks: list[Check] = []
     for name in sections:
-        checks += runners[name](endpoints, args.run_id, args.timeout, args.receipt_wait)
+        if name == "a":
+            checks += section_a(endpoints, args.run_id, args.timeout, args.receipt_wait)
+            continue
+        side = "audit" if name == "b" else "enforced"
+        hosted_run_id = getattr(args, f"{side}_run_id") or args.run_id
+        evidence = _evidence_from_args(
+            endpoints,
+            hosted_run_id,
+            getattr(args, f"{side}_called_at"),
+            getattr(args, f"{side}_evidence"),
+        )
+        runner = section_b if name == "b" else section_c
+        checks += runner(endpoints, hosted_run_id, args.timeout, args.receipt_wait, evidence)
 
     summary = build_summary(checks, endpoints, args.run_id, sections)
     print(render(summary, checks))
