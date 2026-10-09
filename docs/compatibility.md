@@ -1637,6 +1637,39 @@ substitution rather than hiding it.
 2. **The agent card lives at a non-standard path.** Generic A2A SDK resolvers default to
    `.well-known/agent-card.json` and will miss it; pass an explicit `agent_card_path`.
 
+#### B5a — A2A spike plan (PROPOSED, UNVERIFIED; nothing has been run)
+
+Accessed **2026-10-09**. Sources: the Learn page above (`ms.date: 2026-09-11`, re-read in
+full), and the installed `azure-ai-projects 2.8.0` source under
+`.../site-packages/azure/ai/projects/` (the deploy-venv copy; `models/_models.py:420`
+`A2AProtocolConfiguration`, `:633` `AgentCard`, `:671` `AgentCardSkill`, `:1128`
+`AgentEndpointConfig`, `:16592` `ProtocolConfiguration`; `operations/_operations.py:6144`
+`AgentsOperations.update_details`).
+
+| Question | Answer | Status |
+| --- | --- | --- |
+| Mechanism | One `PATCH /agents/{name}?api-version=v1` (`application/merge-patch+json`) with `agent_card{version,description,skills[]}` and `agent_endpoint.protocol_configuration{responses:{},a2a:{}}`. SDK: `project.agents.update_details(agent_name=, agent_endpoint=AgentEndpointConfig(protocol_configuration=ProtocolConfiguration(responses=ResponsesProtocolConfiguration(), a2a=A2AProtocolConfiguration())), agent_card=AgentCard(...))` | **Documented** (prompt agents); the SDK surface is **verified present** in source |
+| Target | The AGENT (`/agents/{name}`), not an agent VERSION. Re-PATCH is a merge-patch | Read from `update_details` source |
+| Does it work for a hosted container agent? | The page says "Incoming A2A requires the responses protocol", names only prompt agents, and lists "a deployed prompt agent" as the prerequisite | **UNKNOWN** |
+| Must `protocol_versions` on the hosted definition also list `a2a`? | `AgentEndpointProtocol` and `ProtocolVersionRecord.protocol` accept `"a2a"` (`_enums.py:135`), and `A2AProtocolVersion` has only `1.0` (`_enums.py:60`). Nothing says a container definition needs it | **UNKNOWN**. Not changed: adding it would create a new version and change the digest-pinned experiment |
+| Must the container serve anything for A2A? | Not documented. Our container serves only the Responses protocol; the platform fronts A2A | **UNKNOWN** |
+| Reference repo | `briandenicola/banking-agent-foundry-orchestrator` `src/agents/deployer/deploy.py:171` registers `invocations` `2.0.0` only; no A2A anywhere in it | Nothing to crib |
+| A2A client SDK | `a2a-sdk` is NOT installed in any local venv, so its method names are not verified here. The spike uses the exact calls from the Learn page (`A2ACardResolver`, `ClientConfig`, `create_client`, `SendMessageRequest`, `new_text_message`) behind a lazy import | **UNVERIFIED** |
+| JSON-RPC method name | Not hand-written. The `message/send` wording in the task is the v0.3 name; v1.0 names are carried by the SDK. We do not guess | **UNKNOWN** |
+| Version pin | `A2A-Version: 1.0` header AND the resolved `agentCard/v1.0` card, which agree (differing values return 400 `version-ambiguous`) | Documented |
+
+Spike code: `src/containment_demo/a2a_spike.py` (tests: `tests/unit/test_a2a_spike.py`). It is
+**read-only by default**; `--enable` PATCHes one agent and `--send` sends one message. Its
+verdict is always `inconclusive-a2a-unverified`. A failure is attributed to OUR call
+(transport, 401/403) or to the PLATFORM; only a platform 400/404/405/415/501 on the enable or
+card step is recorded as an `unsupported-signal`, which is a signal and not a conclusion.
+
+The Foundry data plane is private, so this must run inside the VNet, with an identity holding
+Foundry Agent Consumer to read the card and send, and a role that may PATCH an agent for
+`--enable`. The demo UI identity has only Agent Consumer.
+
+Recorded results: none yet.
+
 #### MCP is excluded from the containment path — by design, not oversight
 
 Accessed **2026-10-08**,

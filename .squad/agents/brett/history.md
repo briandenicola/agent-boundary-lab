@@ -248,3 +248,6 @@ Decision: `.squad/decisions/inbox/brett-adapter-await.md`. 244 unit tests pass, 
 ## Learnings: demo UI deploy
 - Included Taskfile tasks run with dir = the included file's dir; pass `{{.ROOT_DIR}}`-absolute paths. Task's shell lacks `$!`; use `timeout`.
 - Parker's client id output: `demo_ui_identity_client_id`. Tamper-tested: leftover-placeholder guard, bad-digest guard.
+
+## Learnings: A2A spike
+- `AgentsOperations.update_details` (azure-ai-projects 2.8.0 operations/_operations.py:6144) merge-patches agent_endpoint + agent_card on the AGENT. a2a-sdk is not installed locally; reference repo has no A2A. Hosted-container support remains UNKNOWN.
