@@ -1444,6 +1444,17 @@ diagnosed. B10 notes 2 vCPU on a D4s_v3 will be no faster. Do not assume AKS fix
 - Page-cache effects on first load after pod start, and noisy neighbours on the shared node (B10 shows node 1 CPU 54% requested).
 - Whether a dedicated node pool (B10) is needed.
 
+**Thread tuning on AKS, measured 2026-10-09 (approved by Brian; namespace `agent-boundary-lab` only).** Method: three direct `/v1/chat/completions` calls per setting from the harness pod
+(355-token synthetic prompt, 64 generated tokens, temperature 0, `cache_prompt: false`; an earlier run without it hit the prompt cache and is discarded), medians of the server's `timings`. No Foundry calls.
+
+| LLAMA_THREADS | CPU request | prompt tok/s (median) | gen tok/s (median) | Node pressure |
+|---|---|---|---|---|
+| 2 (current) | 2000m | 32.5 | 5.41 | none; node 3 CPU requests 2910m of 3860m (75%) |
+| 3 | 2900m | 32.8 | 5.94 | none reported, but node 3 left with ~50m unrequested CPU; `kubectl top` node 3 1358m (35%) |
+| 4 | not tried | n/a | n/a | needs a request of at least 4000m, above the 3860m allocatable of both nodes; would not schedule honestly, and nodes may not be resized here |
+
+3 threads needs a 2900m request to fit on node 3 (3 CPU does not fit: 3910m > 3860m). It gives +10% generation and no prompt speed-up, so decode looks memory-bandwidth bound, not core bound. That gain does not justify leaving node 3 with no scheduling headroom, so the manifest stays at 2 threads / 2000m and is what is deployed. A node pool with more cores (B10) is the route to a real speed-up. Not measured: ctx size, `--mlock`, CFS throttling counters.
+
 ### B13. PROPOSED / UNTESTED: harness agent and chat path (code and unit tests only, 2026-10-09)
 
 Covers the code side of issues #2 and #3; both stay open. Nothing here was built into an image, deployed, or run against a model or a façade. Unit tests use fakes (no network).
