@@ -530,15 +530,18 @@ request script, and **the Foundry egress policy does not govern it**. It runs on
 the VNet standing in for on-premises; it is not on-premises and must never be described as
 if it were.
 
-**Blocked — Blocker 5:** incoming A2A is confirmed for **prompt agents** only. Ours is a
-hosted **container** agent that happens to use the required Responses protocol. No primary
-source confirms or denies our case.
-**Unblocked by:** a spike that enables A2A on a hosted container agent.
-**Fallback, cheap and pre-agreed:** call the agent over Responses directly and record the
-substitution. Containment is unaffected — how the harness *reaches* the agent has no
-bearing on what the agent's tools can *reach*.
-**Do not write A2A-on-hosted-container-agents into any report as tested until the spike
-proves it.**
+**Blocker 5 — RESOLVED as unsupported (native), with a supported route (2026-10-09).**
+Native incoming A2A on a hosted **container** agent is **unsupported**: the platform answered
+`HOSTED_AGENT_NOT_SUPPORTED` ("Use a prompt agent as the A2A target") on every advertised
+binding (OBSERVED, `docs/compatibility.md` B5d). Do **not** write native inbound A2A on
+hosted agents into any report as working.
+**Supported route (PROPOSED/UNVERIFIED until deployed and called): the A2A façade**
+(`src/containment_demo/a2a_facade/`, B5e). Hosted agents are invoked through Responses; the
+façade exposes them as A2A. It is the documented "custom A2A server" option, not the
+platform's A2A endpoint, and it is not policy-governed. Containment is unaffected: how a
+caller reaches the agent has no bearing on what the agent's tools can reach. Audit and
+enforced differ only by policy, so the audit agent's native A2A is switched off again
+(`task cloud:a2a-disable`, UNVERIFIED until the card reads `endpoint-protocol-not-enabled`).
 
 **Tested result:** none in this phase yet.
 

@@ -271,3 +271,9 @@ Decision: `.squad/decisions/inbox/brett-adapter-await.md`. 244 unit tests pass, 
 ## Learnings: A2A send classification (2026-10-09)
 - A JSON-RPC error in an HTTP 200 body is a platform answer; a2a-sdk maps unknown codes to `A2AClientError("JSON-RPC Error {code}: {message}")`, so parse the text or the wire body (a2a/client/transports/jsonrpc.py ~321).
 - To force one option, trim the card's supported_interfaces to one entry and set ClientConfig.supported_protocol_bindings (client_factory.py `_find_best_interface` otherwise prefers 1.0). v1.0 method `SendMessage`; v0.3 compat `message/send`.
+
+## Learnings: A2A facade (2026-10-09)
+- a2a-sdk 1.0.2 server: `a2a.server.routes.create_jsonrpc_routes(handler, rpc_url="/", context_builder=...)`, `create_agent_card_routes(card)`, `DefaultRequestHandler(agent_executor, task_store, agent_card)`, executor enqueues `new_task_from_user_message` then `TaskUpdater` (start_work/add_artifact/complete). Read from /opt/deploy-venv/.../a2a/server (copied to .task/sp).
+- Real defect: a2a/utils/proto_utils.py:217 uses `field.label`, removed in protobuf 7 => -32603 on every request. Cap protobuf<7. The harness deploy-venv has 7.36.2.
+- a2a's DEBUG logs dump request bodies; never run it at DEBUG. Facade keeps INFO.
+- `AgentsOperations.update_details(body=...)` accepts a raw merge-patch mapping (null removes), enabling `--disable`.

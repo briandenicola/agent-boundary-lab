@@ -425,3 +425,41 @@ class TestSendOptions:
             "unsupported-signal",
             "ok",
         ]
+
+
+class TestDisable:
+    def test_disable_body_removes_a2a_and_card_and_keeps_responses(self) -> None:
+        body = a2a_spike.build_disable_body()
+        cfg = body["agent_endpoint"]["protocol_configuration"]
+        assert cfg["a2a"] is None and cfg["responses"] == {}
+        assert "agent_card" in body and body["agent_card"] is None
+
+    def test_disable_does_not_run_without_the_flag(self) -> None:
+        calls: list[str] = []
+        run(disable_fn=lambda e, a: calls.append(a))
+        assert calls == []
+
+    def test_disable_runs_once_and_is_recorded(self) -> None:
+        calls: list[str] = []
+        result = run(disable=True, disable_fn=lambda e, a: calls.append(a))
+        assert calls == ["agent-a"]
+        assert step(result, "disable").status == "ok"
+
+    def test_disable_failure_is_classified_not_swallowed(self) -> None:
+        def boom(e: str, a: str) -> None:
+            raise StatusError(403)
+
+        s = step(run(disable=True, disable_fn=boom), "disable")
+        assert (s.status, s.origin) == ("failed", "our_call")
+
+    def test_enable_and_disable_together_is_refused(self) -> None:
+        with pytest.raises(SystemExit):
+            a2a_spike.main(
+                ["--account", "a", "--project", "p", "--agent", "x", "--enable", "--disable"]
+            )
+
+    def test_the_deploy_path_never_enables_a2a(self) -> None:
+        from pathlib import Path
+
+        src = Path(a2a_spike.__file__).with_name("deploy.py").read_text().lower()
+        assert "a2a" not in src

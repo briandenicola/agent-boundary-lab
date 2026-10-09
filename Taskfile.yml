@@ -29,6 +29,10 @@ includes:
     taskfile: ./tasks/Taskfile.ui.yml
     internal: false
 
+  a2a:
+    taskfile: ./tasks/Taskfile.a2a.yml
+    internal: false
+
   spike:
     taskfile: ./tasks/Taskfile.spike.yml
     internal: false

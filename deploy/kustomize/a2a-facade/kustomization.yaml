@@ -1,0 +1,7 @@
+# Both façade deployments, rendered together. One image; the overlays differ only by the
+# target agent name and the names that follow from it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - audit
+  - enforced

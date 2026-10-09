@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: a2a-facade
+  namespace: REPLACE_WITH_NAMESPACE
+  labels:
+    app.kubernetes.io/part-of: agent-boundary-lab
+    app.kubernetes.io/name: a2a-facade
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: a2a-facade
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: a2a-facade
+        azure.workload.identity/use: "true"
+    spec:
+      # Existing identity from the demo UI; no new identity or role is created for the façade.
+      serviceAccountName: demo-ui
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: a2a-facade
+          image: REPLACE_WITH_A2A_FACADE_IMAGE
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: DEMO_FOUNDRY_ACCOUNT_NAME
+              value: REPLACE_WITH_FOUNDRY_ACCOUNT_NAME
+            - name: DEMO_FOUNDRY_PROJECT_NAME
+              value: REPLACE_WITH_FOUNDRY_PROJECT_NAME
+            # Set per overlay.
+            - name: DEMO_A2A_TARGET_AGENT_NAME
+              value: unset
+            - name: DEMO_A2A_PUBLIC_URL
+              value: unset
+          envFrom:
+            - secretRef:
+                name: a2a-facade-config
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 256Mi}

@@ -394,6 +394,14 @@ tasks:
         vars:
           SPIKE_ARGS: "--enable"
 
+  a2a-disable:
+    desc: CHANGES AZURE. Turn native A2A OFF on the audit agent (merge-patch). Then run cloud:a2a-card, expect endpoint-protocol-not-enabled
+    prompt: This PATCHes the audit agent to remove its A2A endpoint configuration. Continue?
+    cmds:
+      - task: _a2a-spike
+        vars:
+          SPIKE_ARGS: "--disable"
+
   a2a-send:
     desc: CALLS THE AGENT. Send one A2A message to the audit agent (A2A-Version 1.0)
     prompt: This invokes the audit agent once over A2A. Continue?

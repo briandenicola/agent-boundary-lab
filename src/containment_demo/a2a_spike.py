@@ -372,6 +372,30 @@ def live_enable(endpoint: str, agent_name: str) -> None:
     )
 
 
+def build_disable_body() -> dict[str, Any]:
+    """JSON merge-patch (RFC 7386) that removes A2A and the card and keeps Responses.
+
+    A null removes a key under merge-patch; whether the platform honours that for these
+    fields is UNVERIFIED until the card read after it says protocol-not-enabled again.
+    The wire key names are the ones the installed SDK serialises (read 2026-10-09).
+    """
+    return {
+        "agent_endpoint": {"protocol_configuration": {"responses": {}, "a2a": None}},
+        "agent_card": None,
+    }
+
+
+def live_disable(endpoint: str, agent_name: str) -> None:
+    """PATCH the agent to turn A2A off. Mutates the platform; only reached with ``--disable``."""
+    from azure.ai.projects import AIProjectClient
+    from azure.identity import DefaultAzureCredential
+
+    project = AIProjectClient(
+        endpoint=endpoint, credential=DefaultAzureCredential(), allow_preview=True
+    )
+    project.agents.update_details(agent_name=agent_name, body=build_disable_body())
+
+
 def live_card(base: str, timeout: float) -> tuple[int, dict[str, Any] | None]:
     import httpx
     from azure.identity import DefaultAzureCredential
@@ -479,9 +503,11 @@ def run_spike(
     agent_name: str,
     enable: bool,
     send: bool,
+    disable: bool = False,
     send_options: list[str] | None = None,
     timeout: float = 60.0,
     enable_fn: Callable[[str, str], None] = live_enable,
+    disable_fn: Callable[[str, str], None] = live_disable,
     card_fn: Callable[[str, float], tuple[int, dict[str, Any] | None]] = live_card,
     send_fn: Callable[[str, float, SendOption, list[dict[str, Any]]], int] = live_send,
 ) -> SpikeResult:
@@ -496,6 +522,13 @@ def run_spike(
             result.steps.append(classify_failure("enable", exc, may_signal_unsupported=True))
     else:
         result.steps.append(StepResult("enable", "skipped", detail="pass --enable to PATCH"))
+
+    if disable:
+        try:
+            disable_fn(endpoint, agent_name)
+            result.steps.append(StepResult("disable", "ok", detail="patch accepted"))
+        except Exception as exc:
+            result.steps.append(classify_failure("disable", exc, may_signal_unsupported=False))
 
     try:
         status, body = card_fn(base, timeout)
@@ -547,6 +580,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--project", required=True)
     parser.add_argument("--agent", required=True)
     parser.add_argument("--enable", action="store_true", help="PATCH the agent (changes Azure)")
+    parser.add_argument(
+        "--disable", action="store_true", help="PATCH the agent to turn A2A off (changes Azure)"
+    )
     parser.add_argument("--send", action="store_true", help="send one A2A message")
     parser.add_argument(
         "--send-option",
@@ -556,12 +592,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--timeout", type=float, default=60.0)
     args = parser.parse_args(argv)
+    if args.enable and args.disable:
+        parser.error("--enable and --disable are mutually exclusive")
 
     result = run_spike(
         endpoint=project_endpoint(args.account, args.project),
         agent_name=args.agent,
         enable=args.enable,
         send=args.send,
+        disable=args.disable,
         send_options=list(SEND_OPTIONS) if args.send_option == "all" else [args.send_option],
         timeout=args.timeout,
     )

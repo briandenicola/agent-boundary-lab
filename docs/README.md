@@ -148,7 +148,9 @@ not GA v1.0. Pin the version explicitly — `A2A-Version: 1.0`, `?a2a-version=1.
 resolving the v1.0 agent card — or the demo silently runs on a preview protocol. Supplying
 both selectors with *different* values returns HTTP 400 `version-ambiguous`.
 
-**UNRESOLVED — does incoming A2A work on a hosted container agent?** The documentation
+**RESOLVED (2026-10-09): native incoming A2A does NOT work on a hosted container agent** (platform: `HOSTED_AGENT_NOT_SUPPORTED`, `docs/compatibility.md` B5d). The supported route is the A2A façade (B5e, PROPOSED/UNVERIFIED): hosted agents are invoked through Responses and the façade exposes them as A2A. The paragraph below is the pre-spike state, kept for history.
+
+**(Pre-spike) UNRESOLVED — does incoming A2A work on a hosted container agent?** The documentation
 states that incoming A2A *requires the Responses protocol*, which our agent uses. But the
 only agent type it explicitly blesses is the **prompt agent**, and its prerequisites name
 "a deployed prompt agent". Whether a custom hosted-container agent can be exposed over A2A

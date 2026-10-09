@@ -1,0 +1,36 @@
+# A2A façade image. Separate from the agent image on purpose: the agent image's digest is
+# the experiment's control and must not move because the façade gained a dependency. ONE
+# image serves both deployments (audit, enforced); they differ only by target env.
+#
+# The package is installed with --no-deps so the agent stack (google-adk, litellm) is not
+# pulled in. The dependency list mirrors the `a2a-facade` extra in pyproject.toml, and
+# tests/unit/test_a2a_facade.py checks the two agree.
+#
+# protobuf is capped below 7: a2a-sdk 1.0.2 calls the removed FieldDescriptor.label in
+# request validation, so SendMessage fails with -32603 on protobuf 7.x.
+
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+
+COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
+
+COPY pyproject.toml README.md* ./
+COPY docs/README.md docs/README.md
+COPY src ./src
+
+RUN uv pip install --system --no-cache --no-deps . \
+    && uv pip install --system --no-cache \
+        "a2a-sdk[http-server]==1.0.2" "protobuf>=5.29.5,<7" \
+        "pydantic>=2.9" "pydantic-settings>=2.6" "httpx>=0.27" "azure-identity>=1.19" \
+        "azure-ai-projects>=2.8.0,<3" "starlette>=0.40" "uvicorn[standard]>=0.32"
+
+RUN useradd --create-home --uid 10001 facade
+USER 10001
+
+EXPOSE 8080
+
+ENTRYPOINT ["python", "-m", "containment_demo.a2a_facade"]

@@ -1,0 +1,216 @@
+version: '3'
+
+silent: true
+
+includes:
+  arm:
+    taskfile: ./Taskfile.arm.yml
+    internal: true
+
+# A2A facade: two deployments (audit, enforced) from ONE image. ClusterIP only; reach a
+# slot with `task a2a:open`.
+#
+# Hosted agents are invoked through Responses; the facade exposes them as A2A. It is not
+# the platform's native A2A endpoint (unsupported for hosted agents, compatibility.md
+# B5d) and it is not policy-governed.
+#
+# The facade image is separate from the agent image. Nothing here reads, rebuilds or
+# re-pins the agent image digest, which is the experiment's control. Pods run as the
+# existing demo-ui ServiceAccount (run `task ui:up` first); no identity or role is
+# created here.
+#
+# Nothing rendered here is written to disk or to git. The token never appears on a command
+# line (no argv, so not in `ps`), in task output, or in a manifest.
+
+env:
+  CLOUD_DIR: infra/cloud
+  A2A_REPOSITORY: containment-demo-a2a-facade
+  A2A_SECRET: a2a-facade-config
+  A2A_LOCAL_PORT: '8082'
+
+tasks:
+  build:
+    desc: BUILDS IN AZURE. Build and push the A2A facade image to ACR, print its digest
+    # .dockerignore rule: no entry may end in a slash (az acr build ignores such rules).
+    cmds:
+      - |
+        set -eu
+        ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)
+        echo "building A2A facade image in $ACR"
+        az acr build \
+          --registry "$ACR" \
+          --image "${A2A_REPOSITORY}:${A2A_IMAGE_TAG:-latest}" \
+          --file Dockerfile.a2a-facade \
+          .
+      - task: digest
+
+  digest:
+    desc: Print the facade image digest the manifests will pin
+    vars:
+      ACR_NAME:
+        sh: terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name
+    cmds:
+      - mkdir -p .task
+      - task: arm:_acr-digest
+        vars:
+          ACR: '{{.ACR_NAME}}'
+          REPOSITORY: containment-demo-a2a-facade
+          TAG: '{{.A2A_IMAGE_TAG | default "latest"}}'
+          EXPLICIT: '{{.A2A_IMAGE_DIGEST}}'
+          OUT: '{{.ROOT_DIR}}/.task/a2a-facade-digest'
+      - |
+        set -eu
+        echo "$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_login_server)/${A2A_REPOSITORY}@$(cat .task/a2a-facade-digest)"
+
+  secret:
+    desc: CHANGES THE CLUSTER. Create the facade bearer-token Secret (random, never printed). Keeps an existing one unless ROTATE=1
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        if kubectl -n "$NS" get secret "$A2A_SECRET" >/dev/null 2>&1 && [ "${ROTATE:-}" != "1" ]; then
+          echo "secret $A2A_SECRET already exists in $NS; kept. Rotate with ROTATE=1 task a2a:secret"
+          exit 0
+        fi
+        # Token goes through a pipe into --from-file, never argv.
+        openssl rand -hex 32 | tr -d '\n' \
+          | kubectl -n "$NS" create secret generic "$A2A_SECRET" \
+              --from-file=DEMO_A2A_TOKEN=/dev/stdin \
+              --dry-run=client -o yaml \
+          | kubectl -n "$NS" apply -f - >/dev/null
+        echo "secret $A2A_SECRET written in $NS. Read it with: task a2a:token"
+        for DEP in a2a-facade-audit a2a-facade-enforced; do
+          if kubectl -n "$NS" get deployment "$DEP" >/dev/null 2>&1; then
+            kubectl -n "$NS" rollout restart "deployment/$DEP" >/dev/null
+            echo "restarted $DEP to pick up the new token"
+          fi
+        done
+
+  token:
+    desc: PRINTS THE FACADE TOKEN. Use it as the bearer token when calling the facade
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        kubectl -n "$NS" get secret "$A2A_SECRET" -o jsonpath='{.data.DEMO_A2A_TOKEN}' | base64 -d
+        echo
+
+  render:
+    desc: Print the substituted facade manifests to stdout (no secrets in them; nothing written)
+    vars:
+      ACR_NAME:
+        sh: terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name
+    # Renders to stdout only. Prints placeholder NAMES, never values, on failure.
+    cmds:
+      - mkdir -p .task
+      - task: arm:_acr-digest
+        vars:
+          ACR: '{{.ACR_NAME}}'
+          REPOSITORY: containment-demo-a2a-facade
+          TAG: '{{.A2A_IMAGE_TAG | default "latest"}}'
+          EXPLICIT: '{{.A2A_IMAGE_DIGEST}}'
+          OUT: '{{.ROOT_DIR}}/.task/a2a-facade-digest'
+      - |
+        set -eu
+        TF="terraform -chdir=./{{.CLOUD_DIR}} output -raw"
+        DIGEST=$(cat .task/a2a-facade-digest)
+        case "$DIGEST" in
+          sha256:*) ;;
+          *) echo "Facade image digest did not resolve to sha256:<64 hex>." >&2; exit 1 ;;
+        esac
+        IMAGE="$($TF acr_login_server)/${A2A_REPOSITORY}@${DIGEST}"
+        NAMESPACE=$($TF kubernetes_namespace)
+        ACCOUNT=$($TF foundry_account_name)
+        PROJECT=$($TF project_name)
+        AUDIT=$($TF agent_name_audit)
+        ENFORCED=$($TF agent_name_enforced)
+        RENDERED=$(kustomize build deploy/kustomize/a2a-facade \
+          | sed -e "s|REPLACE_WITH_NAMESPACE|${NAMESPACE}|g" \
+                -e "s|REPLACE_WITH_A2A_FACADE_IMAGE|${IMAGE}|g" \
+                -e "s|REPLACE_WITH_FOUNDRY_ACCOUNT_NAME|${ACCOUNT}|g" \
+                -e "s|REPLACE_WITH_FOUNDRY_PROJECT_NAME|${PROJECT}|g" \
+                -e "s|REPLACE_WITH_AGENT_NAME_AUDIT|${AUDIT}|g" \
+                -e "s|REPLACE_WITH_AGENT_NAME_ENFORCED|${ENFORCED}|g")
+        LEFTOVER=$(printf '%s\n' "$RENDERED" | grep -o 'REPLACE_WITH_[A-Z0-9_]*' | sort -u || true)
+        if [ -n "$LEFTOVER" ]; then
+          echo "Refusing: these placeholders were not substituted:" >&2
+          echo "$LEFTOVER" >&2
+          exit 1
+        fi
+        printf '%s\n' "$RENDERED"
+
+  plan:
+    desc: Server-side dry run of the facade manifests (changes nothing)
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        task a2a:render | kubectl apply --server-side --force-conflicts --dry-run=server -f -
+
+  up:
+    desc: CHANGES THE CLUSTER. Apply both facade deployments and wait for the rollouts
+    prompt: This creates two A2A facade deployments (audit, enforced; ClusterIP only). Continue?
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        kubectl -n "$NS" get secret "$A2A_SECRET" >/dev/null 2>&1 || {
+          echo "Secret $A2A_SECRET missing. Run 'task a2a:secret' first." >&2; exit 1; }
+        kubectl -n "$NS" get serviceaccount demo-ui >/dev/null 2>&1 || {
+          echo "ServiceAccount demo-ui missing. Run 'task ui:up' first (the facade reuses it)." >&2; exit 1; }
+        task a2a:render | kubectl apply --server-side --force-conflicts -f -
+        kubectl -n "$NS" rollout status deployment/a2a-facade-audit --timeout=180s
+        kubectl -n "$NS" rollout status deployment/a2a-facade-enforced --timeout=180s
+
+  open:
+    desc: Reach one facade at http://localhost:8082 (port-forward; Ctrl-C to stop). SLOT=audit|enforced
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        SLOT="${SLOT:-audit}"
+        case "$SLOT" in audit|enforced) ;; *) echo "SLOT must be audit or enforced" >&2; exit 1 ;; esac
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        echo "http://localhost:${A2A_LOCAL_PORT}/.well-known/agent-card.json  (bearer: task a2a:token)"
+        kubectl -n "$NS" port-forward "svc/a2a-facade-${SLOT}" "${A2A_LOCAL_PORT}:80"
+
+  verify:
+    desc: Through a port-forward, expect 401 without the token and 200 with it, for both slots. Does NOT call an agent
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        PORT="${A2A_VERIFY_PORT:-18082}"
+        FAIL=0
+        for SLOT in audit enforced; do
+          # Bounded by timeout rather than a PID: the task shell does not expose $!.
+          timeout 40 kubectl -n "$NS" port-forward "svc/a2a-facade-${SLOT}" "${PORT}:80" >/dev/null 2>&1 &
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            curl -s -o /dev/null --max-time 2 "http://127.0.0.1:${PORT}/healthz" && break
+            sleep 1
+          done
+          NOAUTH=$(curl -s -o /dev/null --max-time 5 -w '%{http_code}' "http://127.0.0.1:${PORT}/.well-known/agent-card.json")
+          # The header goes to curl on stdin so the token is not in argv.
+          WITH=$(kubectl -n "$NS" get secret "$A2A_SECRET" -o jsonpath='{.data.DEMO_A2A_TOKEN}' | base64 -d \
+            | { read -r T; printf 'header = "Authorization: Bearer %s"\n' "$T"; } \
+            | curl -s -o /dev/null --max-time 5 -w '%{http_code}' -K - "http://127.0.0.1:${PORT}/.well-known/agent-card.json")
+          echo "${SLOT}: without token $NOAUTH (want 401), with token $WITH (want 200)"
+          [ "$NOAUTH" = "401" ] && [ "$WITH" = "200" ] || FAIL=1
+          sleep 1
+          PORT=$((PORT + 1))
+        done
+        exit $FAIL
+
+  _require-kubectl:
+    internal: true
+    cmds:
+      - |
+        for TOOL in kubectl kustomize openssl; do
+          command -v "$TOOL" >/dev/null 2>&1 || { echo "$TOOL not found on PATH." >&2; exit 1; }
+        done
+        kubectl config current-context >/dev/null 2>&1 || {
+          echo "No kubeconfig context. Run 'task cloud:kubeconfig' first." >&2; exit 1; }

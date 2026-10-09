@@ -1,0 +1,17 @@
+# ClusterIP only: no ingress, no LoadBalancer. Reach it with `task a2a:open`.
+apiVersion: v1
+kind: Service
+metadata:
+  name: a2a-facade
+  namespace: REPLACE_WITH_NAMESPACE
+  labels:
+    app.kubernetes.io/part-of: agent-boundary-lab
+    app.kubernetes.io/name: a2a-facade
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: a2a-facade
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

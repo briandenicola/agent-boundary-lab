@@ -1808,3 +1808,45 @@ interface and pins `supported_protocol_bindings`. Source: a2a-sdk 1.0.2 `client/
 - JSONRPC 0.3 (`message/send`, A2A-Version 0.3): HTTP 200, -32099, `HostedAgentNotSupported`, same detail.
 - HTTP+JSON 0.3 (POST .../a2a/v1/message:send): HTTP 400 problem+json `hosted-agent-not-supported`, same detail. Labelled `failed/platform` by the spike (HTTP body not scanned for "not supported"); semantically the same signal.
 Conclusion (platform statement, not ours): the card advertises interfaces but the platform refuses message send to a hosted-agent target; a prompt agent is required.
+
+
+### B5e. A2A facade for hosted agents (PROPOSED / UNVERIFIED; written 2026-10-09)
+
+**Why:** native inbound A2A is prompt-agent-only (docs "Supported agent types", learn.microsoft.com
+.../enable-agent-to-agent-endpoint; our measured B5d). The docs' "Host an A2A-compatible agent
+endpoint" Option 2 is a custom A2A server in front of the agent.
+
+**Honest wording:** hosted agents are invoked through Responses; the facade exposes them as A2A.
+This is NOT native inbound A2A on a hosted agent and must not be reported as such. The facade is
+not policy-governed and changes nothing about containment.
+
+**Design (code only, nothing deployed or called yet):**
+- `a2a_facade/server.py`: a2a-sdk 1.0.2 (`DefaultRequestHandler`, `create_jsonrpc_routes`,
+  `create_agent_card_routes`, `AgentExecutor`, `TaskUpdater`; read from the installed package).
+  Card: JSONRPC 1.0 only, streaming off, bearer scheme. `SendMessage` returns a task with a text
+  artifact and message; `CancelTask` returns `UnsupportedOperationError`. In-memory, non-durable
+  task store and context map; single turn, `store=False`, nothing is chained.
+- `a2a_facade/target.py`: `ResponsesTarget`, the only Foundry-aware code. It reuses
+  `invoke.build_agent_client` (agent addressed by name through `AIProjectClient.get_openai_client`,
+  token scope `https://ai.azure.com/.default`) and `responses.create(store=False)`. This is the
+  path that already works in the UI, not a new `agent_reference` request; the instruction named
+  `agent_reference`, the installed SDK path was kept instead.
+- Caller auth: shared bearer token (`hmac.compare_digest`) behind an `Authenticator` seam; Entra
+  validation is issue #4. Logs carry principal id, task id and downstream response id only.
+- Surfaces the tool `run-...` id in artifact metadata only when the agent's own result record
+  reported it.
+- Packaging: `Dockerfile.a2a-facade`, `deploy/kustomize/a2a-facade/` (audit and enforced from one
+  image, differing only by target env), tasks `a2a:*`. Pods reuse the `demo-ui` ServiceAccount, so
+  no new identity or role.
+
+**OBSERVED while building (2026-10-09):** a2a-sdk 1.0.2 request validation calls
+`FieldDescriptor.label` (a2a/utils/proto_utils.py:217), which protobuf 7.x removed, so
+`SendMessage` returned JSON-RPC -32603 with protobuf 7.36.2. protobuf 6.33.6 works. The facade
+image and the dev extra cap `protobuf<7`. NOTE: the harness `/opt/deploy-venv` has protobuf 7.36.2,
+so the SDK *client* path in the spike may hit the same defect on request validation paths.
+
+**Native A2A on audit switched off (PROPOSED/UNVERIFIED):** `a2a_spike --disable` sends a
+merge-patch with `agent_endpoint.protocol_configuration.a2a = null` and `agent_card = null`.
+`deploy.py` never sets A2A (a test pins it); the enable was a separate agent-level PATCH that
+persists across versions. Expected after disable: card step returns 400
+`endpoint-protocol-not-enabled`. Whether the platform honours null-removal is unknown until read back.

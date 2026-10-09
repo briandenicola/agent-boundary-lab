@@ -47,6 +47,20 @@ a2a = [
     "a2a-sdk==1.0.2",
     "httpx>=0.27",
 ]
+# The A2A façade image (Dockerfile.a2a-facade). protobuf is capped below 7: a2a-sdk 1.0.2
+# calls the removed FieldDescriptor.label in request validation, so SendMessage returns
+# -32603 on protobuf 7.x (observed 2026-10-09, tests/unit/test_a2a_facade.py).
+a2a-facade = [
+    "a2a-sdk[http-server]==1.0.2",
+    "protobuf>=5.29.5,<7",
+    "azure-ai-projects>=2.8.0,<3",
+    "azure-identity>=1.19",
+    "httpx>=0.27",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "starlette>=0.40",
+    "uvicorn[standard]>=0.32",
+]
 services = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
@@ -77,6 +91,9 @@ dev = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "starlette>=0.40",
+    # tests/unit/test_a2a_facade.py drives the real a2a-sdk server offline.
+    "a2a-sdk[http-server]==1.0.2",
+    "protobuf>=5.29.5,<7",
 ]
 
 [project.scripts]
