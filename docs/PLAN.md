@@ -155,7 +155,7 @@ Foundry containment. It does not. Local runs are functional tests. Label them th
 
 ## Phase 2 — ADK agent and deterministic execution
 
-**Status: partial — code done, hosted execution unproven.**
+**Status: done for hosted execution (updated 2026-10-09): both agents run on Foundry and the tools executed there (`docs/telemetry-map.md` §0.10–§0.14). Original text below predates that.**
 
 **Tested result:** both tools (`get_servicing_policy`, `send_to_external_processor`) are
 implemented with destinations from validated configuration, TLS verification on, explicit
@@ -225,7 +225,7 @@ authorization header appears anywhere in exported telemetry.
 
 ## Phase 4 — Infrastructure, policy, and deployment
 
-**Status: blocked. This is the critical path to everything.**
+**Status: largely unblocked (updated 2026-10-09): both agent versions are deployed on one digest with a policy each, reachable only from inside the VNet; see `docs/architecture-as-built.md`. Text below is the original blocker history; unmeasured items stay PROPOSED.**
 
 **Tested result:** Terraform for the account, both RAI policies and the two controlled
 endpoints on distinct HTTPS hostnames exists and validates in `infra/cloud`. The AKS deploy
@@ -348,7 +348,7 @@ nothing looks identical to one that works, right up until the negative call succ
 
 ## Phase 5 — Verification harness
 
-**Status: partial. Section A done; Sections B and C are stubs.**
+**Status: partial (updated 2026-10-09). Section A done; Sections B and C run live and returned PASS (`docs/telemetry-map.md` §0.13, §0.14); Section D not implemented. The B/C "stub" wording below is the original state.**
 
 ### A. Independent baseline — **done**
 
@@ -443,8 +443,7 @@ test. It is **not** a prompt-injection defence claim.
 
 ## Phase 7 — Demo runbook and handoff
 
-**Status: not started.** `docs/demo-runbook.md` and `docs/evidence-template.md` do not
-exist.
+**Status: partial (updated 2026-10-09).** `docs/demo-runbook.md` (with a presenter one-pager and the harness chat path) and `docs/evidence-template.md` exist; `docs/architecture-as-built.md` records the deployed system. Teardown and a cold-reader rehearsal are not done.
 
 Preconditions before this phase is worth starting: GATE 0 answered, Phase 4 exited.
 
@@ -523,7 +522,7 @@ that stays distinguishable from the containment evidence.
 
 ## Phase 9 — Agentic harness on AKS (standing in for on-premises)
 
-**Status: not started. One hard blocker already identified.**
+**Status: partial (updated 2026-10-09). Harness chat service, local Qwen2.5-3B model server and A2A façades are built, deployed and ran one audit + one enforced turn with B/C PASS (n = 1; `docs/telemetry-map.md` §0.14). Entra auth (issue #4), multi-turn reliability and latency tuning are open. Blocker 5 is resolved as below.**
 
 The harness is a full agentic runtime with its own loop, model and local tools. It is not a
 request script, and **the Foundry egress policy does not govern it**. It runs on AKS inside
@@ -543,7 +542,7 @@ caller reaches the agent has no bearing on what the agent's tools can reach. Aud
 enforced differ only by policy, so the audit agent's native A2A is switched off again
 (`task cloud:a2a-disable`, UNVERIFIED until the card reads `endpoint-protocol-not-enabled`).
 
-**Tested result:** none in this phase yet.
+**Tested result (2026-10-09):** one audit + one enforced chat turn through the local-model harness and the façades, `verify_demo.py` B/C PASS (§0.14). Model prose misreported the enforced 403 once; structured results were right.
 
 **Preview capability / documented facts (accessed 2026-10-08), not yet exercised by us:**
 A2A v1.0 is GA and JSONRPC-only; **unversioned requests are served preview v0.3**, so pin
@@ -580,6 +579,24 @@ and contexts are retained 60 days from last write.
       separate, so a denied call has exactly one sufficient cause.
 
 ---
+
+## Backlog / next (2026-10-09)
+
+Nothing below is done unless stated. Billable items need owner approval first.
+
+| Item | Status |
+| --- | --- |
+| **#4 Entra Agent ID auth SDK sidecar** (harness to façade/Foundry auth) | **Monday work.** Open, not started; the Learn page has not been reviewed (record the access date when it is). Authentication only; containment evidence must not depend on it. Today's auth is one shared bearer token. |
+| **#2 Document the AKS harness** | Open. Harness built and documented in `docs/architecture-as-built.md`, B13, B14; close after review. |
+| **#3 Local model evaluation** | Open. Qwen2.5-3B is the candidate (B11 laptop, §0.14 one AKS turn). Tool-calling reliability over many turns and speed are unmeasured; result stays functional, not containment. |
+| **#1 Chat UI on AKS** | Open. Harness chat service is the chat UI; the two-button demo UI also still exists. |
+| `DEMO_DIAGNOSTICS_TOKEN` rotation | Not done. |
+| Run-id join stability | The URL-path join held on all observed runs; the §0.13 matches were inferred. Re-check after any agent or path change. |
+| Enforced-telemetry design question | Open: enforced app telemetry does not reach App Insights (§0.12). |
+| `x/` stray directory | Untracked, unexplained; owner to decide keep or delete. |
+| Optional prompt-agent façade experiment | Proposed side experiment; whether a prompt agent can reach a hosted agent is untested. |
+| Node scaling (up or out as needed) | Proposed; billable, approval required (B10, B12). |
+| Thread tuning for the CPU model | In progress (Parker). `LLAMA_THREADS`, context size, mlock are unmeasured (B12 open risk). |
 
 ## Phase 10 — Deferred
 

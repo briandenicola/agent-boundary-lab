@@ -16,7 +16,8 @@ capability**, the same three labels `docs/PLAN.md` uses. They are never blended.
 
 Labels: **TESTED** = we ran it and saw the result (2026-10-09); **PROPOSED** = designed, not
 yet shown. Everything in 1-4 is TESTED unless marked. The numbered sections below this page
-are the older audit procedure; where they say Sections B/C are "not implemented", this page
+are the older audit procedure (**superseded where they conflict**: Sections B/C are implemented
+and ran live, and the Foundry-direct invoke is replaced by the façade path); where they say Sections B/C are "not implemented", this page
 supersedes them (Dallas ran B and C live, 4 runs PASS).
 
 ### 1. Pre-flight (10 min before)
@@ -83,6 +84,50 @@ bearer token; Entra is issue #4); a chat model experience (the agent runs a fixe
 | Facade JSON-RPC -32603 | protobuf must be below 7 in the facade image (B5e). |
 | Prompts or responses visible in telemetry | ADK content capture must be off (`telemetry-map.md` 0.10); stop and tell Lambert. |
 | Verify says INCONCLUSIVE | Under 3 min since the call, wrong run id, or no App Insights connection. Not a failure, not a pass. |
+
+## Chat path: harness with local model (added 2026-10-09)
+
+Adds a chat page in front of the one-pager above. Architecture: [`architecture-as-built.md`](architecture-as-built.md).
+Path: browser -> harness chat service (local Qwen2.5-3B on CPU) -> A2A façades -> Foundry hosted agents.
+**TESTED once** (n = 1 audit + 1 enforced, `telemetry-map.md` §0.14). The harness and model are **not** governed by the Foundry policy.
+
+### Bring-up (each CHANGES THE CLUSTER and prompts; add `--yes` off a terminal)
+```bash
+task local-model:status                   # pod Ready (the first start loads a ~2 GB model; allow ~1-2 min)
+task a2a:verify                           # façades answer, 401 without token, 200 with
+task harness:verify                       # same for the harness
+# only if something is missing, in this order: local-model:up, a2a:secret + a2a:up, harness:secret + harness:up
+```
+Do not rebuild images (`*:build`) mid-demo; they build in Azure.
+
+### Run
+```bash
+task harness:token     # login password (any user name); off-screen
+task harness:open      # http://localhost:8082 ; Ctrl-C to stop
+```
+Note the **UTC time you press send** before the turn. Ask for both tools in one message (for example: fetch the servicing policy,
+then send to the external processor, on both the audit and the enforced agent). **One turn takes about 2 minutes on the CPU model**
+(team observation, not a benchmark); the page shows elapsed time. Do not click again while it runs. Copy the `run-...` ids shown
+for each side. Do **not** trust the model's prose: it misreported an enforced 403 once. Read the structured tool table.
+
+### Verify the run ids (same B/C verifier; wait at least 180 s after the tools ran)
+```bash
+.venv/bin/python scripts/verify_demo.py --section b \
+  --audit-run-id <run-... audit> --audit-called-at <UTC ISO, e.g. 2026-10-09T20:17:59Z>
+.venv/bin/python scripts/verify_demo.py --section c \
+  --enforced-run-id <run-... enforced> --enforced-called-at <UTC ISO>
+```
+- **`--*-called-at` pitfall:** the verifier's query window starts 30 s before `called-at`. It must be when the **tools ran**
+  (the decision row times), at or just before the tool calls, not when the chat reply finished. On 2026-10-09 passing a time ~90 s
+  after the real calls gave INCONCLUSIVE (`no platform decision row`); the correct time gave PASS. A wrong value yields INCONCLUSIVE, never a false pass.
+  Use the earliest decision-row time (or your send time if the turn's tools start immediately) and re-run.
+- **180 s wait:** enforced PASS needs the receipt log read at least 180 s after the call (under that it is INCONCLUSIVE). Wait, then run.
+- `--no-terraform` makes endpoints unresolvable (INCONCLUSIVE); run from a machine with Terraform state and a login that can read Log Analytics.
+- Exit `0` PASS, `1` FAIL, `2` INCONCLUSIVE. Only the platform decision rows and receipt presence or absence count, not agent-reported 202/403 and not the model's reply.
+
+### Extra claims to avoid
+Do not say the local model is reliable (one turn observed), do not call the harness on-premises, and do not say hosted agents natively speak A2A:
+the façade does, over Responses.
 
 ---
 

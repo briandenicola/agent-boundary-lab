@@ -6,7 +6,21 @@ Build a small Python agent using Google Agent Development Kit (ADK), deploy it a
 
 The message: **Keep your agent framework; manage the outbound boundary independently and inspect the evidence.** This is a complementary platform pattern, not a replacement for an existing enterprise agent platform.
 
-This repository is a proposed build specification, not a tested deployment. Follow `PLAN.md` to implement and validate it.
+This repository began as a build specification and is now partly built and tested (status below). Follow `PLAN.md` for phases.
+
+> **Status (2026-10-09):** the build is no longer only a specification. Deployed and observed: both Foundry hosted agents (one image digest, Audit and Enforced policies), the two controlled endpoints, A2A façades on AKS, a demo UI, a local-model (Qwen2.5-3B, CPU) harness chat service, and `verify_demo.py` sections B and C returning PASS (small n; see [`telemetry-map.md`](telemetry-map.md) §0.13, §0.14). Open: Entra auth for the A2A hop (issue #4), model reliability and speed, section D. What is actually deployed: [`architecture-as-built.md`](architecture-as-built.md). Remaining text in this file is the original design unless marked.
+
+## Documentation index
+
+| Doc | Read it for |
+| --- | --- |
+| [`architecture-as-built.md`](architecture-as-built.md) | The system as deployed, trust boundaries, verified vs proposed vs blocked |
+| [`demo-runbook.md`](demo-runbook.md) | Presenter one-pager, harness chat path, full audit procedure |
+| [`PLAN.md`](PLAN.md) | Phases, status, gates, backlog |
+| [`compatibility.md`](compatibility.md) | Platform research and observed facts (B-sections: hosted agents, A2A, local model, harness) |
+| [`telemetry-map.md`](telemetry-map.md) | Real field names and evidence (§0.12-§0.14 are the join and verified runs) |
+| [`egress-control.md`](egress-control.md) | Egress policy mechanics |
+| [`evidence-template.md`](evidence-template.md) | Per-run evidence record |
 
 > **Preview warning:** The Microsoft Foundry egress walkthrough dated September 24, 2026 describes network egress controls as preview, without a preview SLA, and not intended for production. Recheck availability and restrictions before building. Do not present this demo as a production assurance or compliance certification.
 
@@ -148,7 +162,7 @@ not GA v1.0. Pin the version explicitly — `A2A-Version: 1.0`, `?a2a-version=1.
 resolving the v1.0 agent card — or the demo silently runs on a preview protocol. Supplying
 both selectors with *different* values returns HTTP 400 `version-ambiguous`.
 
-**RESOLVED (2026-10-09): native incoming A2A does NOT work on a hosted container agent** (platform: `HOSTED_AGENT_NOT_SUPPORTED`, `docs/compatibility.md` B5d). The supported route is the A2A façade (B5e, PROPOSED/UNVERIFIED): hosted agents are invoked through Responses and the façade exposes them as A2A. The paragraph below is the pre-spike state, kept for history.
+**RESOLVED (2026-10-09): native incoming A2A does NOT work on a hosted container agent** (platform: `HOSTED_AGENT_NOT_SUPPORTED`, `docs/compatibility.md` B5d). The supported route is the A2A façade (B5e; exercised end to end on 2026-10-09, `telemetry-map.md` §0.13, with streaming, cancel and multi-turn not implemented): hosted agents are invoked through Responses and the façade exposes them as A2A. The paragraph below is the pre-spike state, kept for history.
 
 **(Pre-spike) UNRESOLVED — does incoming A2A work on a hosted container agent?** The documentation
 states that incoming A2A *requires the Responses protocol*, which our agent uses. But the
