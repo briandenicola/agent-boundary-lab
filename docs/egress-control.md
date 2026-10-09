@@ -192,6 +192,14 @@ definition:
   "definition": {
     "kind": "hosted",
     "container_protocol_versions": [{ "protocol": "RESPONSES", "version": "v1" }],
+```
+
+> **`v1` was ACCEPTED at create time but REJECTED at invoke time** (HTTP 400, 2026-10-09:
+> `Unsupported responses protocol version '' for agent 'containment-demo-audit:3'. Please use version '2.0.0'.`).
+> The deployer now registers `2.0.0`, which is **UNVERIFIED** until a live invoke succeeds.
+> See compatibility.md B9d.
+
+```json
     "cpu": 1,
     "memory": "2Gi",
     "image": "<registry>/<repo>@sha256:<digest>",

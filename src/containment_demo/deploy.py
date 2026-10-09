@@ -185,7 +185,14 @@ class DeploySettings(BaseSettings):
         default="responses",
         description="Ingress protocol. Responses is preferred; Invocations is the fallback.",
     )
-    agent_protocol_version: str = Field(default="v1")
+    agent_protocol_version: str = Field(
+        default="2.0.0",
+        description=(
+            "Responses protocol version registered on the hosted agent. 'v1' was accepted "
+            "at create time but rejected at invoke time (docs/compatibility.md B9d). "
+            "2.0.0 is the version the platform named; UNVERIFIED until a live invoke succeeds."
+        ),
+    )
 
     # --- The experimental variable ------------------------------------------------------
 

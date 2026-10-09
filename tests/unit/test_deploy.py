@@ -266,6 +266,15 @@ def test_definition_carries_the_policy_arm_id_and_the_digest() -> None:
     assert definition.protocol_versions[0].protocol == "responses"
 
 
+def test_registered_protocol_version_is_2_0_0_not_v1() -> None:
+    """The platform rejected 'v1' at invoke time (HTTP 400, 2026-10-09) and named 2.0.0."""
+    assert DeploySettings.model_fields["agent_protocol_version"].default == "2.0.0"
+    cfg = make_cfg()
+    audit, _ = plan(cfg)
+    definition = build_definition(FakeModels, cfg, make_settings(), audit)
+    assert definition.protocol_versions[0].version == "2.0.0"
+
+
 def test_environment_differs_only_by_the_evidence_label() -> None:
     cfg = make_cfg()
     settings = make_settings()

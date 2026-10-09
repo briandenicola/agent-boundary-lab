@@ -431,7 +431,7 @@ Request body built by `_create_agent_definition` (`custom.py:1414`):
 {
   "definition": {
     "kind": "hosted",
-    "container_protocol_versions": [{ "protocol": "RESPONSES", "version": "v1" }],
+    "container_protocol_versions": [{ "protocol": "RESPONSES", "version": "v1" }],  // v1: accepted at create, REJECTED at invoke - see B9d
     "cpu": 1,
     "memory": "2Gi",
     "image": "<registry>/<repo>:<tag>",
@@ -856,6 +856,26 @@ Sources: `briandenicola/banking-agent-foundry-orchestrator`
 `src/agents/deployer/deploy.py` lines 15–21 and 417–433, fetched 2026-10-08; Azure portal
 agent blade, 2026-10-08; `azure-ai-projects` 2.8.0 `models/_enums.py:380` and a live
 deserialisation test, 2026-10-08.
+
+### B9d. Protocol version `v1` — accepted at create, rejected at invoke
+
+**Access date 2026-10-09.** First live invocation returned HTTP 400:
+
+> `Unsupported responses protocol version '' for agent 'containment-demo-audit:3'. Please use version '2.0.0'.`
+
+Auth and routing worked (workload identity token; request reached
+`/agents/<name>/endpoint/protocols/openai/responses?api-version=v1`). `v1` was **accepted**
+by `create_version` and **rejected** at invoke; the service reports the registered version
+as `''`. Brian's reference deployer registers `{"protocol": "invocations", "version": "2.0.0"}`
+(`banking-agent-foundry-orchestrator` `src/agents/deployer/deploy.py:171`).
+`DEMO_AGENT_PROTOCOL_VERSION` now defaults to `2.0.0`.
+
+**2.0.0 is UNVERIFIED until a live invoke succeeds.** The empty `''` is a hypothesis-grade
+reading, not an explained cause. Create-time acceptance proves nothing about invoke-time validity.
+
+Invoke client (read from azure-ai-projects 2.8.0 `_patch.py:55-86`): `get_openai_client(agent_name=...)`
+sends only the `api-version` query and the `Foundry-Features` header. It sends no protocol-version
+header or parameter, so the registered version is the only input; `invoke.py` needs no change.
 
 ### C1. Where egress decisions surface
 
