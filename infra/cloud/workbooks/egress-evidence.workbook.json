@@ -136,7 +136,7 @@
       "name": "hosts",
       "content": {
         "version": "KqlItem/1.0",
-        "query": "AppDependencies\n| where DependencyType == \"NetworkEgressDecision\"\n| extend p = parse_json(Properties)\n| summarize calls = count(), last = max(TimeGenerated) by host = tostring(p.host),\n          decision = tostring(p.decision), enforcement = tostring(p.enforcement)\n| order by last desc",
+        "query": "AppDependencies\n| where DependencyType == \"NetworkEgressDecision\"\n| extend p = parse_json(Properties)\n| summarize calls = count(), last_seen = max(TimeGenerated) by host = tostring(p.host),\n          decision = tostring(p.decision), enforcement = tostring(p.enforcement)\n| order by last_seen desc",
         "size": 0,
         "timeContext": { "durationMs": 0 },
         "timeContextFromParameter": "TimeRange",
@@ -156,7 +156,7 @@
       "name": "telemetry-denies",
       "content": {
         "version": "KqlItem/1.0",
-        "query": "AppDependencies\n| where DependencyType == \"NetworkEgressDecision\"\n| extend p = parse_json(Properties)\n| where tostring(p.host) endswith \"applicationinsights.azure.com\"\n| summarize calls = count(), last = max(TimeGenerated) by enforcement = tostring(p.enforcement),\n          decision = tostring(p.decision), reason = tostring(p.decisionReasonCode), host = tostring(p.host)\n| order by enforcement asc",
+        "query": "AppDependencies\n| where DependencyType == \"NetworkEgressDecision\"\n| extend p = parse_json(Properties)\n| where tostring(p.host) endswith \"applicationinsights.azure.com\"\n| summarize calls = count(), last_seen = max(TimeGenerated) by enforcement = tostring(p.enforcement),\n          decision = tostring(p.decision), reason = tostring(p.decisionReasonCode), host = tostring(p.host)\n| order by enforcement asc",
         "size": 0,
         "timeContext": { "durationMs": 0 },
         "timeContextFromParameter": "TimeRange",

@@ -120,9 +120,9 @@ AppDependencies
 | where TimeGenerated > ago(24h)
 | where DependencyType == "NetworkEgressDecision"
 | extend p = parse_json(Properties)
-| summarize calls = count(), last = max(TimeGenerated) by host = tostring(p.host),
+| summarize calls = count(), last_seen = max(TimeGenerated) by host = tostring(p.host),
           decision = tostring(p.decision), enforcement = tostring(p.enforcement)
-| order by last desc
+| order by last_seen desc
 ```
 
 ## 8. The platform also denies the agent's own telemetry (seen in the portal, 2026-10-09)
@@ -133,7 +133,7 @@ AppDependencies
 | where DependencyType == "NetworkEgressDecision"
 | extend p = parse_json(Properties)
 | where tostring(p.host) endswith "applicationinsights.azure.com"
-| summarize calls = count(), last = max(TimeGenerated) by enforcement = tostring(p.enforcement),
+| summarize calls = count(), last_seen = max(TimeGenerated) by enforcement = tostring(p.enforcement),
           decision = tostring(p.decision), reason = tostring(p.decisionReasonCode), host = tostring(p.host)
 | order by enforcement asc
 ```
