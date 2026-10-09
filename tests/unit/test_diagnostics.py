@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any
 
 import httpx
@@ -20,8 +21,8 @@ from containment_demo.settings import Settings
 
 POLICY_BASE = "https://policy.example.com/"
 RECEIVER_BASE = "https://receiver.example.net/"
-POLICY_URL = "https://policy.example.com/policy"
-RECEIVER_URL = "https://receiver.example.net/ingest"
+POLICY_URL = re.compile(r"^https://policy\.example\.com/policy/[A-Za-z0-9_-]+(\?.*)?$")
+RECEIVER_URL = re.compile(r"^https://receiver\.example\.net/ingest/[A-Za-z0-9_-]+(\?.*)?$")
 TOKEN = "test-diagnostics-token-value"
 
 

@@ -8,6 +8,7 @@ the value of this demo depends entirely on those absences.
 from __future__ import annotations
 
 import inspect
+import re
 import ssl
 
 import httpx
@@ -21,8 +22,9 @@ from containment_demo.settings import ErrorCategory, PolicyMode, Settings
 # supplies (terraform outputs carry no path). The routes are the ones the services serve.
 POLICY_BASE = "https://policy.example.com/"
 RECEIVER_BASE = "https://receiver.example.net/"
-POLICY_URL = "https://policy.example.com/policy"
-RECEIVER_URL = "https://receiver.example.net/ingest"
+# The run id is the final path segment (GATE 0), so mocks match on the route prefix.
+POLICY_URL = re.compile(r"^https://policy\.example\.com/policy/[A-Za-z0-9_-]+(\?.*)?$")
+RECEIVER_URL = re.compile(r"^https://receiver\.example\.net/ingest/[A-Za-z0-9_-]+(\?.*)?$")
 
 
 @pytest.fixture
@@ -36,34 +38,55 @@ def settings() -> Settings:
 
 
 class TestRoutes:
-    """Regression: the tools requested the bare base URL ('/'), so both services 404'd."""
+    """Regression: the tools requested the bare base URL ('/'), so both services 404'd.
+
+    GATE 0 (PROPOSED/UNVERIFIED): the run id is also the final path segment, because
+    platform egress rows carry the path but not the query string.
+    """
 
     @respx.mock
-    def test_tools_request_the_routes_the_services_serve(self, settings: Settings) -> None:
+    def test_tools_request_the_routes_with_the_run_id_as_path(self, settings: Settings) -> None:
         policy = respx.get(POLICY_URL).mock(return_value=httpx.Response(200, json={}))
         receiver = respx.post(RECEIVER_URL).mock(return_value=httpx.Response(202, json={}))
         tools.get_servicing_policy(settings)
         tools.send_to_external_processor(settings)
-        assert policy.calls.last.request.url.path == "/policy"
-        assert receiver.calls.last.request.url.path == "/ingest"
+        assert policy.calls.last.request.url.path == f"/policy/{settings.demo_run_id}"
+        assert receiver.calls.last.request.url.path == f"/ingest/{settings.demo_run_id}"
 
     @respx.mock
     def test_trailing_slash_does_not_produce_a_double_slash(self, settings: Settings) -> None:
         policy = respx.get(POLICY_URL).mock(return_value=httpx.Response(200, json={}))
         tools.get_servicing_policy(settings)
-        assert policy.calls.last.request.url.path == "/policy"
+        assert "//" not in policy.calls.last.request.url.path
+
+    @respx.mock
+    @pytest.mark.parametrize("bad", ["a/b", "../x", "a?b=c", "a#b", "a b", "a%2Fb", "", "x" * 65])
+    def test_unsafe_run_id_is_rejected_before_any_request(
+        self, settings: Settings, bad: str
+    ) -> None:
+        settings = settings.model_copy(update={"demo_run_id": bad})
+        route = respx.route().mock(return_value=httpx.Response(200, json={}))
+        for tool in (tools.get_servicing_policy, tools.send_to_external_processor):
+            result = tool(settings)
+            assert result["succeeded"] is False
+            assert result["error_category"] == ErrorCategory.UNEXPECTED
+        assert route.call_count == 0
+
+    def test_both_tools_use_the_same_run_id_path_shape(self) -> None:
+        for path in (tools.POLICY_PATH, tools.RECEIVER_PATH):
+            url = tools._endpoint("https://h.example.test/", path, "run-abc_1")
+            assert url == f"https://h.example.test{path}/run-abc_1"
 
     def test_routes_match_what_the_services_declare(self) -> None:
         from pathlib import Path
 
         root = Path(__file__).resolve().parents[2]
-        assert (
-            f'@app.get("{tools.POLICY_PATH}")' in (root / "services/policy_api/main.py").read_text()
-        )
-        assert (
-            f'@app.post("{tools.RECEIVER_PATH}")'
-            in (root / "services/test_receiver/main.py").read_text()
-        )
+        policy_src = (root / "services/policy_api/main.py").read_text()
+        receiver_src = (root / "services/test_receiver/main.py").read_text()
+        assert f'@app.get("{tools.POLICY_PATH}")' in policy_src
+        assert f'@app.get("{tools.POLICY_PATH}/{{run_id}}")' in policy_src
+        assert f'@app.post("{tools.RECEIVER_PATH}")' in receiver_src
+        assert f'@app.post("{tools.RECEIVER_PATH}/{{run_id}}")' in receiver_src
 
 
 class TestSuccessPaths:
@@ -396,9 +419,8 @@ class TestTheRunMarkerSurvivesAUrlOnlyLog:
         receiver = respx.post(RECEIVER_URL).mock(return_value=httpx.Response(202, json={}))
         tools.send_to_external_processor(settings)
         url = receiver.calls.last.request.url
-        assert str(url).startswith(RECEIVER_URL)
         assert url.host == "receiver.example.net"
-        assert url.path == "/ingest"
+        assert url.path == f"/ingest/{settings.demo_run_id}"
 
     def test_the_marker_names_are_declared_once_for_both_tools(self) -> None:
         source = inspect.getsource(tools)

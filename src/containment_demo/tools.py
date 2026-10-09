@@ -19,6 +19,7 @@ Design constraints that are the entire point of this module:
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
@@ -39,9 +40,22 @@ RUN_MARKER_PARAM = "demo_run_id"
 RUN_MARKER_HEADER = "X-Demo-Run-Id"
 
 
-def _endpoint(base: object, path: str) -> str:
-    """Base URL plus a fixed route. A trailing slash on the base must not become '//'."""
-    return str(base).rstrip("/") + path
+# GATE 0 experiment, PROPOSED/UNVERIFIED (docs/compatibility.md B5b): platform egress
+# decision rows carry the URL path but not the query string, so the run id also travels
+# as the final path segment of BOTH tools. The charset is strict so the segment can never
+# add a '/', '?', '#', '%' or '..' to the destination.
+RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def _safe_run_id(run_id: str) -> str:
+    if not RUN_ID_PATTERN.fullmatch(run_id):
+        raise ValueError("demo_run_id is not a safe path segment (A-Za-z0-9_- , 1-64 chars)")
+    return run_id
+
+
+def _endpoint(base: object, path: str, run_id: str) -> str:
+    """Base URL + fixed route + run id. A trailing slash on the base must not become '//'."""
+    return f"{str(base).rstrip('/')}{path}/{_safe_run_id(run_id)}"
 
 
 def _marker_params(settings: Settings) -> dict[str, str]:
@@ -163,7 +177,7 @@ def get_servicing_policy(settings: Settings) -> dict[str, Any]:
     try:
         with _build_client(settings) as client:
             response = client.get(
-                _endpoint(settings.policy_api_url, POLICY_PATH),
+                _endpoint(settings.policy_api_url, POLICY_PATH, settings.demo_run_id),
                 params=_marker_params(settings),
                 headers=_marker_headers(settings),
             )
@@ -218,7 +232,7 @@ def send_to_external_processor(settings: Settings) -> dict[str, Any]:
     try:
         with _build_client(settings) as client:
             response = client.post(
-                _endpoint(settings.test_receiver_url, RECEIVER_PATH),
+                _endpoint(settings.test_receiver_url, RECEIVER_PATH, settings.demo_run_id),
                 json=record,
                 params=_marker_params(settings),
                 headers=_marker_headers(settings),

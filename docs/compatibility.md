@@ -469,6 +469,12 @@ is independent of egress enforcement, but it is a real operational constraint on
 - Verified by source inspection; no Learn page documents this payload.
 - https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/add-hosted-agent-guardrails
 
+### B5b. Run id in the URL path (GATE 0 experiment, PROPOSED / UNVERIFIED, 2026-10-09)
+
+Observed (docs/telemetry-map.md §0.11): `NetworkEgressDecision` rows carry the destination URL path but not the query string and no run id, so the `?demo_run_id=` marker does not join.
+
+Proposed: both tools append the run id as the final path segment (`/policy/{run_id}`, `/ingest/{run_id}`; `tools._endpoint`), identical for both agents. The run id must match `[A-Za-z0-9_-]{1,64}` or the tool fails locally before any request. The services accept the new routes, keep the old ones, and log the path run id. UNVERIFIED until a real decision row shows the run id in its path; if it does not, this stays INCONCLUSIVE and nothing here counts as a join.
+
 ### B9a. The Python SDK surface we actually deploy with
 
 Verified 2026-10-08 by reading **azure-ai-projects 2.8.0** source (the newest copy on this

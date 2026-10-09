@@ -1,0 +1,4 @@
+# Run id in URL path (GATE 0 experiment) (Brett, 2026-10-09)
+PROPOSED/UNVERIFIED. Both tools send `/policy/{run_id}` and `/ingest/{run_id}` via one `_endpoint()`; run id validated `[A-Za-z0-9_-]{1,64}` (fails locally, no request, UNEXPECTED category). Services keep old routes, log path id (unsafe path ids logged as empty, never rejected, so the receiver stays non-judging). Query and header markers kept. Whether the platform row carries the path run id is unknown until Lambert reads a row; absent => INCONCLUSIVE.
+Rollout note: endpoint apps were rolled with a unique IMAGE_TAG via build:deploy-endpoints (terraform), since re-pushing `latest` creates no new revision. .env ENDPOINT_IMAGE_TAG must match or cloud:up reverts them.
+Tamper: validation off / run id dropped from path / charset loosened / receiver ignores path id / receiver accepts unsafe — each fails a named test.

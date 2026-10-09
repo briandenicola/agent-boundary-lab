@@ -87,6 +87,27 @@ class TestReceiverNeverRejects:
         assert receiver.post("/ingest", content=b"{}").status_code == 202
 
 
+class TestRunIdInPath:
+    """GATE 0 (PROPOSED/UNVERIFIED): the run id also arrives as the final path segment."""
+
+    def test_receiver_logs_the_path_run_id(
+        self, receiver: TestClient, receiver_logs: LogCapture
+    ) -> None:
+        assert receiver.post(f"/ingest/{RUN_ID}", content=b"{}").status_code == 202
+        assert receiver_logs.records[0]["demo_run_id"] == RUN_ID
+
+    def test_policy_logs_the_path_run_id(self, policy: TestClient, policy_logs: LogCapture) -> None:
+        assert policy.get(f"/policy/{RUN_ID}").status_code == 200
+        assert policy_logs.records[0]["demo_run_id"] == RUN_ID
+
+    def test_an_unsafe_path_run_id_is_not_logged_and_not_rejected(
+        self, receiver: TestClient, receiver_logs: LogCapture
+    ) -> None:
+        response = receiver.post("/ingest/bad.id!", content=b"{}")
+        assert response.status_code == 202
+        assert receiver_logs.records[0]["demo_run_id"] == ""
+
+
 class TestReceiverStoresNoContent:
     def test_receipt_contains_only_metadata(
         self, receiver: TestClient, receiver_logs: LogCapture

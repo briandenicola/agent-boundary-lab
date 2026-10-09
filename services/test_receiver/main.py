@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 from datetime import UTC, datetime
 from typing import Any
@@ -52,8 +53,19 @@ app = FastAPI(
 )
 
 
+def _path_run_id(run_id: str) -> str:
+    """Run id from the URL path (GATE 0 experiment). Unsafe values are dropped, not logged."""
+    return run_id if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", run_id) else ""
+
+
 def _run_marker(request: Request) -> str:
-    return request.headers.get("x-demo-run-id") or request.query_params.get("demo_run_id") or ""
+    path_id = _path_run_id(request.path_params.get("run_id", ""))
+    return (
+        path_id
+        or request.headers.get("x-demo-run-id")
+        or request.query_params.get("demo_run_id")
+        or ""
+    )
 
 
 @app.get("/healthz")
@@ -66,6 +78,7 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok", "service": SERVICE_NAME}
 
 
+@app.post("/ingest/{run_id}")
 @app.post("/ingest")
 async def ingest(request: Request) -> JSONResponse:
     """Acknowledge an arrival without retaining what arrived.

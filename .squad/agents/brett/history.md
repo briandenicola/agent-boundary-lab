@@ -257,3 +257,5 @@ Decision: `.squad/decisions/inbox/brett-adapter-await.md`. 244 unit tests pass, 
 
 ## Learnings (capture-off)
 - ADK `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` defaults ON (google/adk/telemetry/context.py:132-136); drives gcp.vertex.agent.* content attrs (tracing.py:319-358). Now forced off in protocol_adapter.main().
+
+- GATE 0 run-id-in-path: tools._endpoint(base, path, run_id) + services /policy/{run_id}, /ingest/{run_id}; respx accepts compiled regex as URL (query string appended, so allow (\?.*)?$).

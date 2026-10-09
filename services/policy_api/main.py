@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 from datetime import UTC, datetime
 from typing import Any
@@ -55,6 +56,11 @@ app = FastAPI(
 )
 
 
+def _path_run_id(run_id: str) -> str:
+    """Run id from the URL path (GATE 0 experiment). Unsafe values are dropped, not logged."""
+    return run_id if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", run_id) else ""
+
+
 def _run_marker(request: Request) -> str:
     """The correlation key, from either the header or the query string.
 
@@ -62,7 +68,13 @@ def _run_marker(request: Request) -> str:
     application traces, so this marker is the only one we control. Both carriers are
     accepted so a receipt is still attributable if one is stripped in transit.
     """
-    return request.headers.get("x-demo-run-id") or request.query_params.get("demo_run_id") or ""
+    path_id = _path_run_id(request.path_params.get("run_id", ""))
+    return (
+        path_id
+        or request.headers.get("x-demo-run-id")
+        or request.query_params.get("demo_run_id")
+        or ""
+    )
 
 
 def _receipt(request: Request, **extra: Any) -> dict[str, Any]:
@@ -83,6 +95,7 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok", "service": SERVICE_NAME}
 
 
+@app.get("/policy/{run_id}")
 @app.get("/policy")
 async def get_policy(request: Request) -> JSONResponse:
     """Return the fixed synthetic policy and record that the call arrived."""
