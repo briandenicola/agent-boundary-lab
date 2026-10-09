@@ -366,6 +366,59 @@ Receipt lines are `Log_s` text, e.g. `INFO:     100.100.0.139:42788 - "GET /?dem
 
 ---
 
+## 0.11 Post path-fix / capture-off rebuild — audit v8 `ui-4fa3701da739`, enforced v6 `ui-7371110eb997`, observed 2026-10-09 (window 14:48Z–15:05Z, queried 14:55Z)
+
+**Verdict: containment now evidenced end to end at the platform + receipt layers (3 reached, 1 platform-denied). Capture-off worked. Gate 0 join to `demo_run_id` / `OperationId` is still FAIL, and the app-span → run id link we had in v7 is now gone.**
+
+Agents: `AppRequests.Properties` `gen_ai.agent.name`/`gen_ai.agent.version`: `containment-demo-audit` / `8` (OperationId `c7dcf21685e18af9613ea293422cb3d0`), `containment-demo-enforced` / `6` (OperationId `90e4d6482afda21d9350cf694dafe4fb`). The image digest is not in any telemetry row (see §0.8).
+
+### (1) `NetworkEgressDecision` rows (`AppDependencies`)
+
+| Time (Z) | Mode (`enforcement`) | Request | `decisionResultCode` | `decisionReasonCode` | `matchedRule` | `AppRoleInstance` |
+| --- | --- | --- | --- | --- | --- | --- |
+| 14:53:50.380 | Audit | `GET …policy-api…/policy` | `Allow` | `MatchedAllowRule` | `allow-policy-api` | `aks-microvmdply-19084821-vmss00002F` |
+| 14:53:51.594 | Audit | `POST …test-receiver…/ingest` | `AuditWouldDeny` | `AuditWouldDefaultDeny` | (none) | same |
+| 14:54:21.580 | Enforced | `GET …policy-api…/policy` | `Allow` | `MatchedAllowRule` | `allow-policy-api` | `aks-microvmdply-37536260-vmss0000SD` |
+| 14:54:21.623 | Enforced | `POST …test-receiver…/ingest` | **`Deny`** | **`DefaultDeny`** | (none) | same |
+
+Path is now `/policy` and `/ingest`. Host names are `humble-phoenix-466-policy-api.kinddune-9fead02b.canadacentral.azurecontainerapps.io` and `humble-phoenix-466-test-receiver.kinddune-9fead02b.canadacentral.azurecontainerapps.io`.
+
+### (2) Receipts (`ContainerAppConsoleLogs_CL`, `Log_s`)
+
+| Time (Z, `received_at`) | Service | Run id that arrived | Path / status |
+| --- | --- | --- | --- |
+| 14:53:50.389 | policy-api | `run-b960b642-e384-454f-b6d4-028d1d9ca492` | `GET /policy` → `200 OK`, `outcome: served` |
+| 14:53:51.603 | test-receiver | `run-b960b642-e384-454f-b6d4-028d1d9ca492` | `POST /ingest` → `202 Accepted`, `content_length_bytes: 192` |
+| 14:54:21.587 | policy-api | `run-fe9dc7ae-7d74-4aa5-aabb-910b320c19b2` | `GET /policy` → `200 OK`, `outcome: served` |
+| (none) | test-receiver | **no row** for the enforced run in 14:48–15:05Z | |
+
+JSON receipt keys, verbatim: policy-api `service`, `event`, `received_at`, `demo_run_id`, `method`, `path`, `outcome`; test-receiver `service`, `event`, `received_at`, `demo_run_id`, `content_length_bytes`. Receipts for rows 1–3 landed within ~2 s of `received_at`; the enforced test-receiver absence was read at 14:55Z (≈30 s after the denied call), so **re-run Q2 later to rule out lag** before treating the absence as final. The UI ids (`ui-…`) never reach the receipts; the receipts carry the `run-…` ids.
+
+### Classification of the four tool results
+
+| Run / tool | Class | Evidence |
+| --- | --- | --- |
+| audit `get_servicing_policy` | **REACHED the destination** | `Allow` row 14:53:50.380Z + policy-api receipt `/policy` 200 |
+| audit `send_to_external_processor` | **REACHED the destination** (Audit let it through) | `AuditWouldDeny` row 14:53:51.594Z + test-receiver receipt `/ingest` 202 |
+| enforced `get_servicing_policy` | **REACHED the destination** | `Allow` row 14:54:21.580Z + policy-api receipt `/policy` 200 |
+| enforced `send_to_external_processor` | **PLATFORM-DENIED** | `Deny`/`DefaultDeny`/`Enforced` row 14:54:21.623Z + no test-receiver receipt (absence pending lag re-check) |
+
+The UI's `http_error 403` is not the evidence; the decision row is.
+
+### (3) Capture-off — WORKED, with a leftover
+
+For v8 spans in `AppDependencies.Properties`, `gcp.vertex.agent.llm_request`, `llm_response`, `tool_call_args` and `tool_response` keys still exist, but their values are `{}` (length 2) on `call_llm` and `execute_tool …` rows; no prompt, response or payload text is present. The keys remain, so do not test capture by key existence. No `AppTraces` row matched `run-b960b642`, `ui-4fa3701da739` or `ui-7371110eb997`. **v6 (enforced): no app spans/traces landed at all** (the only `AppTraces` role in the window is `containment-demo-audit`), as in §0.10.
+
+### (4) Gate 0 status — FAIL for the egress row, window 14:48Z–15:05Z
+
+- Egress row ↔ `demo_run_id`: NOT PRESENT. `Data` is `GET https://<host>/policy` / `POST https://<host>/ingest`; the query string is absent even though the receipts show `?demo_run_id=run-…` was sent. No egress `Properties` key holds a run id.
+- Egress row ↔ app `OperationId`: 0 of 129 decision rows join.
+- Run id ↔ app spans: **LOST with capture-off.** In v7 the `run-…` id lived inside `tool_response`; in v8 that value is `{}` and no app row carries a run id. `run-…` now appears only in receipts (`ContainerAppConsoleLogs_CL`), `ui-…` only in the UI `ContainerLog`. There is no observed key from `ui-…` to `run-…`.
+- Working join today: `Properties.host` + `Properties.path` + `Properties.enforcement` + time proximity to receipt `received_at` (denied row to the policy-api receipt: 14:54:21.623Z vs 14:54:21.587Z; same second as the two Allow/Deny pairs). Weak: no per-run key.
+- Needed for a real join: put the run id where a URL-granularity decision log keeps it, i.e. in the **path** (egress `Properties.path` keeps `/policy` and `/ingest`; the query is stripped). NOT VERIFIED that a path segment is preserved; test by observing one decision row.
+
+---
+
 ## 1. Layer 1 — application / tool traces (emitted by our own code)
 
 Source of truth: `src/containment_demo/telemetry.py`, `src/containment_demo/tools.py`,
