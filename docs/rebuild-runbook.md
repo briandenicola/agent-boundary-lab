@@ -16,7 +16,7 @@ Add `--yes` to any task that prompts when you are not on a terminal.
 | --- | --- |
 | Resource group, VNet, ACR, Log Analytics, Container Apps environment and the two controlled endpoints | |
 | Foundry account, project, both RAI policies, the `foundry-account-pe` rule | Container images (every `*:build` task) |
-| The managed-network flip to `AllowOnlyApprovedOutbound` and its FQDN rules (only when `managed_network_isolation_mode` is `AllowOnlyApprovedOutbound`, the default) | Agent versions (published by the harness pod's init container) |
+| The managed network (`AllowOnlyApprovedOutbound`) and its FQDN rules (only when `managed_network_isolation_mode` is `AllowOnlyApprovedOutbound`, the default) | Agent versions (published by the harness pod's init container) |
 | AKS cluster, role grants for the apps identity, the evidence workbook | Cluster workloads and their secrets (`*:up`, `*:secret`) |
 | | The model-access role grant for the two agent identities (`cloud:agent-access-up`) |
 
@@ -33,18 +33,18 @@ State is the local file `infra/cloud/terraform.tfstate`. Losing it orphans the e
 | 1.3 | `task cloud:plan` | Read the plan. Creates nothing. |
 | 1.4 | `task cloud:up` | **Billable** (AKS). Leave `ENDPOINT_IMAGE_TAG` empty: the images do not exist yet, so the Container Apps run a placeholder (see `endpoint_image_tag` in `variables.tf`). |
 
-**The managed-network flip is part of `cloud:up`** (default `managed_network_isolation_mode =
-AllowOnlyApprovedOutbound`): `azapi_resource.managed_network` declares `managednetworks/default` with `isolationMode`,
-and the three FQDN rules depend on it. The PATCH retries on `TransientError`, because the
-service can time out the call while the change still lands (it did on 2026-10-09). The flip is
-one-way and the FQDN rules create the billable managed firewall (Standard).
+**The managed network is part of `cloud:up`.** `azapi_resource.managed_network` declares
+`managednetworks/default` with `isolationMode = AllowOnlyApprovedOutbound` (the default of
+`managed_network_isolation_mode`), so there is no separate flip step. The three FQDN rules depend
+on it. Isolation mode is one-way, and the FQDN rules create the billable managed firewall
+(Standard). The resource retries on `TransientError` and "ongoing operation" (both seen on
+2026-10-09).
 
-**UNVERIFIED (drafted 2026-10-10, never applied from scratch):** that this resource creates the
-flip and the rules in order on a fresh account, and that the retry settings clear the `Conflict`
-("has an ongoing operation running") that parallel rule creation hit on 2026-10-09. If `cloud:up`
-fails there, re-run it; or apply the network pieces alone with
-`TF_EXTRA='-parallelism=1' task cloud:network-up`. `task cloud:network-probe` is a manual
-fallback PATCH. An existing environment needs one `terraform import azapi_resource.managed_network <id>`. To skip the flip, set `TF_VAR_managed_network_isolation_mode=AllowInternetOutbound`.
+**UNVERIFIED (never applied from scratch):** that Terraform's create on `managednetworks/default`
+(which the platform also creates with the account) works on a fresh account, and that the retries
+clear the `Conflict` that parallel rule creation hit. If `cloud:up` fails there, re-run it, or use
+`TF_EXTRA='-parallelism=1' task cloud:network-up`. `task cloud:network-probe` is a manual fallback
+PATCH. To opt out, set `TF_VAR_managed_network_isolation_mode=AllowInternetOutbound`.
 
 ### 2. Check the managed network
 

@@ -122,7 +122,7 @@ tasks:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
 
   network-plan:
-    desc: Show the managed-network flip and FQDN rules that network-up would apply (creates nothing)
+    desc: Show the managed network and FQDN rules that network-up would apply (creates nothing)
     cmds:
       - task: _init-once
       - terraform -chdir=./{{.CLOUD_DIR}} plan -compact-warnings -target=azapi_resource.managed_network -target=azapi_resource.network_fqdn_rule -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" {{.EXTRA}}
@@ -131,7 +131,7 @@ tasks:
       EXTRA: '{{default "" .TF_EXTRA}}'
 
   network-up:
-    desc: IRREVERSIBLE + BILLABLE. Applies ONLY the managed-network flip and FQDN rules (the managed Azure Firewall, Standard, cannot change later). cloud:up does the same
+    desc: IRREVERSIBLE + BILLABLE. Applies ONLY the managed network (isolationMode) and FQDN rules (the managed Azure Firewall, Standard, cannot change later). cloud:up does the same
     prompt: This is ONE-WAY (approved-only cannot be undone) and creates the billable managed Azure Firewall. Apply only the managed-network change?
     cmds:
       - task: _init-once
