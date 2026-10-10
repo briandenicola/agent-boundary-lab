@@ -27,7 +27,7 @@ resource "azurerm_role_assignment" "foundry_network_approver" {
 resource "azapi_resource" "foundry_self_pe_rule" {
   type                      = "Microsoft.CognitiveServices/accounts/managednetworks/outboundrules@2025-10-01-preview"
   name                      = "foundry-account-pe"
-  parent_id                 = "${azapi_resource.foundry.id}/managednetworks/default"
+  parent_id                 = azapi_resource.managed_network.id
   schema_validation_enabled = false
 
   body = {
@@ -47,26 +47,29 @@ resource "azapi_resource" "foundry_self_pe_rule" {
 #############################################
 # ISOLATION MODE: AllowOnlyApprovedOutbound (ONE-WAY)
 #
-# managednetworks/default is created by the platform (as AllowInternetOutbound), and
-# azapi_update_resource could not read it ("update target does not exist") although a plain GET
-# works. So the flip is a PATCH through azapi_resource_action, which does no read. The service can
-# answer the PATCH with a TransientError timeout while the change still lands (2026-10-09), so the
-# call retries on that error; PATCHing the same body again is idempotent.
+# Declared as the Learn accounts/managedNetworks resource ("default"), with isolationMode set in
+# the body, not as a post-create flip. The platform creates "default" with the account, so an
+# existing environment needs `terraform import azapi_resource.managed_network <id>` once. On a
+# fresh account whether azapi's create PUTs over the platform-created resource is UNVERIFIED.
+# The service can answer with a TransientError timeout while the change lands (2026-10-09), so
+# the call retries; the same PUT again is idempotent.
 #
 # Experimental design: the two controlled hosts are allowed at the NETWORK layer for BOTH agents,
 # so the egress RAI policy stays the only variable between audit and enforced. See
 # test_endpoints_public in variables.tf. Hosts derive from the live ingress, never hardcoded.
 #############################################
-resource "azapi_resource_action" "managed_network_isolation" {
-  count       = local.approved_only ? 1 : 0
-  type        = "Microsoft.CognitiveServices/accounts/managednetworks@2025-10-01-preview"
-  resource_id = "${azapi_resource.foundry.id}/managednetworks/default"
-  method      = "PATCH"
-  # Do not send firewallSku: the account reports Standard and Learn says it cannot change later.
+resource "azapi_resource" "managed_network" {
+  type                      = "Microsoft.CognitiveServices/accounts/managednetworks@2025-10-01-preview"
+  name                      = "default"
+  parent_id                 = azapi_resource.foundry.id
+  schema_validation_enabled = false
+
   body = {
     properties = {
       managedNetwork = {
-        isolationMode = var.managed_network_isolation_mode
+        isolationMode      = var.managed_network_isolation_mode
+        managedNetworkKind = "V2"
+        firewallSku        = "Standard"
       }
     }
   }
@@ -76,8 +79,6 @@ resource "azapi_resource_action" "managed_network_isolation" {
     interval_seconds     = 20
     max_interval_seconds = 60
   }
-
-  depends_on = [azapi_resource.foundry_self_pe_rule]
 }
 
 locals {
@@ -97,7 +98,7 @@ resource "azapi_resource" "network_fqdn_rule" {
   for_each                  = local.network_fqdn_rules
   type                      = "Microsoft.CognitiveServices/accounts/managednetworks/outboundrules@2025-10-01-preview"
   name                      = each.key
-  parent_id                 = "${azapi_resource.foundry.id}/managednetworks/default"
+  parent_id                 = azapi_resource.managed_network.id
   schema_validation_enabled = false
 
   body = {
@@ -114,5 +115,5 @@ resource "azapi_resource" "network_fqdn_rule" {
     interval_seconds    = 20
   }
 
-  depends_on = [azapi_resource_action.managed_network_isolation]
+  depends_on = [azapi_resource.managed_network]
 }

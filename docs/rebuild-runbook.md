@@ -34,7 +34,7 @@ State is the local file `infra/cloud/terraform.tfstate`. Losing it orphans the e
 | 1.4 | `task cloud:up` | **Billable** (AKS). Leave `ENDPOINT_IMAGE_TAG` empty: the images do not exist yet, so the Container Apps run a placeholder (see `endpoint_image_tag` in `variables.tf`). |
 
 **The managed-network flip is part of `cloud:up`** (default `managed_network_isolation_mode =
-AllowOnlyApprovedOutbound`): `azapi_resource_action.managed_network_isolation` sends one PATCH,
+AllowOnlyApprovedOutbound`): `azapi_resource.managed_network` declares `managednetworks/default` with `isolationMode`,
 and the three FQDN rules depend on it. The PATCH retries on `TransientError`, because the
 service can time out the call while the change still lands (it did on 2026-10-09). The flip is
 one-way and the FQDN rules create the billable managed firewall (Standard).
@@ -44,7 +44,7 @@ flip and the rules in order on a fresh account, and that the retry settings clea
 ("has an ongoing operation running") that parallel rule creation hit on 2026-10-09. If `cloud:up`
 fails there, re-run it; or apply the network pieces alone with
 `TF_EXTRA='-parallelism=1' task cloud:network-up`. `task cloud:network-probe` is a manual
-fallback PATCH. To skip the flip, set `TF_VAR_managed_network_isolation_mode=AllowInternetOutbound`.
+fallback PATCH. An existing environment needs one `terraform import azapi_resource.managed_network <id>`. To skip the flip, set `TF_VAR_managed_network_isolation_mode=AllowInternetOutbound`.
 
 ### 2. Check the managed network
 
