@@ -47,16 +47,39 @@ resource "azapi_resource" "foundry_self_pe_rule" {
 #############################################
 # ISOLATION MODE: AllowOnlyApprovedOutbound (ONE-WAY)
 #
-# NOT managed by Terraform. managednetworks/default is created by the platform, and
+# managednetworks/default is created by the platform (as AllowInternetOutbound), and
 # azapi_update_resource could not read it ("update target does not exist") although a plain GET
-# works. The flip was made ONCE with `task cloud:network-probe` (PATCH; the call timed out but the
-# readback showed isolationMode AllowOnlyApprovedOutbound, firewallSku Standard). On a rebuilt
-# account run network-probe once before cloud:up. The FQDN rules below exist only in that mode.
+# works. So the flip is a PATCH through azapi_resource_action, which does no read. The service can
+# answer the PATCH with a TransientError timeout while the change still lands (2026-10-09), so the
+# call retries on that error; PATCHing the same body again is idempotent.
 #
 # Experimental design: the two controlled hosts are allowed at the NETWORK layer for BOTH agents,
 # so the egress RAI policy stays the only variable between audit and enforced. See
 # test_endpoints_public in variables.tf. Hosts derive from the live ingress, never hardcoded.
 #############################################
+resource "azapi_resource_action" "managed_network_isolation" {
+  count       = local.approved_only ? 1 : 0
+  type        = "Microsoft.CognitiveServices/accounts/managednetworks@2025-10-01-preview"
+  resource_id = "${azapi_resource.foundry.id}/managednetworks/default"
+  method      = "PATCH"
+  # Do not send firewallSku: the account reports Standard and Learn says it cannot change later.
+  body = {
+    properties = {
+      managedNetwork = {
+        isolationMode = var.managed_network_isolation_mode
+      }
+    }
+  }
+
+  retry = {
+    error_message_regex  = ["TransientError", "ongoing operation"]
+    interval_seconds     = 20
+    max_interval_seconds = 60
+  }
+
+  depends_on = [azapi_resource.foundry_self_pe_rule]
+}
+
 locals {
   approved_only = var.managed_network_isolation_mode == "AllowOnlyApprovedOutbound"
 
@@ -85,5 +108,11 @@ resource "azapi_resource" "network_fqdn_rule" {
     }
   }
 
-  depends_on = [azapi_resource.foundry_self_pe_rule]
+  # The managed network takes one operation at a time; parallel rule creation returned Conflict.
+  retry = {
+    error_message_regex = ["ongoing operation"]
+    interval_seconds    = 20
+  }
+
+  depends_on = [azapi_resource_action.managed_network_isolation]
 }

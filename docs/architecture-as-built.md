@@ -184,7 +184,7 @@ rows (`AppDependencies`) and receipts (`ContainerAppConsoleLogs_CL`) sit in one 
 
 ### Managed network `AllowOnlyApprovedOutbound`
 
-**OBSERVED 2026-10-09 16:58 CT:** a one-time `task cloud:network-probe` PATCH (API 2025-10-01-preview) returned a service `TransientError` timeout, yet the readback showed `isolationMode: AllowOnlyApprovedOutbound`, `firewallSku: Standard`, `provisioningState: Succeeded`. Before the PATCH the account reported `changeableIsolationModes: []` and `firewallSku: Standard`. The flip is not in Terraform (azapi_update_resource could not read the resource although a GET works).
+**OBSERVED 2026-10-09 16:58 CT:** a one-time `task cloud:network-probe` PATCH (API 2025-10-01-preview) returned a service `TransientError` timeout, yet the readback showed `isolationMode: AllowOnlyApprovedOutbound`, `firewallSku: Standard`, `provisioningState: Succeeded`. Before the PATCH the account reported `changeableIsolationModes: []` and `firewallSku: Standard`. The flip is now in Terraform as `azapi_resource_action` (PATCH with retry; drafted 2026-10-10, not yet applied through Terraform). `azapi_update_resource` could not read the resource although a GET works.
 
 **OBSERVED 2026-10-09 17:30–17:55 CT (after the flip, before and after the FQDN rules):**
 - Before any FQDN rule: UI runs on both agents behaved exactly as before the flip, and `verify_demo.py` B and C PASSED (run ids `run-e9a8e59a-…`, `run-42bbd349-…`). So the flip alone changed nothing observable.

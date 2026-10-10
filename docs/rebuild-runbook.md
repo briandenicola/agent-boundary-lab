@@ -14,9 +14,9 @@ Add `--yes` to any task that prompts when you are not on a terminal.
 
 | Covered by Terraform (`infra/cloud`) | NOT covered: separate steps below |
 | --- | --- |
-| Resource group, VNet, ACR, Log Analytics, Container Apps environment and the two controlled endpoints | The Foundry managed-network **flip** to `AllowOnlyApprovedOutbound` (`task cloud:network-probe`, one PATCH) |
+| Resource group, VNet, ACR, Log Analytics, Container Apps environment and the two controlled endpoints | |
 | Foundry account, project, both RAI policies, the `foundry-account-pe` rule | Container images (every `*:build` task) |
-| The managed-network FQDN rules (only when `managed_network_isolation_mode` is `AllowOnlyApprovedOutbound`, the default) | Agent versions (published by the harness pod's init container) |
+| The managed-network flip to `AllowOnlyApprovedOutbound` and its FQDN rules (only when `managed_network_isolation_mode` is `AllowOnlyApprovedOutbound`, the default) | Agent versions (published by the harness pod's init container) |
 | AKS cluster, role grants for the apps identity, the evidence workbook | Cluster workloads and their secrets (`*:up`, `*:secret`) |
 | | The model-access role grant for the two agent identities (`cloud:agent-access-up`) |
 
@@ -33,23 +33,25 @@ State is the local file `infra/cloud/terraform.tfstate`. Losing it orphans the e
 | 1.3 | `task cloud:plan` | Read the plan. Creates nothing. |
 | 1.4 | `task cloud:up` | **Billable** (AKS). Leave `ENDPOINT_IMAGE_TAG` empty: the images do not exist yet, so the Container Apps run a placeholder (see `endpoint_image_tag` in `variables.tf`). |
 
-**UNVERIFIED: managed-network ordering on a fresh account.** The FQDN rules are created by
-`cloud:up` while the network is still `AllowInternetOutbound` (the platform's default), and
-the flip happens afterwards. Whether ARM accepts FQDN rules before the flip is not known.
-Also: on 2026-10-09 creating the three rules in parallel failed with `Conflict` ("has an
-ongoing operation running"), and one at a time (`-parallelism=1`) worked. If `cloud:up` hits
-that, run `TF_EXTRA='-parallelism=1' task cloud:network-up`, then `cloud:up` again. If ARM
-refuses the rules before the flip, set `TF_VAR_managed_network_isolation_mode=AllowInternetOutbound`
-for the first `cloud:up`, flip in step 2, then run `cloud:up` again without it.
+**The managed-network flip is part of `cloud:up`** (default `managed_network_isolation_mode =
+AllowOnlyApprovedOutbound`): `azapi_resource_action.managed_network_isolation` sends one PATCH,
+and the three FQDN rules depend on it. The PATCH retries on `TransientError`, because the
+service can time out the call while the change still lands (it did on 2026-10-09). The flip is
+one-way and the FQDN rules create the billable managed firewall (Standard).
 
-### 2. Managed network flip (ONE-WAY)
+**UNVERIFIED (drafted 2026-10-10, never applied from scratch):** that this resource creates the
+flip and the rules in order on a fresh account, and that the retry settings clear the `Conflict`
+("has an ongoing operation running") that parallel rule creation hit on 2026-10-09. If `cloud:up`
+fails there, re-run it; or apply the network pieces alone with
+`TF_EXTRA='-parallelism=1' task cloud:network-up`. `task cloud:network-probe` is a manual
+fallback PATCH. To skip the flip, set `TF_VAR_managed_network_isolation_mode=AllowInternetOutbound`.
+
+### 2. Check the managed network
 
 | # | Command | Notes |
 | --- | --- | --- |
-| 2.1 | `task cloud:network-probe` | One PATCH to `managednetworks/default`. It may print a `TransientError` timeout while the change still lands (it did on 2026-10-09). **Trust the readback it prints**, not the error: `isolationMode` must read `AllowOnlyApprovedOutbound`. |
-| 2.2 | `task cloud:network-plan` then `task cloud:network-up` | Creates the FQDN rules and so the billable managed firewall (Standard; cannot change later). Skip if `cloud:up` already created them. Finish with `task cloud:plan`: it must report no changes. |
-
-Going back to `AllowInternetOutbound` means redeploying the account.
+| 2.1 | `task cloud:plan` | Must report no changes after `cloud:up`. |
+| 2.2 | Read back `managednetworks/default` | `isolationMode` must read `AllowOnlyApprovedOutbound`; trust the readback over any timeout message. |
 
 ### 3. Cluster access
 
@@ -117,8 +119,9 @@ Exit 0 is PASS, 1 FAIL, 2 INCONCLUSIVE. Then re-check `task cloud:plan` shows no
 ## Known rough edges
 
 - **No single "everything" task.** The order above is a human sequence, not automated.
-- **The managed-network flip is outside Terraform** (`azapi_update_resource` could not read the
-  resource although a plain GET works), so it is a manual step every rebuild.
+- **`cloud:plan` showed the two RAI policies updating in place on 2026-10-10** (contentFilters),
+  with no policy change on our side; `task cloud:policies` showed them still identical apart from
+  `egressPolicy.mode`. Unexplained. Read the plan before any `cloud:up`; do not apply it blind.
 - **Secrets** are created by `*:secret` and never stored in the repo; a rebuild makes new ones.
   Anything holding an old token (a saved browser login) must use the new one.
 - **Tear-down** is `docs/demo-runbook.md` §12. `task cloud:down` deletes everything the module

@@ -122,26 +122,26 @@ tasks:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
 
   network-plan:
-    desc: Show the managed-network FQDN rules that network-up would create (creates nothing)
+    desc: Show the managed-network flip and FQDN rules that network-up would apply (creates nothing)
     cmds:
       - task: _init-once
-      - terraform -chdir=./{{.CLOUD_DIR}} plan -compact-warnings -target=azapi_resource.network_fqdn_rule -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" {{.EXTRA}}
+      - terraform -chdir=./{{.CLOUD_DIR}} plan -compact-warnings -target=azapi_resource_action.managed_network_isolation -target=azapi_resource.network_fqdn_rule -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" {{.EXTRA}}
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
       EXTRA: '{{default "" .TF_EXTRA}}'
 
   network-up:
-    desc: BILLABLE. Creates the managed-network FQDN rules, which creates the managed Azure Firewall (Standard; cannot change later)
-    prompt: This creates the billable managed Azure Firewall (Standard, cannot be changed later). Apply only the FQDN rules?
+    desc: IRREVERSIBLE + BILLABLE. Applies ONLY the managed-network flip and FQDN rules (the managed Azure Firewall, Standard, cannot change later). cloud:up does the same
+    prompt: This is ONE-WAY (approved-only cannot be undone) and creates the billable managed Azure Firewall. Apply only the managed-network change?
     cmds:
       - task: _init-once
-      - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -target=azapi_resource.network_fqdn_rule -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" {{.EXTRA}}
+      - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -target=azapi_resource_action.managed_network_isolation -target=azapi_resource.network_fqdn_rule -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" {{.EXTRA}}
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
       EXTRA: '{{default "" .TF_EXTRA}}'
 
   network-probe:
-    desc: ONE-TIME PATCH of the managed network to AllowOnlyApprovedOutbound (keeps firewallSku Standard). IRREVERSIBLE if it succeeds. Prints the raw response or error
+    desc: MANUAL FALLBACK. cloud:up already flips the managed network (azapi_resource_action). One PATCH to AllowOnlyApprovedOutbound; IRREVERSIBLE. Prints the raw response or error
     prompt: Send ONE PATCH setting managednetworks/default to AllowOnlyApprovedOutbound? One-way if accepted.
     cmds:
       - task: arm:_account-id
