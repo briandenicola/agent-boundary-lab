@@ -257,6 +257,8 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ### 3.0 Bring-up order, and the cluster-context check we learned the hard way
 
+> **Full rebuild from nothing (all images, workloads, network flip, access grants):** see [`rebuild-runbook.md`](rebuild-runbook.md). The six steps below are only the infrastructure and harness core.
+
 **Tested result (2026-10-08):** every task name below was read back from `task --list-all`
 and from `tasks/Taskfile.cloud.yml`. This is the order, and all six exist:
 
