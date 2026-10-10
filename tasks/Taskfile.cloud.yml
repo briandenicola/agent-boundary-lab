@@ -141,7 +141,7 @@ tasks:
       EXTRA: '{{default "" .TF_EXTRA}}'
 
   network-probe:
-    desc: MANUAL FALLBACK. cloud:up already flips the managed network (azapi_resource_action). One PATCH to AllowOnlyApprovedOutbound; IRREVERSIBLE. Prints the raw response or error
+    desc: MANUAL FALLBACK. cloud:up already declares the managed network with isolationMode (azapi_resource.managed_network). One PATCH to AllowOnlyApprovedOutbound; IRREVERSIBLE. Prints the raw response or error
     prompt: Send ONE PATCH setting managednetworks/default to AllowOnlyApprovedOutbound? One-way if accepted.
     cmds:
       - task: arm:_account-id
