@@ -176,13 +176,16 @@ tasks:
         NS=$($TF kubernetes_namespace)
 
         echo "=== MANAGED NETWORK (read from ARM) ==="
-        jq '{isolationMode, firewallSku, kind, state}' /tmp/abl-managed-network.json
-        echo "--- outbound rules (type, category, destination, status) ---"
-        jq -r '.rules | to_entries[] | "\(.key)\t\(.value.type)\t\(.value.category)\t\(.value.status)\t\(.value.destination | if type=="object" then (.serviceTag // .serviceResourceId // "") else . end)"' /tmp/abl-managed-network.json | column -t -s "$(printf '\t')"
+        jq -r '"outbound mode : \(.isolationMode)\nfirewall SKU  : \(.firewallSku)\nkind          : \(.kind)\nstate         : \(.state)"' /tmp/abl-managed-network.json
+        echo
+        echo "Allowed outbound rules:"
+        { printf 'NAME\tTYPE\tSTATUS\tDESTINATION\n'
+          jq -r '.rules | to_entries[] | "\(.key)\t\(.value.type)\t\(.value.status)\t\(.value.destination | if type=="object" then (.serviceTag // .serviceResourceId // "") else . end | split("/") | last)"' /tmp/abl-managed-network.json
+        } | column -t -s "$(printf '\t')" | sed 's/^/  /'
 
         echo
         echo "=== RAI POLICIES (read from ARM) ==="
-        jq '.' /tmp/abl-rai-policies.json
+        jq -r '.[] | "\(.name)\n  egress mode    : \(.egressMode)\n  default action : \(.defaultAction)\n  allowed hosts  : \([.rules[]? | "\(.action.actionType) \(.match.host // "?")"] | join(", "))\n"' /tmp/abl-rai-policies.json
 
         echo
         echo "=== POLICY ATTACHED TO EACH AGENT VERSION (read from the Foundry data plane, from inside the harness pod) ==="
@@ -192,7 +195,11 @@ tasks:
         from dataclasses import asdict
         from containment_demo import invoke
         endpoint = f"https://{sys.argv[1]}.services.ai.azure.com/api/projects/{sys.argv[2]}"
-        print(json.dumps([asdict(invoke.read_version_facts(endpoint, n)) for n in sys.argv[3:]], indent=2))
+        for n in sys.argv[3:]:
+            print(n)
+            for k, v in asdict(invoke.read_version_facts(endpoint, n)).items():
+                print(f"  {k:<18}: {v}")
+            print()
         ' "$($TF foundry_account_name)" "$($TF project_name)" "$($TF agent_name_audit)" "$($TF agent_name_enforced)"
 
   open:
