@@ -630,7 +630,7 @@ def read_version_facts(endpoint: str, agent_name: str, version: str | None = Non
         versions = list(client.agents.list_versions(agent_name))
         if not versions:
             raise RuntimeError(f"No versions exist for agent {agent_name!r}.")
-        latest = versions[-1]
+        latest = max(versions, key=lambda v: int(str(getattr(v, "version", "0")) or 0))
         version = str(getattr(latest, "version", ""))
         details = latest
     else:

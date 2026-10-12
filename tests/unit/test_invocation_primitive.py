@@ -493,3 +493,46 @@ class TestToolRunId:
             if rid is not None:
                 rec["demo_run_id"] = rid
             assert outcome_from_record(rec).tool_run_id is None
+
+
+def test_read_version_facts_takes_the_highest_version_not_the_last_listed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """list_versions returns newest first (observed 2026-10-12: 15, 14, ... 1)."""
+    import sys
+    import types
+    from types import SimpleNamespace
+
+    from containment_demo import invoke
+
+    def version(n: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            version=n,
+            status="active",
+            definition=SimpleNamespace(
+                container_configuration=SimpleNamespace(image=f"acr/agent@sha256:{n}"),
+                rai_config=SimpleNamespace(rai_policy_name=f"policy-{n}"),
+            ),
+        )
+
+    class FakeClient:
+        def __init__(self, **_: Any) -> None:
+            self.agents = SimpleNamespace(
+                list_versions=lambda _name: [
+                    version("15"),
+                    version("14"),
+                    version("2"),
+                    version("1"),
+                ]
+            )
+
+    projects = types.ModuleType("azure.ai.projects")
+    projects.AIProjectClient = FakeClient  # type: ignore[attr-defined]
+    identity = types.ModuleType("azure.identity")
+    identity.DefaultAzureCredential = lambda: object()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "azure.ai.projects", projects)
+    monkeypatch.setitem(sys.modules, "azure.identity", identity)
+
+    facts = invoke.read_version_facts("https://example", "agent")
+    assert facts.version == "15"
+    assert facts.rai_policy_name == "policy-15"
