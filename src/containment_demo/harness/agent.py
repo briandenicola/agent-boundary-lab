@@ -13,6 +13,7 @@ containment evidence.
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -20,6 +21,8 @@ from typing import Any
 from containment_demo import invoke, ui_a2a
 from containment_demo.a2a_facade import client as a2a_client
 from containment_demo.harness.settings import HarnessSettings
+
+logger = logging.getLogger(__name__)
 
 TOOL_NAMES = {"audit": "ask_audit_agent", "enforced": "ask_enforced_agent"}
 REQUIRED_TOOL_NAMES = frozenset(TOOL_NAMES.values())
@@ -97,6 +100,35 @@ def assert_both_tools(tool_list: list[Any]) -> None:
         raise RuntimeError(f"harness tools must be exactly {sorted(REQUIRED_TOOL_NAMES)}")
 
 
+def _part_kind_and_size(part: Any) -> tuple[str, int]:
+    if getattr(part, "function_response", None) is not None:
+        return "function_response", len(str(part.function_response.response))
+    if getattr(part, "function_call", None) is not None:
+        return "function_call", len(str(part.function_call.args))
+    return "text", len(getattr(part, "text", None) or "")
+
+
+def log_model_request(callback_context: Any, llm_request: Any) -> None:
+    """Log roles, part kinds and character counts per model call. Never logs content."""
+    sizes = []
+    for content in llm_request.contents or []:
+        for part in content.parts or []:
+            kind, size = _part_kind_and_size(part)
+            sizes.append(f"{content.role}:{kind}:{size}")
+    sys_chars = len(str(getattr(llm_request.config, "system_instruction", "") or ""))
+    logger.info("model request system_chars=%d contents=[%s]", sys_chars, " ".join(sizes))
+
+
+def log_model_response(callback_context: Any, llm_response: Any) -> None:
+    sizes = []
+    content = getattr(llm_response, "content", None)
+    for part in (content.parts if content else None) or []:
+        kind, size = _part_kind_and_size(part)
+        name = part.function_call.name if kind == "function_call" else ""
+        sizes.append(f"{kind}:{name}:{size}")
+    logger.info("model response parts=[%s]", " ".join(sizes))
+
+
 def build_model(settings: HarnessSettings) -> Any:
     from google.adk.models.lite_llm import LiteLlm
 
@@ -121,4 +153,6 @@ def build_agent(
         model=model if model is not None else build_model(settings),
         instruction=INSTRUCTION,
         tools=tool_list,
+        before_model_callback=log_model_request,
+        after_model_callback=log_model_response,
     )

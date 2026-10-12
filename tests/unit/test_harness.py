@@ -245,3 +245,30 @@ class TestChat:
             "/chat", json={"message": "go"}, headers=AUTH
         )
         assert r.status_code == 504
+
+
+def test_model_call_logging_records_sizes_never_content(caplog: pytest.LogCaptureFixture) -> None:
+    from google.genai import types
+
+    secret = "SECRET-PAYLOAD-TEXT"
+    request = type("Req", (), {})()
+    request.config = types.GenerateContentConfig(system_instruction="sys-instruction")
+    request.contents = [
+        types.Content(role="user", parts=[types.Part(text=secret)]),
+        types.Content(
+            role="user",
+            parts=[
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        name="ask_audit_agent", response={"k": secret}
+                    )
+                )
+            ],
+        ),
+    ]
+    with caplog.at_level("INFO", logger=agent.logger.name):
+        agent.log_model_request(None, request)
+    assert "user:text:" in caplog.text
+    assert "user:function_response:" in caplog.text
+    assert "system_chars=15" in caplog.text
+    assert secret not in caplog.text
