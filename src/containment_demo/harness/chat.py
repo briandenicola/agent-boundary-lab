@@ -24,6 +24,7 @@ from starlette.routing import Route
 from containment_demo import invoke
 from containment_demo.demo_ui import CSRF_HEADER, _authorised, _unauthorised
 from containment_demo.harness import agent as harness_agent
+from containment_demo.harness.page import PAGE
 from containment_demo.harness.settings import HarnessSettings
 
 logger = logging.getLogger(__name__)
@@ -81,7 +82,7 @@ def create_app(settings: HarnessSettings, *, responder: Responder = run_turn) ->
         if not _authorised(request, settings):
             return _unauthorised()
         return HTMLResponse(
-            _PAGE.replace("__RUN_LABEL__", settings.run_label).replace(
+            PAGE.replace("__RUN_LABEL__", settings.run_label).replace(
                 "__MODEL__", settings.local_model_name
             )
         )
@@ -130,53 +131,6 @@ def create_app(settings: HarnessSettings, *, responder: Responder = run_turn) ->
             Route("/healthz", healthz, methods=["GET"]),
         ]
     )
-
-
-# Rendered with textContent only, never innerHTML: values come from a model-driven path.
-_PAGE = """<!doctype html>
-<html><head><meta charset="utf-8"><title>Harness chat</title>
-<style>
-body{font-family:sans-serif;margin:2rem;max-width:60rem}
-.banner{padding:.5rem;background:#fff3cd;border:1px solid #888;margin-bottom:1rem}
-textarea{width:100%;height:4rem}pre{white-space:pre-wrap;border:1px solid #aaa;padding:.5rem}
-</style></head><body>
-<h1>Harness chat</h1>
-<div class="banner">Run label: <b>__RUN_LABEL__</b>. The harness and its model
-(<b>__MODEL__</b>, local) are <b>NOT governed by the Foundry egress policy</b>. A model reply
-or tool result here is <b>not containment evidence</b>: the determination is
-<b>INCONCLUSIVE</b> until verify_demo evidence is joined. Turns can take a minute or more.</div>
-<textarea id="msg">Run the test: call both tools and report what each returned.</textarea>
-<p><button id="go">Send</button> <span id="status"></span></p>
-<div id="out"></div>
-<script>
-function add(parent, tag, text){
-  const e=document.createElement(tag); e.textContent=text; parent.appendChild(e); return e;}
-let timer=null;
-document.getElementById('go').addEventListener('click', async ()=>{
-  const out=document.getElementById('out'), st=document.getElementById('status');
-  const btn=document.getElementById('go'); out.replaceChildren(); btn.disabled=true;
-  const t0=Date.now();
-  timer=setInterval(()=>{st.textContent='working (local model + tools)... '+
-    Math.round((Date.now()-t0)/1000)+'s';},500);
-  try{
-    const r=await fetch('/chat',{method:'POST',
-      headers:{'X-Demo-UI':'1','Content-Type':'application/json'},
-      body:JSON.stringify({message:document.getElementById('msg').value})});
-    const d=await r.json();
-    if(!r.ok){add(out,'p','Error ('+(d.source||'request')+'): '+(d.error||r.status));return;}
-    add(out,'p','turn: '+d.turn_id+' / model: '+d.model+' / label: '+d.run_label);
-    add(out,'p','determination: '+d.determination);
-    add(out,'p','tool run ids: '+(d.tool_run_ids.length?d.tool_run_ids.join(', '):'none'));
-    add(out,'h3','Model reply'); add(out,'pre',d.reply||'(empty)');
-    add(out,'h3','Per-tool results');
-    if(!d.tool_results.length) add(out,'p','The model called no tools.');
-    d.tool_results.forEach(x=>{add(out,'h4',x.tool);
-      add(out,'pre',JSON.stringify(x.result,null,2));});
-  }catch(e){add(out,'p','OUR request to the harness failed.');}
-  finally{clearInterval(timer);st.textContent='';btn.disabled=false;}
-});
-</script></body></html>
-"""
 
 
 def main() -> None:  # pragma: no cover - process entrypoint

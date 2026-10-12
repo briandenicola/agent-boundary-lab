@@ -143,6 +143,7 @@ ignore = ["S101"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S105", "S106"]
+"src/containment_demo/harness/page.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"
