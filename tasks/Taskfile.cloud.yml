@@ -98,8 +98,49 @@ tasks:
     aliases: [apply]
     cmds:
       - task: _init-once
+      - task: arm:_endpoint-images
+        vars:
+          TAG: '${ENDPOINT_IMAGE_TAG:-}'
+      - task: arm:_managed-network-imported
       - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}"
       - task: endpoints
+    vars:
+      REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
+
+  bootstrap:
+    desc: CREATES BILLABLE RESOURCES. Create the Foundry account and import its platform-created managed network before the first full apply
+    prompt: Create the Foundry account and its dependencies, then import its default managed network into local Terraform state?
+    cmds:
+      - task: _init-once
+      - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -target=azapi_resource.foundry -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}"
+      - task: network-import
+    vars:
+      REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
+
+  network-import:
+    desc: CHANGES LOCAL STATE ONLY. Import this state's Foundry account's platform-created default managed network; does not change Azure
+    prompt: Import the default managed network belonging to the Foundry account in this Terraform state?
+    cmds:
+      - task: _init-once
+      - |
+        set -eu
+        RESOURCES=$(terraform -chdir=./{{.CLOUD_DIR}} state list)
+        if printf '%s\n' "$RESOURCES" | grep -qx 'azapi_resource.managed_network'; then
+          echo "Managed network is already in Terraform state; nothing to import."
+          exit 0
+        fi
+        STATE=$(terraform -chdir=./{{.CLOUD_DIR}} show -json)
+        if ! ACCOUNT_ID=$(printf '%s\n' "$STATE" | jq -er \
+          '.values.root_module.resources[] | select(.address == "azapi_resource.foundry") | .values.id | select(type == "string" and startswith("/subscriptions/"))'); then
+          echo "No Foundry account ID in this Terraform state. Run task cloud:bootstrap first." >&2
+          exit 1
+        fi
+        terraform -chdir=./{{.CLOUD_DIR}} import -input=false \
+          -var "region={{.REGION}}" \
+          -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" \
+          -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" \
+          azapi_resource.managed_network \
+          "$ACCOUNT_ID/managednetworks/default?api-version=2025-10-01-preview"
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
 
@@ -135,6 +176,7 @@ tasks:
     prompt: This is ONE-WAY (approved-only cannot be undone) and creates the billable managed Azure Firewall. Apply only the managed-network change?
     cmds:
       - task: _init-once
+      - task: arm:_managed-network-imported
       - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -target=azapi_resource.managed_network -target=azapi_resource.network_fqdn_rule -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" {{.EXTRA}}
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'

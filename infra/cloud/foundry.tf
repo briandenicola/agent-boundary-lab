@@ -19,6 +19,18 @@
 # routing. Resolving that is the job of a real run, not of this file.
 #############################################
 
+locals {
+  foundry_operation_retry = {
+    error_message_regex = [
+      "(?i)another operation is in progress",
+      "(?i)ongoing operation",
+      "TransientError",
+    ]
+    interval_seconds     = 20
+    max_interval_seconds = 60
+  }
+}
+
 resource "azapi_resource" "foundry" {
   type                      = "Microsoft.CognitiveServices/accounts@2025-10-01-preview"
   name                      = local.foundry_name
@@ -99,6 +111,11 @@ resource "azapi_resource" "project" {
   # identity.principalId is exported for the AcrPull grant in acr.tf. Exporting it only
   # adds a read-back; it changes nothing on the resource.
   response_export_values = ["properties.endpoints", "identity.principalId"]
+
+  # Child writes contend on the account, including model deployment via AzureRM.
+  depends_on = [azurerm_cognitive_deployment.chat]
+  locks      = [azapi_resource.foundry.id]
+  retry      = local.foundry_operation_retry
 }
 
 #############################################

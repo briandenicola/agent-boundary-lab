@@ -42,15 +42,17 @@ resource "azapi_resource" "foundry_self_pe_rule" {
   }
 
   depends_on = [azurerm_role_assignment.foundry_network_approver]
+  locks      = [azapi_resource.foundry.id]
+  retry      = local.foundry_operation_retry
 }
 
 #############################################
 # ISOLATION MODE: AllowOnlyApprovedOutbound (ONE-WAY)
 #
 # Declared as the Learn accounts/managedNetworks resource ("default"), with isolationMode set in
-# the body, not as a post-create flip. The platform creates "default" with the account, so an
-# existing environment needs `terraform import azapi_resource.managed_network <id>` once. On a
-# fresh account whether azapi's create PUTs over the platform-created resource is UNVERIFIED.
+# the body, not as a post-create flip. The platform creates "default" with the account, so every
+# environment needs `task cloud:network-import` once, including on a fresh account.
+# `task cloud:bootstrap` creates the account and imports the network before the full apply.
 # The service can answer with a TransientError timeout while the change lands (2026-10-09), so
 # the call retries; the same PUT again is idempotent.
 #
@@ -74,11 +76,9 @@ resource "azapi_resource" "managed_network" {
     }
   }
 
-  retry = {
-    error_message_regex  = ["TransientError", "ongoing operation"]
-    interval_seconds     = 20
-    max_interval_seconds = 60
-  }
+  depends_on = [azapi_resource.project]
+  locks      = [azapi_resource.foundry.id]
+  retry      = local.foundry_operation_retry
 }
 
 locals {
@@ -109,11 +109,8 @@ resource "azapi_resource" "network_fqdn_rule" {
     }
   }
 
-  # The managed network takes one operation at a time; parallel rule creation returned Conflict.
-  retry = {
-    error_message_regex = ["ongoing operation"]
-    interval_seconds    = 20
-  }
+  locks = [azapi_resource.foundry.id]
+  retry = local.foundry_operation_retry
 
   depends_on = [azapi_resource.managed_network]
 }

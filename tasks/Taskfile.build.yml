@@ -127,6 +127,10 @@ tasks:
     desc: CHANGES AZURE. Point both Container Apps at their built images, via terraform
     prompt: This runs `terraform apply` with the endpoint image tag set, updating both controlled endpoints. Continue?
     cmds:
+      - task: arm:_endpoint-images
+        vars:
+          TAG: '${IMAGE_TAG:-latest}'
+      - task: arm:_managed-network-imported
       # TERRAFORM, NOT `az containerapp update`. Two reasons, and the second is the one
       # that actually bit us.
       #

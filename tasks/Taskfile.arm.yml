@@ -11,6 +11,55 @@ version: '3'
 silent: true
 
 tasks:
+  _endpoint-images:
+    internal: true
+    requires:
+      vars: [TAG]
+    cmds:
+      - |
+        set -eu
+        TAG="{{.TAG}}"
+        if [ -z "$TAG" ]; then
+          echo "Endpoint tag is empty: Terraform will use bootstrap placeholders."
+          exit 0
+        fi
+        if ! ACR=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" output -raw acr_name); then
+          echo "Cannot read the target ACR from Terraform state." >&2
+          echo "For a fresh environment, run task cloud:bootstrap, then cloud:up with ENDPOINT_IMAGE_TAG empty." >&2
+          exit 1
+        fi
+        for REPOSITORY in containment-demo-policy-api containment-demo-test-receiver; do
+          if ! RAW=$(az acr repository show --name "$ACR" --image "$REPOSITORY:$TAG" \
+            --query digest -o tsv --only-show-errors 2>&1); then
+            printf '%s\n' "$RAW" >&2
+            echo "Cannot resolve $REPOSITORY:$TAG in $ACR. No apply was started." >&2
+            echo "Build both images with IMAGE_TAG=$TAG task build:services, then retry." >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$RAW" | grep -qE '^sha256:[0-9a-f]{64}$'; then
+            printf '%s\n' "$RAW" >&2
+            echo "Invalid digest response for $REPOSITORY:$TAG. No apply was started." >&2
+            exit 1
+          fi
+          echo "Found $REPOSITORY:$TAG in $ACR."
+        done
+
+  _managed-network-imported:
+    internal: true
+    cmds:
+      - |
+        set -eu
+        if ! RESOURCES=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" state list); then
+          echo "Cannot read Terraform state. For a fresh environment, run task cloud:bootstrap first." >&2
+          exit 1
+        fi
+        if ! printf '%s\n' "$RESOURCES" | grep -qx 'azapi_resource.managed_network'; then
+          echo "The platform-created managed network is not in Terraform state." >&2
+          echo "Existing account: run task cloud:network-import." >&2
+          echo "Fresh environment: run task cloud:bootstrap first." >&2
+          exit 1
+        fi
+
   _account-id:
     internal: true
     # The account is found by TAG, not by terraform output, so this still works after a

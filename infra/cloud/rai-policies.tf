@@ -210,6 +210,9 @@ resource "azapi_resource" "rai_policy_audit" {
   parent_id                 = azapi_resource.foundry.id
   schema_validation_enabled = false
   response_export_values    = ["*"]
+  depends_on                = [azapi_resource.project]
+  locks                     = [azapi_resource.foundry.id]
+  retry                     = local.foundry_operation_retry
 
   body = {
     properties = {
@@ -245,6 +248,8 @@ resource "azapi_resource" "rai_policy_enforced" {
   parent_id                 = azapi_resource.foundry.id
   schema_validation_enabled = false
   response_export_values    = ["*"]
+  locks                     = [azapi_resource.foundry.id]
+  retry                     = local.foundry_operation_retry
 
   body = {
     properties = {

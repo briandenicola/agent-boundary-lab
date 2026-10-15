@@ -66,6 +66,8 @@ resource "azapi_resource" "project_app_insights_connection" {
   # project, and an account-scoped connection is a different resource path that the
   # telemetry lookup does not read.
   parent_id = azapi_resource.project.id
+  locks     = [azapi_resource.foundry.id]
+  retry     = local.foundry_operation_retry
 
   schema_validation_enabled = false
   response_export_values    = ["properties.category", "properties.authType", "properties.target"]

@@ -31,6 +31,7 @@ State is the local file `infra/cloud/terraform.tfstate`. Losing it orphans the e
 | 1.1 | `task cloud:whoami` | Confirm subscription and tenant first. Read-only. |
 | 1.2 | `task cloud:validate` | Local only. |
 | 1.3 | `task cloud:plan` | Read the plan. Creates nothing. |
+| 1.3a | `task cloud:bootstrap` | **Billable.** First environment only: creates the Foundry account and dependencies, then imports its platform-created managed network. This targeted apply is only the bootstrap; the full apply still follows. |
 | 1.4 | `task cloud:up` | **Billable** (AKS). Leave `ENDPOINT_IMAGE_TAG` empty: the images do not exist yet, so the Container Apps run a placeholder (see `endpoint_image_tag` in `variables.tf`). |
 
 **The managed network is part of `cloud:up`.** `azapi_resource.managed_network` declares
@@ -40,11 +41,57 @@ on it. Isolation mode is one-way, and the FQDN rules create the billable managed
 (Standard). The resource retries on `TransientError` and "ongoing operation" (both seen on
 2026-10-09).
 
-**UNVERIFIED (never applied from scratch):** that Terraform's create on `managednetworks/default`
-(which the platform also creates with the account) works on a fresh account, and that the retries
-clear the `Conflict` that parallel rule creation hit. If `cloud:up` fails there, re-run it, or use
-`TF_EXTRA='-parallelism=1' task cloud:network-up`. `task cloud:network-probe` is a manual fallback
-PATCH. To opt out, set `TF_VAR_managed_network_isolation_mode=AllowInternetOutbound`.
+**Observed failure (2026-10-15, owner-provided apply output):** Azure creates
+`managednetworks/default` with the account. AzAPI refuses to create it again and requires an
+import. Re-running the same apply does not fix missing state ownership. `cloud:bootstrap`
+handles that first-account boundary; `cloud:network-import` repairs an existing partial apply
+without changing Azure. Both derive the account from this local Terraform state, not a
+tag-based search or a hardcoded resource ID.
+
+**Proposed recovery, not yet executed:** account child resources now share an AzAPI account
+lock and retry the observed operation-in-progress messages. The project also waits for the
+AzureRM model deployment, which does not participate in AzAPI locks. Authentication, schema
+errors, and unrelated conflicts are not retried by this custom rule. The existing managed
+network `TransientError` retry remains. A full rebuild with these changes is still untested.
+`task cloud:network-probe` remains a manual fallback PATCH, not a substitute for importing
+the managed network. To opt out of approved-only isolation, set
+`TF_VAR_managed_network_isolation_mode=AllowInternetOutbound` before the first apply.
+
+### Recover the reported partial apply
+
+Keep the existing state and resources. Run from the repo root, one command at a time:
+
+```bash
+task lint:cloud
+task cloud:network-import
+IMAGE_TAG=5f24f8e task build:services
+task cloud:plan
+task cloud:up
+```
+
+The build publishes both missing endpoint images into the ACR recorded by this state.
+Keep `ENDPOINT_IMAGE_TAG=5f24f8e` for the plan and apply; if choosing another tag, build that
+tag and set `ENDPOINT_IMAGE_TAG` to match. Do not clear the tag on an already functioning
+environment: that explicitly selects placeholder images.
+
+`cloud:up` and `build:deploy-endpoints` now check both requested image tags before starting
+their apply. An unreadable registry, missing image, or invalid digest response stops the
+task rather than deploying a fallback. An empty endpoint tag is allowed only as the
+explicit placeholder selection. `cloud:up`, `cloud:network-up`, and
+`build:deploy-endpoints` also stop if the default managed network has not been imported.
+
+The shared preflights resolve Terraform's directory as `{{.ROOT_DIR}}/infra/cloud`, not
+relative to the included Taskfile's working directory or an inherited `CLOUD_DIR`. A
+`chdir ./infra/cloud: no such file or directory` failure in the old preflight is a local
+path-resolution error, not evidence that the Azure environment needs bootstrapping.
+
+The `parent_id` deprecation warnings on federated credentials are separate from these
+failures; this recovery does not change those credentials.
+
+Provider references checked **2026-10-15** (configuration guidance, not deployed evidence):
+
+- [AzAPI resource: locks, retry, import](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource).
+- [AzAPI 2.13.0 source documentation](https://github.com/Azure/terraform-provider-azapi/blob/v2.13.0/docs/resources/resource.md).
 
 ### 2. Check the managed network
 
