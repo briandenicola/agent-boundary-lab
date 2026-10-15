@@ -118,7 +118,7 @@ def test_either_missing_image_stops_the_guard(tmp_path: Path, repository: str) -
     )
     assert result.returncode != 0
     assert "MANIFEST_UNKNOWN" in result.stderr
-    assert "IMAGE_TAG=5f24f8e task build:services" in result.stderr
+    assert "IMAGE_TAG=5f24f8e task build:tool-apis" in result.stderr
     assert "apply" not in calls
 
 
@@ -180,7 +180,7 @@ def test_guards_use_root_path_and_detect_relative_path_regression(
     ("file", "name", "tag"),
     [
         ("Taskfile.cloud.yml", "up", "${ENDPOINT_IMAGE_TAG:-}"),
-        ("Taskfile.build.yml", "deploy-endpoints", "${IMAGE_TAG:-latest}"),
+        ("Taskfile.deploy.yml", "tool-apis", "${IMAGE_TAG:-latest}"),
     ],
 )
 def test_full_apply_checks_images_and_network_before_applying(

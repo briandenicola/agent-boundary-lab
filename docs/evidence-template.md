@@ -39,7 +39,7 @@ word containment. Skip §4 and §5; record §8 anyway.
 | Subscription / tenant | | `task cloud:whoami` |
 | Resource group / region | | `task cloud:output` |
 | Foundry account / project | | `task cloud:output` |
-| **Image digest** (`repo@sha256:…`) | | `task build:agent-digest`. Must be byte-identical across both agents. |
+| **Image digest** (`repo@sha256:…`) | | `task build:foundry-agent-digest`. Must be byte-identical across both agents. |
 | Agent name used | `containment-demo-audit` / `containment-demo-enforced` | Two separately named agents. |
 | Agent version / `status` | | Read back from `get_version`, not from intent. |
 | **RAI policy attached** (full ARM id) | | Read back from `definition.rai_config.rai_policy_name`, not from intent. |
@@ -68,9 +68,9 @@ A run with incomplete pre-flight is **inconclusive before it starts**.
 | P3 | Resource inventory | `task cloud:output` | pass / fail / **not collected** | |
 | P4 | Destinations shown | `task cloud:endpoints` | pass / fail / **not collected** | |
 | P5 | **Single variable holds** | `task cloud:policies` | pass / fail / **not collected** | Exactly one field differs? |
-| P6 | Image digest | `task build:agent-digest` | pass / fail / **not collected** | |
+| P6 | Image digest | `task build:foundry-agent-digest` | pass / fail / **not collected** | |
 | P7 | **App Insights connection, `ApiKey`** | `task cloud:app-insights-connection` | pass / fail / **not collected** | Without it Layer 2 is silent and the run is inconclusive by construction. |
-| P8 | Both endpoints reachable | `task build:check-endpoints` | pass / fail / **not collected** | |
+| P8 | Both endpoints reachable | `task tool-apis:check` | pass / fail / **not collected** | |
 | P9 | **Section A baseline** | `task verify:baseline-json` | pass / fail / inconclusive / **not collected** | Exit code: |
 
 ### 3.1 Section A detail — the two checks a denial depends on
@@ -242,7 +242,7 @@ closed and with what evidence. "N/A" without a reason is not an answer.
 | Attachment of the policy caused enforcement | | Authoring success is not enforcement proof |
 | Anything about protocols other than HTTP/HTTPS | | Out of scope by design |
 | Anything about the AKS harness | | The Foundry egress policy does not govern it |
-| A clean `cloud:harness-plan` dry run meant the deployment is correct | | A server-side dry run says the API server would accept the apply. It does not say which fields change, and it says nothing about egress. |
+| A clean `foundry-agent:plan` dry run meant the deployment is correct | | A server-side dry run says the API server would accept the apply. It does not say which fields change, and it says nothing about egress. |
 | The private endpoint contained outbound traffic | | **It does not.** It governs inbound reach only. |
 | Production readiness or compliance | | Network egress controls are **preview, no SLA, explicitly not for production** |
 | Prompt-injection resistance | | Not tested, not claimed |
@@ -260,8 +260,8 @@ Anything else this run did not establish (free text — **required**):
 | Diagnostic route response(s) | |
 | `task cloud:policies` output | |
 | `task cloud:app-insights-connection` output | |
-| `task cloud:harness-plan` output | | Server-side dry run. Records that the API server would accept the apply — **not** which fields changed, and **nothing** about containment. |
-| `task cloud:harness-status` output | |
+| `task foundry-agent:plan` output | | Server-side dry run. Records that the API server would accept the apply — **not** which fields changed, and **nothing** about containment. |
+| `task foundry-agent:status` output | |
 | Screenshots / recordings | |
 
 **Synthetic data only.** No customer records, no credentials. Prompt, response, payload and
@@ -276,7 +276,7 @@ content, the fix is to turn capture off — not to filter it in KQL.
 | --- | --- |
 | Environment left up? | yes / no |
 | If left up, why and until when | |
-| `task cloud:harness-down` run? | yes / no |
+| `task foundry-agent:down` run? | yes / no |
 | `task cloud:down` run? | yes / no |
 | Agent versions still published | |
 | PostgreSQL state store enabled (`enable_state_store`)? | no (default) / yes |

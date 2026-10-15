@@ -25,20 +25,28 @@ includes:
     taskfile: ./tasks/Taskfile.build.yml
     internal: false
 
-  ui:
+  deploy:
+    taskfile: ./tasks/Taskfile.deploy.yml
+    internal: false
+
+  test-ui:
     taskfile: ./tasks/Taskfile.ui.yml
+    aliases: [ui]
     internal: false
 
-  a2a:
+  agent-bridge:
     taskfile: ./tasks/Taskfile.a2a.yml
+    aliases: [a2a]
     internal: false
 
-  harness:
+  chat-agent:
     taskfile: ./tasks/Taskfile.harness.yml
+    aliases: [harness]
     internal: false
 
-  local-model:
+  model-server:
     taskfile: ./tasks/Taskfile.local-model.yml
+    aliases: [local-model]
     internal: false
 
   spike:
@@ -54,6 +62,26 @@ includes:
     internal: false
 
 tasks:
+  foundry-agent:plan:
+    desc: Server-side dry run of the Foundry publishing helper
+    cmds:
+      - task: cloud:harness-plan
+
+  foundry-agent:status:
+    desc: Show the Foundry publishing helper and its init-container result
+    cmds:
+      - task: cloud:harness-status
+
+  foundry-agent:down:
+    desc: Remove the publishing helper AND its namespace; published Foundry versions remain
+    cmds:
+      - task: cloud:harness-down
+
+  tool-apis:check:
+    desc: Check that both controlled tool API health endpoints answer
+    cmds:
+      - task: build:check-endpoints
+
   default:
     desc: Show available tasks
     cmds:

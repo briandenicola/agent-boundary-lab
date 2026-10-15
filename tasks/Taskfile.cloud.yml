@@ -16,7 +16,7 @@ silent: true
 env:
   CLOUD_DIR: infra/cloud
   # The agent image digest both agent versions must pin. Read the current value with
-  # `task build:agent-digest`. Override with AGENT_IMAGE_DIGEST=sha256:... if you rebuild.
+  # `task build:foundry-agent-digest`. Override with AGENT_IMAGE_DIGEST=sha256:... if you rebuild.
   #
   # A tag is rejected by a check in `_harness-stream`. That is deliberate: tags are
   # mutable, and two agent versions running different code makes the egress
@@ -30,7 +30,7 @@ env:
   # applying. A custom RAI policy must derive from a base policy that actually exists.
   # Tag of the two controlled-endpoint images. EMPTY means "run the placeholder", which
   # is correct on a first apply because the images do not exist in ACR yet. After
-  # `task build:deploy-endpoints`, set ENDPOINT_IMAGE_TAG=latest in your .env — the root
+  # `task deploy:tool-apis`, set ENDPOINT_IMAGE_TAG to its image tag in .env — the root
   # Taskfile loads it — or `cloud:up` will roll both endpoints back to the placeholder.
 
 includes:
@@ -540,7 +540,7 @@ tasks:
         NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
         DEP=$(kubectl -n "$NS" get deployment -l "app.kubernetes.io/name=agent-harness" -o name | head -1)
         if [ -z "$DEP" ]; then
-          echo "No harness deployment in namespace $NS. Run 'task cloud:harness-up'."
+          echo "No publishing helper in namespace $NS. Run 'task deploy:foundry-agent'."
           exit 0
         fi
         kubectl -n "$NS" get pods -l "app.kubernetes.io/name=agent-harness" -o wide
@@ -710,7 +710,7 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: '{{.AGENT_IMAGE_REPOSITORY | default "containment-demo-agent"}}'
-          TAG: '{{.IMAGE_TAG | default "latest"}}'
+          TAG: '${IMAGE_TAG:-latest}'
           EXPLICIT: '{{.EXPLICIT_DIGEST}}'
           OUT: '{{.DIGEST_FILE}}'
       - |
@@ -731,7 +731,7 @@ tasks:
           *) echo "Digest did not resolve to sha256:<64 hex>, got '$DIGEST'." >&2
              echo "Tags are mutable; two agent versions running different code would make" >&2
              echo "the RAI policy no longer the only variable. Read the current digest with" >&2
-             echo "'task build:agent-digest'." >&2
+             echo "'task build:foundry-agent-digest'." >&2
              exit 1 ;;
         esac
 

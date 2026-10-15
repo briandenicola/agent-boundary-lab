@@ -33,7 +33,7 @@ tasks:
             --query digest -o tsv --only-show-errors 2>&1); then
             printf '%s\n' "$RAW" >&2
             echo "Cannot resolve $REPOSITORY:$TAG in $ACR. No apply was started." >&2
-            echo "Build both images with IMAGE_TAG=$TAG task build:services, then retry." >&2
+            echo "Build both images with IMAGE_TAG=$TAG task build:tool-apis, then retry." >&2
             exit 1
           fi
           if ! printf '%s\n' "$RAW" | grep -qE '^sha256:[0-9a-f]{64}$'; then
@@ -122,7 +122,7 @@ tasks:
         DIGEST=$(printf '%s\n' "$RAW" | grep -m1 -oE '^sha256:[0-9a-f]{64}$' || true)
         if [ -z "$DIGEST" ]; then
           echo "Could not resolve a digest for {{.REPOSITORY}}:{{.TAG}} in {{.ACR}}." >&2
-          echo "The image may not be built or pushed yet -- run 'task build:agent'." >&2
+          echo "Build {{.REPOSITORY}} with its matching 'task build:<component>' target, then retry." >&2
           echo "Refusing to continue: there is no safe default digest to fall back to." >&2
           echo "--- raw response ---" >&2
           printf '%s\n' "$RAW" >&2

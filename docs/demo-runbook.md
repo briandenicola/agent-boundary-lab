@@ -10,6 +10,11 @@ whether the claim survives.
 Every statement below is one of **tested result**, **proposed behaviour**, or **preview
 capability**, the same three labels `docs/PLAN.md` uses. They are never blended.
 
+**Command naming update (2026-10-15):** current instructions use `build:<component>` and
+`deploy:<component>`. Old names still work. The new aggregate deployment has not been run
+end to end; historical TESTED labels describe the underlying observed behaviour, not a
+test of these new wrappers. For standup, see [`rebuild-runbook.md`](rebuild-runbook.md).
+
 ---
 
 ## Presenter one-pager (A2A path), written 2026-10-09
@@ -24,20 +29,20 @@ supersedes them (Dallas ran B and C live, 4 runs PASS).
 ```bash
 task cloud:kubeconfig                     # once per machine
 task cloud:app-insights-connection        # must list an AppInsights connection; else the platform layer is silent
-task cloud:harness-status                 # deploy init container exit 0; its log reads the versions back (see note)
-task build:agent-digest                   # the digest BOTH agents must pin
-task ui:verify                            # 401 without token, 200 with
-task a2a:verify                           # same, both facades (does not call an agent)
+task foundry-agent:status                 # deploy init container exit 0; its log reads the versions back (see note)
+task build:foundry-agent-digest            # the digest BOTH agents must pin
+task test-ui:verify                       # 401 without token, 200 with
+task agent-bridge:verify                  # same, both facades (does not call an agent)
 ```
-Note: `harness-status` shows the deployer's log, which reads each version back and fails on
+Note: `foundry-agent:status` shows the deployer's log, which reads each version back and fails on
 digest drift. Exit 0 means *accepted*, not *enforced*. No single task prints both versions;
 if asked, read them with `get_version` from the harness pod (TESTED ad hoc, no task).
 Stop if the two agents do not share one `sha256:` digest, or either status is not `active`.
 
 ### 2. Open the UI and click
 ```bash
-task ui:token        # prints the login password (any user name). Do this off-screen.
-task ui:open         # http://localhost:8081 ; Ctrl-C to stop
+task test-ui:token        # prints the login password (any user name). Do this off-screen.
+task test-ui:open         # http://localhost:8081 ; Ctrl-C to stop
 ```
 1. Log in. Click **Run audit**; wait about 25 s. Then click **Run enforced**; wait about 25 s.
 2. **Write down for each run:** the `run-...` id and the UTC time you clicked. Section 4 needs both.
@@ -91,19 +96,20 @@ Adds a chat page in front of the one-pager above. Architecture: [`architecture-a
 Path: browser -> harness chat service (local Qwen2.5-3B on CPU) -> A2A façades -> Foundry hosted agents.
 **TESTED once** (n = 1 audit + 1 enforced, `telemetry-map.md` §0.14). The harness and model are **not** governed by the Foundry policy.
 
-### Bring-up (each CHANGES THE CLUSTER and prompts; add `--yes` off a terminal)
+### Bring-up checks (read-only; deployment commands change the cluster and prompt)
 ```bash
-task local-model:status                   # pod Ready (the first start loads a ~2 GB model; allow ~1-2 min)
-task a2a:verify                           # façades answer, 401 without token, 200 with
-task harness:verify                       # same for the harness
-# only if something is missing, in this order: local-model:up, a2a:secret + a2a:up, harness:secret + harness:up
+task model-server:status                  # pod Ready (the first start loads a ~2 GB model; allow ~1-2 min)
+task agent-bridge:verify                  # façades answer, 401 without token, 200 with
+task chat-agent:verify                    # same for the harness
+# If missing: deploy:model-server, deploy:test-ui, deploy:agent-bridge, deploy:chat-agent.
+# Or deploy:all for the full application sequence (infrastructure must already exist).
 ```
-Do not rebuild images (`*:build`) mid-demo; they build in Azure.
+Do not rebuild images (`build:*`) mid-demo; they build in Azure.
 
 ### Run
 ```bash
-task harness:token     # login password (any user name); off-screen
-task harness:open      # http://localhost:8082 ; Ctrl-C to stop
+task chat-agent:token     # login password (any user name); off-screen
+task chat-agent:open      # http://localhost:8082 ; Ctrl-C to stop
 ```
 Note the **UTC time you press send** before the turn. Ask for both tools in one message (for example: fetch the servicing policy,
 then send to the external processor, on both the audit and the enforced agent). **One turn takes about 2 minutes on the CPU model**
@@ -251,25 +257,23 @@ Do all of this **before** the run. Not after a surprising result. An endpoint th
 already down makes a failed call unattributable: the agent would have failed to reach it
 whether or not any policy existed.
 
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
 ### 3.0 Bring-up order, and the cluster-context check we learned the hard way
 
-> **Full rebuild from nothing (all images, workloads, managed network, access grants):** see [`rebuild-runbook.md`](rebuild-runbook.md). The six steps below are only the infrastructure and harness core.
+> **Full rebuild from nothing (all images, workloads, managed network, access grants):**
+> see [`rebuild-runbook.md`](rebuild-runbook.md). For existing infrastructure and completed
+> builds: `task lint:tasks`, `task cloud:kubeconfig`, then `task deploy:all`.
 
-**Tested result (2026-10-08):** every task name below was read back from `task --list-all`
-and from `tasks/Taskfile.cloud.yml`. This is the order, and all six exist:
+The current core sequence is below. It is not the full application sequence; use
+`deploy:all` for that. New command wrappers are not yet validated end to end.
 
 | # | Command | What it does |
 | --- | --- | --- |
 | 1 | `task cloud:up` | **Creates billable resources**, including the AKS cluster. Prompts first. |
-| 2 | `task build:agent` | Builds and pushes the agent image in ACR. Produces the digest both agent versions pin. |
+| 2 | `task build:foundry-agent` | Builds and pushes the agent image in ACR. Produces the digest both agent versions pin. |
 | 3 | `task cloud:kubeconfig` | Fetches AKS credentials. **Run this even if `kubectl` already works** — see below. |
-| 4 | `task cloud:harness-plan` | Server-side dry run of the harness manifests. Changes nothing. |
-| 5 | `task cloud:harness-up` | **Changes the cluster.** Applies the harness; its init container publishes both agent versions. Prompts first. |
-| 6 | `task cloud:harness-status` | Shows the pod and the deploy init container's result. |
+| 4 | `task foundry-agent:plan` | Server-side dry run of the harness manifests. Changes nothing. |
+| 5 | `task deploy:foundry-agent` | **Changes AKS and Foundry.** Publishes both versions, waits for the helper rollout, then grants model access to both agent identities. Prompts first. |
+| 6 | `task foundry-agent:status` | Shows the pod and the deploy init container's result. |
 
 Steps 1, 2 and 5 are Brian's to run. Steps 3, 4 and 6 are read-only or non-mutating, but
 step 3 rewrites your local kubeconfig.
@@ -358,7 +362,7 @@ Mechanics changed and the runbook reflects the current ones:
 - A placeholder that survives substitution aborts the apply before anything reaches the
   cluster, and only the placeholder *names* are printed, never their values.
 
-**`task cloud:harness-plan` is a server-side dry run. Be precise about what it buys you:**
+**`task foundry-agent:plan` is a server-side dry run. Be precise about what it buys you:**
 
 - It **does** tell you the API server ran admission and would accept the apply, and reports
   `created` / `configured` / `unchanged` per object. Nothing is persisted.
@@ -393,7 +397,7 @@ subsequent run use identical flags.
 | --- | --- | --- | --- |
 | P4 | `task cloud:endpoints` | The two destinations and which one is allowlisted. | That the allowlist is enforced. |
 | P5 | `task cloud:policies` | **Read from ARM**, both `UserManaged` RAI policies exist and differ in exactly one field, `egressPolicy.mode`. Exits non-zero if either is missing or if they differ in more. | That either policy is attached to anything, or that attachment causes enforcement. **Authoring success is not enforcement proof.** A policy that applies cleanly and does nothing looks identical to one that works, right up until the negative call succeeds. |
-| P6 | `task build:agent-digest` | The image digest both agents must pin. Record it. | That the service accepted a digest — **unverified**, see `docs/PLAN.md` Phase 4. |
+| P6 | `task build:foundry-agent-digest` | The image digest both agents must pin. Record it. | That the service accepted a digest — **unverified**, see `docs/PLAN.md` Phase 4. |
 
 ### 3.3 The platform layer has somewhere to land — check this or every run is inconclusive by construction
 
@@ -415,7 +419,7 @@ call may never have worked.**
 
 | # | Command | Proves | Does **not** prove |
 | --- | --- | --- | --- |
-| P8 | `task build:check-endpoints` | `/healthz` on both Container Apps answers from your machine. Retries up to 120 s, because the control plane accepts a revision well before it serves traffic. Exits non-zero on failure. | That the demo paths (`/policy`, `/ingest`) work, or that receipts are logged. `/healthz` is deliberately **not** logged as a receipt. |
+| P8 | `task tool-apis:check` | `/healthz` on both Container Apps answers from your machine. Retries up to 120 s, because the control plane accepts a revision well before it serves traffic. Exits non-zero on failure. | That the demo paths (`/policy`, `/ingest`) work, or that receipts are logged. `/healthz` is deliberately **not** logged as a receipt. |
 | P9 | `task verify:baseline` | Section A, the real baseline. See §3.5. | Anything about containment. Nothing run from a control client is containment evidence. |
 | P10 | `task verify:baseline-json` | Same as P9, plus a machine-readable summary written to `evidence/`. Use this one for a run you intend to keep. `evidence/` is gitignored. | — |
 
@@ -547,7 +551,7 @@ Prerequisite: both agents deployed (`containment-demo-audit`, `containment-demo-
 two separately named agents, not two versions of one), each reading back `status == active`
 and the intended `rai_config.rai_policy_name`, with byte-identical
 `container_configuration.image` digests. Brian runs the apply; the bring-up order and the
-cluster-context check are §3.0, and `task cloud:harness-status` shows the deploy init
+cluster-context check are §3.0, and `task foundry-agent:status` shows the deploy init
 container's result.
 
 **An init container that exited 0 means a version was accepted. It does not mean the policy
@@ -771,7 +775,7 @@ agent, and nothing here should be run casually — `cloud:down` deletes the envi
 
 | Command | What it removes | Leaves behind |
 | --- | --- | --- |
-| `task cloud:harness-down` | The harness pod and its namespace. Prompts first. Deleting the namespace removes the Deployment, Secret and ServiceAccount with it; there is no Terraform state to clean up, because the cluster workloads are manifests. | The cluster, and **any agent versions already published stay published**. |
+| `task foundry-agent:down` | The publishing helper **and its entire namespace**, including the chat agent, model server, bridges, UI and Secrets. Prompts first. Cluster workloads are manifests, so there is no Terraform state to clean up. | The cluster, and **any agent versions already published stay published**. |
 | `task cloud:down` | Everything `infra/cloud` created, and the local state. | Nothing from this module. |
 | `task spike:down` | Everything the region spike created, and its local state. | — |
 

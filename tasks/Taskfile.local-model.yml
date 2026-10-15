@@ -52,8 +52,8 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: containment-demo-local-model
-          TAG: '{{.LOCAL_MODEL_IMAGE_TAG | default "latest"}}'
-          EXPLICIT: '{{.LOCAL_MODEL_IMAGE_DIGEST}}'
+          TAG: '${LOCAL_MODEL_IMAGE_TAG:-latest}'
+          EXPLICIT: '${LOCAL_MODEL_IMAGE_DIGEST:-}'
           OUT: '{{.ROOT_DIR}}/.task/local-model-digest'
       - |
         set -eu
@@ -70,8 +70,8 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: containment-demo-local-model
-          TAG: '{{.LOCAL_MODEL_IMAGE_TAG | default "latest"}}'
-          EXPLICIT: '{{.LOCAL_MODEL_IMAGE_DIGEST}}'
+          TAG: '${LOCAL_MODEL_IMAGE_TAG:-latest}'
+          EXPLICIT: '${LOCAL_MODEL_IMAGE_DIGEST:-}'
           OUT: '{{.ROOT_DIR}}/.task/local-model-digest'
       - |
         set -eu
@@ -100,7 +100,7 @@ tasks:
       - task: _require-kubectl
       - |
         set -eu
-        task local-model:render | kubectl apply --server-side --force-conflicts --dry-run=server -f -
+        task model-server:render | kubectl apply --server-side --force-conflicts --dry-run=server -f -
 
   up:
     desc: CHANGES THE CLUSTER. Apply the local model Deployment and Service and wait for the rollout
@@ -110,7 +110,7 @@ tasks:
       - |
         set -eu
         NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
-        task local-model:render | kubectl apply --server-side --force-conflicts -f -
+        task model-server:render | kubectl apply --server-side --force-conflicts -f -
         kubectl -n "$NS" rollout status deployment/local-model --timeout=600s
 
   status:

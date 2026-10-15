@@ -17,6 +17,7 @@ This repository began as a build specification and is now partly built and teste
 | [`architecture-as-built.md`](architecture-as-built.md) | The system as deployed, trust boundaries, verified vs proposed vs blocked |
 | [`diagrams/README.md`](diagrams/README.md) | Excalidraw diagram of the whole environment (zones, flows F1-F11, legend) |
 | [`demo-runbook.md`](demo-runbook.md) | Presenter one-pager, harness chat path, full audit procedure |
+| [`rebuild-runbook.md`](rebuild-runbook.md) | Consistent build/deploy commands, component names and complete standup order |
 | [`PLAN.md`](PLAN.md) | Phases, status, gates, backlog |
 | [`compatibility.md`](compatibility.md) | Platform research and observed facts (B-sections: hosted agents, A2A, local model, harness) |
 | [`telemetry-map.md`](telemetry-map.md) | Real field names and evidence (§0.12-§0.14 are the join and verified runs) |
@@ -24,6 +25,28 @@ This repository began as a build specification and is now partly built and teste
 | [`evidence-template.md`](evidence-template.md) | Per-run evidence record |
 
 > **Preview warning:** The Microsoft Foundry egress walkthrough dated September 24, 2026 describes network egress controls as preview, without a preview SLA, and not intended for production. Recheck availability and restrictions before building. Do not present this demo as a production assurance or compliance certification.
+
+## Operator commands
+
+Use `task build:<component>` and `task deploy:<component>` with the same component name:
+
+| Component | Meaning |
+| --- | --- |
+| `foundry-agent` | Google ADK agent hosted in Foundry; one image, two policy variants |
+| `tool-apis` | Policy API and test receiver on Container Apps; two images |
+| `agent-bridge` | AKS bridge exposing A2A and invoking Foundry through Responses |
+| `chat-agent` | AKS browser chat page and agent loop; stands in for on-premises |
+| `model-server` | CPU Qwen/llama.cpp inference server used by the chat agent |
+| `test-ui` | Separate two-button test page, with no chat model |
+
+`task build:all` builds all seven images and deploys nothing. After `cloud:up` and
+`cloud:kubeconfig`, `task deploy:all` deploys applications, required Secrets and Foundry
+model-access grants; it does not build images or provision infrastructure. Already-built
+images work unchanged. The old command names remain compatibility aliases.
+
+Other operations use the component namespace: for example `task chat-agent:open`,
+`task model-server:status`, and `task agent-bridge:send SLOT=audit`.
+See the [rebuild runbook](rebuild-runbook.md) for image tags, ordering and validation.
 
 ## Demo scope
 

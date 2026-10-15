@@ -43,7 +43,7 @@ receipts for one `run-…` id; see [`../architecture-as-built.md`](../architectu
 
 | Flow | From to | What happens | Status |
 | --- | --- | --- | --- |
-| F1 | Browser to harness | `kubectl port-forward` to the chat service (`task harness:open`, local port 8082) | Verified |
+| F1 | Browser to harness | `kubectl port-forward` to the chat service (`task chat-agent:open`, local port 8082) | Verified |
 | F2 | Harness to local model | OpenAI-compatible `/v1` call with tool calling to llama.cpp serving Qwen2.5-3B (CPU) | Verified |
 | F3 | Harness tool to façade | One A2A `SendMessage` (bearer token, `A2A-Version: 1.0`) to the audit or the enforced façade | Verified |
 | F4 | Façade to hosted agent | Foundry Responses call by agent name, Entra token, `store=False`. The AKS to private-account network path is **assumed** | Calls verified; path assumed |

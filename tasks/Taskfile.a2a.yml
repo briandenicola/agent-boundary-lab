@@ -8,7 +8,7 @@ includes:
     internal: true
 
 # A2A facade: two deployments (audit, enforced) from ONE image. ClusterIP only; reach a
-# slot with `task a2a:open`.
+# slot with `task agent-bridge:open`.
 #
 # Hosted agents are invoked through Responses; the facade exposes them as A2A. It is not
 # the platform's native A2A endpoint (unsupported for hosted agents, compatibility.md
@@ -16,7 +16,7 @@ includes:
 #
 # The facade image is separate from the agent image. Nothing here reads, rebuilds or
 # re-pins the agent image digest, which is the experiment's control. Pods run as the
-# existing demo-ui ServiceAccount (run `task ui:up` first); no identity or role is
+# existing demo-ui ServiceAccount (run `task deploy:test-ui` first); no identity or role is
 # created here.
 #
 # Nothing rendered here is written to disk or to git. The token never appears on a command
@@ -55,8 +55,8 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: containment-demo-a2a-facade
-          TAG: '{{.A2A_IMAGE_TAG | default "latest"}}'
-          EXPLICIT: '{{.A2A_IMAGE_DIGEST}}'
+          TAG: '${A2A_IMAGE_TAG:-latest}'
+          EXPLICIT: '${A2A_IMAGE_DIGEST:-}'
           OUT: '{{.ROOT_DIR}}/.task/a2a-facade-digest'
       - |
         set -eu
@@ -70,7 +70,7 @@ tasks:
         set -eu
         NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
         if kubectl -n "$NS" get secret "$A2A_SECRET" >/dev/null 2>&1 && [ "${ROTATE:-}" != "1" ]; then
-          echo "secret $A2A_SECRET already exists in $NS; kept. Rotate with ROTATE=1 task a2a:secret"
+          echo "secret $A2A_SECRET already exists in $NS; kept. Rotate with ROTATE=1 task agent-bridge:secret"
           exit 0
         fi
         # Token goes through a pipe into --from-file, never argv.
@@ -79,7 +79,7 @@ tasks:
               --from-file=DEMO_A2A_TOKEN=/dev/stdin \
               --dry-run=client -o yaml \
           | kubectl -n "$NS" apply -f - >/dev/null
-        echo "secret $A2A_SECRET written in $NS. Read it with: task a2a:token"
+        echo "secret $A2A_SECRET written in $NS. Read it with: task agent-bridge:token"
         for DEP in a2a-facade-audit a2a-facade-enforced; do
           if kubectl -n "$NS" get deployment "$DEP" >/dev/null 2>&1; then
             kubectl -n "$NS" rollout restart "deployment/$DEP" >/dev/null
@@ -109,8 +109,8 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: containment-demo-a2a-facade
-          TAG: '{{.A2A_IMAGE_TAG | default "latest"}}'
-          EXPLICIT: '{{.A2A_IMAGE_DIGEST}}'
+          TAG: '${A2A_IMAGE_TAG:-latest}'
+          EXPLICIT: '${A2A_IMAGE_DIGEST:-}'
           OUT: '{{.ROOT_DIR}}/.task/a2a-facade-digest'
       - |
         set -eu
@@ -147,7 +147,7 @@ tasks:
       - task: _require-kubectl
       - |
         set -eu
-        task a2a:render | kubectl apply --server-side --force-conflicts --dry-run=server -f -
+        task agent-bridge:render | kubectl apply --server-side --force-conflicts --dry-run=server -f -
 
   up:
     desc: CHANGES THE CLUSTER. Apply both facade deployments and wait for the rollouts
@@ -158,10 +158,10 @@ tasks:
         set -eu
         NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
         kubectl -n "$NS" get secret "$A2A_SECRET" >/dev/null 2>&1 || {
-          echo "Secret $A2A_SECRET missing. Run 'task a2a:secret' first." >&2; exit 1; }
+          echo "Secret $A2A_SECRET missing. Run 'task agent-bridge:secret' first." >&2; exit 1; }
         kubectl -n "$NS" get serviceaccount demo-ui >/dev/null 2>&1 || {
-          echo "ServiceAccount demo-ui missing. Run 'task ui:up' first (the facade reuses it)." >&2; exit 1; }
-        task a2a:render | kubectl apply --server-side --force-conflicts -f -
+          echo "ServiceAccount demo-ui missing. Run 'task deploy:test-ui' first (the facade reuses it)." >&2; exit 1; }
+        task agent-bridge:render | kubectl apply --server-side --force-conflicts -f -
         kubectl -n "$NS" rollout status deployment/a2a-facade-audit --timeout=180s
         kubectl -n "$NS" rollout status deployment/a2a-facade-enforced --timeout=180s
 
@@ -174,7 +174,7 @@ tasks:
         SLOT="${SLOT:-audit}"
         case "$SLOT" in audit|enforced) ;; *) echo "SLOT must be audit or enforced" >&2; exit 1 ;; esac
         NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
-        echo "http://localhost:${A2A_LOCAL_PORT}/.well-known/agent-card.json  (bearer: task a2a:token)"
+        echo "http://localhost:${A2A_LOCAL_PORT}/.well-known/agent-card.json  (bearer: task agent-bridge:token)"
         kubectl -n "$NS" port-forward "svc/a2a-facade-${SLOT}" "${A2A_LOCAL_PORT}:80"
 
   verify:

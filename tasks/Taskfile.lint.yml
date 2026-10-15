@@ -58,6 +58,15 @@ tasks:
       - terraform -chdir=./infra/cloud fmt -check
       - terraform -chdir=./infra/cloud validate -no-color
 
+  tasks:
+    desc: Check build/deploy command wiring and offline deployment guards; no Azure operations
+    cmds:
+      - command -v jq >/dev/null
+      - task --list >/dev/null
+      - .venv/bin/python -m pytest tests/unit/test_cloud_tasks.py tests/unit/test_task_commands.py -q
+      - .venv/bin/python -m ruff check tests/unit/test_cloud_tasks.py tests/unit/test_task_commands.py
+      - .venv/bin/python -m ruff format --check tests/unit/test_cloud_tasks.py tests/unit/test_task_commands.py
+
   terraform:
     desc: Validate and format-check the terraform
     vars:

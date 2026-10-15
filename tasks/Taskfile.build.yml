@@ -10,23 +10,19 @@ includes:
     taskfile: ./Taskfile.arm.yml
     internal: true
 
-# Image builds and endpoint deployment.
+# Image builds; legacy endpoint deployment forwards to deploy:tool-apis.
 #
 # Every build happens in ACR rather than on the operator's machine, so the image that
 # runs is the image ACR built, and nothing depends on a local Docker daemon.
 #
-# BUILDS DO NOT PROMPT. Pushing a new tag into your own registry changes nothing that is
-# running: the agent versions pin digests and the Container Apps keep serving whatever
-# image they were last pointed at. Rebuilding is also idempotent, so a repeated or
-# accidental run costs a little ACR time and nothing else. The confirmation stays on
-# deploy-endpoints, which is the step that actually swaps what is serving traffic.
+# Builds never deploy. The model-server build retains its billable large-image prompt.
 #
 # THE AGENT IMAGE DIGEST IS THE EXPERIMENT'S CONTROL. Both agent versions must run the
 # SAME digest, or the Audit and Enforced runs differ in more than the policy and the
 # result proves nothing. Tags are mutable and must never be used to publish a version -
-# use `task build:agent-digest` and pin what it prints.
+# use `task build:foundry-agent-digest` and pin what it prints.
 #
-# A corollary of not prompting: rebuilding `latest` moves the tag but NOT any digest a
+# Rebuilding `latest` moves the tag but NOT any digest a
 # version already pins. If you rebuild mid-experiment, re-read the digest and confirm
 # both versions still pin the same one before trusting a run.
 
@@ -37,8 +33,6 @@ env:
   # value the root Taskfile loaded from .env -- it resolves to the default and then
   # EXPORTS that over the .env value, so setting the variable in .env silently did
   # nothing. Shell expansion at the point of use reads the real environment.
-  # Passed through to terraform on deploy-endpoints. Confirm the real value for your
-  # account with `task cloud:base-policies`.
 
 tasks:
   default:
@@ -51,8 +45,9 @@ tasks:
     cmds:
       - terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name
 
-  agent:
-    desc: BUILDS IN AZURE. Build and push the agent image to ACR
+  foundry-agent:
+    aliases: [agent]
+    desc: BUILDS IN AZURE. Build the ADK agent hosted in Foundry
     cmds:
       - |
         set -eu
@@ -63,10 +58,11 @@ tasks:
           --image "containment-demo-agent:${IMAGE_TAG:-latest}" \
           --file Dockerfile \
           .
-      - task: agent-digest
+      - task: foundry-agent-digest
 
-  services:
-    desc: BUILDS IN AZURE. Build and push both controlled-endpoint images to ACR
+  tool-apis:
+    aliases: [services]
+    desc: BUILDS IN AZURE. Build the policy API and test receiver (two images)
     cmds:
       # TWO images from ONE Dockerfile. services/Dockerfile resolves the app at build
       # time, so a running container cannot be repointed at the other service; building
@@ -88,12 +84,37 @@ tasks:
         done
 
   all:
-    desc: BUILDS IN AZURE. Build both images
+    desc: BUILDS IN AZURE. Build all six components (seven images); deploy nothing
     cmds:
-      - task: agent
-      - task: services
+      - task: foundry-agent
+      - task: tool-apis
+      - task: agent-bridge
+      - task: chat-agent
+      - task: model-server
+      - task: test-ui
 
-  agent-digest:
+  agent-bridge:
+    desc: BUILDS IN AZURE. Build the AKS A2A-to-Foundry bridge
+    cmds:
+      - task: :agent-bridge:build
+
+  chat-agent:
+    desc: BUILDS IN AZURE. Build the AKS browser chat and agent loop
+    cmds:
+      - task: :chat-agent:build
+
+  model-server:
+    desc: BUILDS IN AZURE. Build the CPU Qwen/llama.cpp model server
+    cmds:
+      - task: :model-server:build
+
+  test-ui:
+    desc: BUILDS IN AZURE. Build the separate two-button test page
+    cmds:
+      - task: :test-ui:build
+
+  foundry-agent-digest:
+    aliases: [agent-digest]
     desc: Print the agent image digest. This is what both agent versions must pin.
     vars:
       ACR_NAME:
@@ -109,7 +130,8 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: containment-demo-agent
-          TAG: '{{.IMAGE_TAG | default "latest"}}'
+          TAG: '${IMAGE_TAG:-latest}'
+          EXPLICIT: '${AGENT_IMAGE_DIGEST:-}'
           OUT: '{{.DIGEST_FILE}}'
       - |
         set -eu
@@ -124,44 +146,9 @@ tasks:
         echo "which makes the egress policy no longer the only variable between them."
 
   deploy-endpoints:
-    desc: CHANGES AZURE. Point both Container Apps at their built images, via terraform
-    prompt: This runs `terraform apply` with the endpoint image tag set, updating both controlled endpoints. Continue?
+    desc: Compatibility alias for deploy:tool-apis
     cmds:
-      - task: arm:_endpoint-images
-        vars:
-          TAG: '${IMAGE_TAG:-latest}'
-      - task: arm:_managed-network-imported
-      # TERRAFORM, NOT `az containerapp update`. Two reasons, and the second is the one
-      # that actually bit us.
-      #
-      # 1. Terraform owns these Container Apps. Setting --image out of band meant it owned
-      #    the app but not what the app ran, so the next `cloud:up` either reverted the
-      #    image or showed drift forever.
-      # 2. The old task rebuilt the app name as "${RESOURCE_NAME}-policy-api". Container
-      #    App names cap at 32 characters, so the real name is truncated —
-      #    `humble-phoenix-466-policy-api`, not `humble-phoenix-46689-policy-api` — and
-      #    the update failed with "The containerapp does not exist". Terraform already
-      #    knows both names. Nothing here concatenates one.
-      #
-      # This is a FULL apply, not a targeted one. A targeted apply would skip the ACR role
-      # assignments the apps need in order to pull, and "idempotent" has to mean the whole
-      # module, not a corner of it.
-      - |
-        set -eu
-        echo "applying endpoint_image_tag=${IMAGE_TAG:-latest} to {{.CLOUD_DIR}}"
-        terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings \
-          -var "region={{.REGION}}" \
-          -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" \
-          -var "endpoint_image_tag=${IMAGE_TAG:-latest}"
-      - |
-        echo
-        echo "Put this in your .env so a later 'task cloud:up' does not roll the endpoints"
-        echo "back to the placeholder image:"
-        echo
-        echo "    ENDPOINT_IMAGE_TAG=${IMAGE_TAG:-latest}"
-      - task: check-endpoints
-    vars:
-      REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
+      - task: :deploy:tool-apis
 
   check-endpoints:
     desc: Confirm both endpoints are live before trusting any run that uses them

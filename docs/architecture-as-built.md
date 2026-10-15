@@ -73,25 +73,29 @@ The façade is the documented fallback route ([B5e](compatibility.md#b5e-a2a-fac
 
 | What | Where | Image / source | Task names |
 | --- | --- | --- | --- |
-| Local model server (llama.cpp, Qwen2.5-3B-Instruct Q4_K_M, GGUF baked in) | AKS, Deployment + ClusterIP `local-model` | `Dockerfile.local-model`; `containment-demo-local-model` in ACR ([B12](compatibility.md#b12-cpu-only-llamacpp-server-for-qwen25-3b-q4-on-aks-flags-and-pins-verified-2026-10-09-build-and-deploy-results-below)) | `local-model:build`, `digest`, `plan`, `up`, `status` |
-| Harness chat service (ADK agent on LiteLLM; tools `ask_audit_agent`, `ask_enforced_agent`) | AKS, Deployment + ClusterIP `harness`, port-forward 8082 | `Dockerfile.harness`; `containment-demo-harness` ([B13](compatibility.md#b13-proposed--untested-harness-agent-and-chat-path-code-and-unit-tests-only-2026-10-09), [B14](compatibility.md#b14-harness-chat-service-image-and-manifests-built-in-acr-2026-10-09)) | `harness:build`, `secret`, `token`, `render`, `plan`, `up`, `open`, `verify` |
-| A2A façades (one image, two Deployments: audit, enforced) | AKS, ClusterIP only | `Dockerfile.a2a-facade` (a2a-sdk 1.0.2, protobuf < 7) ([B5e](compatibility.md#b5e-a2a-facade-for-hosted-agents-proposed--unverified-written-2026-10-09)) | `a2a:build`, `secret`, `token`, `up`, `open`, `verify`, `send` |
-| Demo UI (two buttons, no model; goes through the façades) | AKS, port-forward 8081 | `Dockerfile.demo-ui` | `ui:build`, `secret`, `token`, `up`, `open`, `verify` |
-| Foundry hosted agents `containment-demo-audit` / `containment-demo-enforced` | Foundry project, private-only account | `Dockerfile` (one digest, deployed twice) | `build:agent`, `build:agent-digest`, `cloud:harness-up`, `cloud:harness-status` |
-| `policy_api`, `test_receiver` | Container Apps | `services/` | `build:deploy-endpoints` |
+| Model server (llama.cpp, Qwen2.5-3B-Instruct Q4_K_M, GGUF baked in) | AKS, Deployment + ClusterIP `local-model` | `Dockerfile.local-model`; `containment-demo-local-model` in ACR ([B12](compatibility.md#b12-cpu-only-llamacpp-server-for-qwen25-3b-q4-on-aks-flags-and-pins-verified-2026-10-09-build-and-deploy-results-below)) | `build:model-server`, `deploy:model-server`; `model-server:status` |
+| Chat agent (ADK on LiteLLM; tools `ask_audit_agent`, `ask_enforced_agent`) | AKS, Deployment + ClusterIP `harness`, port-forward 8082 | `Dockerfile.harness`; `containment-demo-harness` ([B13](compatibility.md#b13-proposed--untested-harness-agent-and-chat-path-code-and-unit-tests-only-2026-10-09), [B14](compatibility.md#b14-harness-chat-service-image-and-manifests-built-in-acr-2026-10-09)) | `build:chat-agent`, `deploy:chat-agent`; `chat-agent:token`, `open`, `verify` |
+| Agent bridge (A2A façades; one image, two Deployments: audit, enforced) | AKS, ClusterIP only | `Dockerfile.a2a-facade` (a2a-sdk 1.0.2, protobuf < 7) ([B5e](compatibility.md#b5e-a2a-facade-for-hosted-agents-proposed--unverified-written-2026-10-09)) | `build:agent-bridge`, `deploy:agent-bridge`; `agent-bridge:verify`, `send` |
+| Test UI (two buttons, no model; goes through the bridges) | AKS, port-forward 8081 | `Dockerfile.demo-ui` | `build:test-ui`, `deploy:test-ui`; `test-ui:token`, `open`, `verify` |
+| Foundry hosted agents `containment-demo-audit` / `containment-demo-enforced` | Foundry project, private-only account | `Dockerfile` (one digest, deployed twice) | `build:foundry-agent`, `deploy:foundry-agent`; `foundry-agent:status` |
+| Tool APIs: `policy_api`, `test_receiver` | Container Apps | `services/` | `build:tool-apis`, `deploy:tool-apis`, `tool-apis:check` |
 | RAI policies (one Audit, one Enforced, default-deny plus exact-host allow) | Foundry account | `infra/cloud` (Terraform) | `cloud:*` |
 | Verification | operator machine, read-only against Log Analytics | `scripts/verify_demo.py` | `verify:*`; run the script for sections B and C |
 
-Live digests and agent version numbers change; read them from `task build:agent-digest`,
-`task harness:digest`, `task a2a:digest`, `task local-model:digest` and the deployer log
-(`cloud:harness-status`) rather than from this page. Digests recorded at build time are in
+`build:all` builds all seven images; `deploy:all` deploys applications after `cloud:up`.
+Old command names remain aliases; Kubernetes and ACR names stay unchanged.
+The Foundry publishing helper (`agent-harness`) is separate from the chat agent (`harness`).
+
+Live digests and agent version numbers change; read them from `task build:foundry-agent-digest`,
+`task chat-agent:digest`, `task agent-bridge:digest`, `task model-server:digest` and the deployer log
+(`foundry-agent:status`) rather than from this page. Digests recorded at build time are in
 compatibility B12 and B14.
 
 ## Identities and trust boundaries
 
 | Hop | Caller identity / credential | Governed by the Foundry egress policy? |
 | --- | --- | --- |
-| Browser to harness / UI | Shared bearer token (`task harness:token`, `task ui:token`), port-forward only, no public ingress | No |
+| Browser to harness / UI | Shared bearer token (`task chat-agent:token`, `task test-ui:token`), port-forward only, no public ingress | No |
 | Harness to local model | In-cluster, no real credential (llama.cpp ignores the key) | No |
 | Harness to façade | Shared bearer token from Secret `a2a-facade-config`. **Weak by design; Entra Agent ID sidecar is issue #4 (not started).** | No |
 | Façade to Foundry agent (Responses) | The `demo-ui` workload identity, role Foundry Agent Consumer at project scope ([B9h](compatibility.md#b9h-demo-ui-identity-issue-1--applied-2026-10-09)); data plane reachable only from inside the VNet | No |

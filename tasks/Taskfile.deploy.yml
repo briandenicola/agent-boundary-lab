@@ -1,0 +1,142 @@
+version: '3'
+
+silent: true
+
+includes:
+  arm:
+    taskfile: ./Taskfile.arm.yml
+    internal: true
+
+tasks:
+  all:
+    desc: CHANGES AZURE AND AKS. Deploy all applications, Secrets and agent model grants; no builds or infrastructure provisioning
+    prompt: Deploy all six application components into the existing cloud environment, including Secrets and model-access grants? Run cloud:up and build:all first.
+    cmds:
+      - task: tool-apis
+      - task: foundry-agent
+      - task: model-server
+      - task: test-ui
+      - task: agent-bridge
+      - task: chat-agent
+
+  tool-apis:
+    desc: CHANGES AZURE. Update both existing Container Apps; refuse non-application Terraform changes
+    prompt: Plan and apply updates to the two controlled tool APIs only? Infrastructure must already exist.
+    vars:
+      REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
+    cmds:
+      - task: _infrastructure
+      - task: arm:_endpoint-images
+        vars:
+          TAG: '${IMAGE_TAG:-latest}'
+      - task: arm:_managed-network-imported
+      - |
+        set -eu
+        PLAN_DIR=$(mktemp -d)
+        trap 'rm -f "$PLAN_DIR/endpoints.tfplan"; rmdir "$PLAN_DIR"' EXIT
+        terraform -chdir="{{.ROOT_DIR}}/infra/cloud" plan -input=false -compact-warnings \
+          -var "region={{.REGION}}" \
+          -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" \
+          -var "endpoint_image_tag=${IMAGE_TAG:-latest}" \
+          -out="$PLAN_DIR/endpoints.tfplan"
+        PLAN_JSON=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" show -json "$PLAN_DIR/endpoints.tfplan")
+        if ! printf '%s\n' "$PLAN_JSON" | jq -e '
+          (.format_version | type == "string")
+          and (.planned_values.root_module | type == "object")
+          and .errored != true
+          and ((.deferred_changes // []) | length == 0)
+          and all(.resource_changes[]?;
+            .mode == "data" or
+            (.mode == "managed" and
+              (.change.actions == ["no-op"] or
+                ((.address == "azurerm_container_app.policy_api" or
+                  .address == "azurerm_container_app.test_receiver")
+                 and .change.actions == ["update"]))))
+        ' >/dev/null; then
+          echo "Refusing: the plan contains changes beyond updates to the two tool APIs." >&2
+          echo "Review 'task cloud:plan', reconcile infrastructure with 'task cloud:up', then retry." >&2
+          exit 1
+        fi
+        terraform -chdir="{{.ROOT_DIR}}/infra/cloud" apply -input=false -compact-warnings \
+          "$PLAN_DIR/endpoints.tfplan"
+        echo "Keep ENDPOINT_IMAGE_TAG=${IMAGE_TAG:-latest} in .env for future cloud:up runs."
+      - task: :tool-apis:check
+
+  foundry-agent:
+    desc: CHANGES AKS AND FOUNDRY. Publish both same-digest agent versions, wait, then grant model access
+    prompt: Publish both Foundry agents through the AKS helper and grant their identities model access?
+    cmds:
+      - task: _namespace
+      - task: :cloud:harness-up
+      - |
+        set -eu
+        NS=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" output -raw kubernetes_namespace)
+        kubectl -n "$NS" rollout status deployment/agent-harness --timeout=600s
+      - task: :cloud:agent-access-up
+
+  model-server:
+    desc: CHANGES AKS. Deploy the CPU Qwen/llama.cpp model server
+    prompt: Deploy the model server into the existing cluster?
+    cmds:
+      - task: _namespace
+      - task: :model-server:up
+
+  test-ui:
+    desc: CHANGES AKS. Create required Secrets and deploy the two-button page and shared ServiceAccount
+    prompt: Create or preserve the test UI and bridge Secrets, then deploy the test UI?
+    cmds:
+      - task: _namespace
+      - task: :agent-bridge:secret
+      - task: :test-ui:secret
+      - task: :test-ui:up
+
+  agent-bridge:
+    desc: CHANGES AKS. Create the bridge Secret and deploy both A2A-to-Foundry bridge slots
+    prompt: Create or preserve the bridge Secret and deploy both bridge slots? Deploy test-ui first for its shared ServiceAccount.
+    cmds:
+      - task: _namespace
+      - task: :agent-bridge:secret
+      - task: :agent-bridge:up
+
+  chat-agent:
+    desc: CHANGES AKS. Create required Secrets and deploy the browser chat agent
+    prompt: Create or preserve the chat and bridge Secrets, then deploy the chat agent? Deploy model-server and agent-bridge first.
+    cmds:
+      - task: _namespace
+      - task: :agent-bridge:secret
+      - task: :chat-agent:secret
+      - task: :chat-agent:up
+
+  _infrastructure:
+    internal: true
+    run: once
+    cmds:
+      - |
+        set -eu
+        for TOOL in terraform jq; do
+          command -v "$TOOL" >/dev/null 2>&1 || { echo "$TOOL not found on PATH." >&2; exit 1; }
+        done
+        for OUTPUT in acr_name aks_cluster_name kubernetes_namespace foundry_account_id policy_api_url test_receiver_url; do
+          VALUE=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" output -raw "$OUTPUT") || {
+            echo "Infrastructure output $OUTPUT is unavailable. Complete 'task cloud:up' first." >&2; exit 1; }
+          [ -n "$VALUE" ] || { echo "Infrastructure output $OUTPUT is empty." >&2; exit 1; }
+        done
+
+  _namespace:
+    internal: true
+    run: once
+    cmds:
+      - task: _infrastructure
+      - |
+        set -eu
+        for TOOL in kubectl kustomize openssl; do
+          command -v "$TOOL" >/dev/null 2>&1 || { echo "$TOOL not found on PATH." >&2; exit 1; }
+        done
+        EXPECTED=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" output -raw aks_cluster_name)
+        ACTUAL=$(kubectl config current-context)
+        [ "$ACTUAL" = "$EXPECTED" ] || {
+          echo "Current context '$ACTUAL' is not the Terraform AKS cluster '$EXPECTED'." >&2
+          echo "Run 'task cloud:kubeconfig' and confirm the cluster before deploying." >&2; exit 1; }
+        NS=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" output -raw kubernetes_namespace)
+        MANIFEST=$(kubectl create namespace "$NS" --dry-run=client -o yaml)
+        printf '%s\n' "$MANIFEST" | kubectl apply --server-side -f -

@@ -2,9 +2,9 @@
 
 Written 2026-10-09 from the Taskfiles and the tasks' own prerequisite checks.
 
-**Status: NOT TESTED as one run.** No full teardown and rebuild has ever been executed. Every
-step below exists and has been run on its own at some point, but the sequence as a whole, the
-timings, and the steps marked **UNVERIFIED** have not. Do not promise a rebuild time. Record
+**Status: NOT TESTED as one run.** No full teardown and rebuild has ever been executed. The
+underlying operations have been exercised separately; the new aggregate command sequence
+has not. The timings and the steps marked **UNVERIFIED** remain unverified. Record
 what really happens the first time and correct this page.
 
 Brian runs every step that changes Azure or the cluster. All commands run from the repo root.
@@ -15,10 +15,10 @@ Add `--yes` to any task that prompts when you are not on a terminal.
 | Covered by Terraform (`infra/cloud`) | NOT covered: separate steps below |
 | --- | --- |
 | Resource group, VNet, ACR, Log Analytics, Container Apps environment and the two controlled endpoints | |
-| Foundry account, project, both RAI policies, the `foundry-account-pe` rule | Container images (every `*:build` task) |
-| The managed network (`AllowOnlyApprovedOutbound`) and its FQDN rules (only when `managed_network_isolation_mode` is `AllowOnlyApprovedOutbound`, the default) | Agent versions (published by the harness pod's init container) |
-| AKS cluster, role grants for the apps identity, the evidence workbook | Cluster workloads and their secrets (`*:up`, `*:secret`) |
-| | The model-access role grant for the two agent identities (`cloud:agent-access-up`) |
+| Foundry account, project, both RAI policies, the `foundry-account-pe` rule | Container images (`build:<component>`, `build:all`) |
+| The managed network (`AllowOnlyApprovedOutbound`) and its FQDN rules (only when `managed_network_isolation_mode` is `AllowOnlyApprovedOutbound`, the default) | Agent versions (published by `deploy:foundry-agent`) |
+| AKS cluster, role grants for the apps identity, the evidence workbook | Applications and their Secrets (`deploy:<component>`, `deploy:all`) |
+| | Agent model-access grants (included in `deploy:foundry-agent`) |
 
 State is the local file `infra/cloud/terraform.tfstate`. Losing it orphans the environment.
 
@@ -48,7 +48,7 @@ handles that first-account boundary; `cloud:network-import` repairs an existing 
 without changing Azure. Both derive the account from this local Terraform state, not a
 tag-based search or a hardcoded resource ID.
 
-**Proposed recovery, not yet executed:** account child resources now share an AzAPI account
+**Recovery implementation; owner reported `cloud:up` succeeded on 2026-10-15:** account child resources now share an AzAPI account
 lock and retry the observed operation-in-progress messages. The project also waits for the
 AzureRM model deployment, which does not participate in AzAPI locks. Authentication, schema
 errors, and unrelated conflicts are not retried by this custom rule. The existing managed
@@ -64,7 +64,7 @@ Keep the existing state and resources. Run from the repo root, one command at a 
 ```bash
 task lint:cloud
 task cloud:network-import
-IMAGE_TAG=5f24f8e task build:services
+IMAGE_TAG=5f24f8e task build:tool-apis
 task cloud:plan
 task cloud:up
 ```
@@ -74,11 +74,11 @@ Keep `ENDPOINT_IMAGE_TAG=5f24f8e` for the plan and apply; if choosing another ta
 tag and set `ENDPOINT_IMAGE_TAG` to match. Do not clear the tag on an already functioning
 environment: that explicitly selects placeholder images.
 
-`cloud:up` and `build:deploy-endpoints` now check both requested image tags before starting
+`cloud:up` and `deploy:tool-apis` check both requested image tags before starting
 their apply. An unreadable registry, missing image, or invalid digest response stops the
 task rather than deploying a fallback. An empty endpoint tag is allowed only as the
 explicit placeholder selection. `cloud:up`, `cloud:network-up`, and
-`build:deploy-endpoints` also stop if the default managed network has not been imported.
+`deploy:tool-apis` also stop if the default managed network has not been imported.
 
 The shared preflights resolve Terraform's directory as `{{.ROOT_DIR}}/infra/cloud`, not
 relative to the included Taskfile's working directory or an inherited `CLOUD_DIR`. A
@@ -108,53 +108,85 @@ Provider references checked **2026-10-15** (configuration guidance, not deployed
 
 ### 4. Images (built in ACR, no local Docker)
 
-Run all of them; none prompts. After the two endpoint images exist, point the Container Apps at them.
-
-```
-task build:services            # the two controlled-endpoint images
-task build:deploy-endpoints    # CHANGES AZURE: terraform applies the real image tag (prompts)
-task build:check-endpoints     # both /healthz answer
-task build:agent               # the agent image
-task build:agent-digest        # record it: BOTH agent versions must pin this one digest
-task a2a:build
-task ui:build
-task harness:build
-task local-model:build
+```bash
+task build:all
 ```
 
-### 5. Cluster workloads (each prompts)
+This builds **seven images**, deploying nothing. All builds run in ACR and incur build
+cost. The model-server build retains its confirmation prompt for the large image.
+If all images were already built with the old commands, **skip this step**.
 
-Order matters. The tasks refuse to run when a prerequisite is missing, and name it.
+Image tag behaviour is unchanged. `IMAGE_TAG` selects the foundry-agent and tool-apis tag;
+`A2A_IMAGE_TAG` selects agent-bridge, `HARNESS_IMAGE_TAG` selects chat-agent,
+`LOCAL_MODEL_IMAGE_TAG` selects model-server and `UI_IMAGE_TAG` selects test-ui. Each defaults
+independently to `latest`. Keep the same values for build and deploy. An explicit
+`*_IMAGE_DIGEST` deployment pin takes precedence over tag lookup. Both Foundry versions
+always receive one identical digest. Command changes do not rename images or resources.
 
-| # | Command | Why this position |
-| --- | --- | --- |
-| 5.1 | `task local-model:up` | The harness refuses to start without the `local-model` service. First start loads a ~2 GB model; allow 1 to 2 minutes. |
-| 5.2 | `task ui:secret`, `task ui:up` | `ui:up` creates the `demo-ui` ServiceAccount that the facades reuse. |
-| 5.3 | `task a2a:secret`, `task a2a:up` | Needs the `demo-ui` ServiceAccount. The UI and the harness both need `a2a-facade-config`. |
-| 5.4 | `task harness:secret`, `task harness:up` | Needs `local-model` and the facade secret. |
-| 5.5 | `task cloud:harness-plan`, then `task cloud:harness-up` | Applies the agent harness pod. **Its init container publishes BOTH agent versions**, so this is the step that attaches the two RAI policies to agents. Until it has run, the policies are attached to nothing. |
-| 5.6 | `task cloud:harness-status` | The init container must have exited 0. Exit 0 means a version was accepted, not that the policy is enforcing. |
+### 5. Deploy applications
 
-### 6. Agent identity access
+Validate the new command wiring locally first, then deploy:
 
-| # | Command | Notes |
-| --- | --- | --- |
-| 6.1 | `task cloud:agent-access-plan`, then `task cloud:agent-access-up` | Grants model access to the two agent identities. It fails with "expected exactly 1 agent identity" until step 5.5 has created the versions. Run it after 5.5, not before. |
+```bash
+task lint:tasks
+task deploy:all
+```
 
-**UNVERIFIED:** whether the agents need a restart or a new version after this grant. Until it
-is granted the model call fails with a role error (`compatibility.md` B9f).
+`deploy:all` requires completed infrastructure and the kubeconfig context named for the
+Terraform AKS cluster. It does **not** call `cloud:up` or any build. Existing prompts remain;
+`--yes` explicitly accepts them for noninteractive use. The sequence is:
+
+| Order | Build command | Deploy command | Meaning and dependencies |
+| --- | --- | --- | --- |
+| 1 | `build:tool-apis` | `deploy:tool-apis` | Policy API and test receiver on Container Apps. Check image availability, plan Terraform, allow only updates to these two existing apps, apply that saved plan, check health. |
+| 2 | `build:foundry-agent` | `deploy:foundry-agent` | Publish both same-digest Foundry versions through the AKS helper; wait up to 600 s for its rollout, then grant both agent identities model access. |
+| 3 | `build:model-server` | `deploy:model-server` | Deploy the CPU Qwen/llama.cpp server. First start loads a roughly 2 GB model. |
+| 4 | `build:test-ui` | `deploy:test-ui` | Create/preserve the bridge and UI Secrets **before** applying the two-button page and its shared `demo-ui` ServiceAccount. |
+| 5 | `build:agent-bridge` | `deploy:agent-bridge` | Deploy both A2A-to-Responses bridge slots; requires the test UI's ServiceAccount. |
+| 6 | `build:chat-agent` | `deploy:chat-agent` | Create/preserve its Secret and deploy browser chat plus the agent loop; requires the model Service and bridge. |
+
+Prefix commands in the table with `task`. Each AKS deploy ensures the namespace exists.
+Individual deploy commands prepare their own Secrets, but do not automatically deploy other
+components. On a fresh cluster, follow the table order or use `deploy:all`.
+Existing Secrets are preserved unless `ROTATE=1` is explicitly set.
+
+The `agent-harness` Deployment is the **Foundry publishing helper**, not the `chat-agent`.
+Its init container publishes versions; its main container sleeps. `harness` remains the
+underlying Kubernetes name of the actual chat service. These resources are not renamed.
+`task foundry-agent:status` shows the publisher logs. A successful init means versions were
+accepted, **not** that containment was proven.
+
+Keep `ENDPOINT_IMAGE_TAG` in `.env` equal to the tool API `IMAGE_TAG` after deployment, so a
+later `cloud:up` does not roll them back. If `deploy:tool-apis` detects infrastructure drift,
+it stops **without applying**. Review `task cloud:plan` and reconcile that separately.
+
+### 6. Access and compatibility notes
+
+`deploy:foundry-agent` includes the existing `cloud:agent-access-up` operation, after the
+publisher is ready. It grants Cognitive Services OpenAI User to both agent identities at
+the same scope. These are workload model-access grants, **not** the user OBO extension in
+#4. That identity extension remains planning-only.
+
+**UNVERIFIED:** whether newly granted model access needs propagation time, a restart or a
+new version. A successful grant alone does not prove a model call succeeds (B9f).
+
+Old commands remain compatibility aliases: `build:agent`, `build:services`,
+`build:agent-digest`, `build:deploy-endpoints`, and the `a2a`, `harness`, `local-model`
+and `ui` namespaces. Use `build:<component>` / `deploy:<component>` for new instructions.
+Low-level legacy `*:up` commands retain their original prerequisite checks; the new
+`deploy:*` commands add Secret preparation and sequencing.
 
 ### 7. Verify
 
 ```
-task ui:verify
-task a2a:verify
-task harness:verify
-task a2a:send SLOT=audit          # expect get_servicing_policy 200 and send_to_external_processor 202
-task a2a:send SLOT=enforced       # expect 200, and the second tool 403
+task test-ui:verify
+task agent-bridge:verify
+task chat-agent:verify
+task agent-bridge:send SLOT=audit          # expect get_servicing_policy 200 and send_to_external_processor 202
+task agent-bridge:send SLOT=enforced       # expect 200, and the second tool 403
 ```
 
-Wait at least 3 minutes, then confirm with the platform evidence (the `run-…` id and the UTC time of each call come from the `a2a:send` output):
+Wait at least 3 minutes, then confirm with the platform evidence (the `run-…` id and the UTC time of each call come from the `agent-bridge:send` output):
 
 ```
 .venv/bin/python scripts/verify_demo.py --section b --audit-run-id <run-…> --audit-called-at <UTC ISO>
@@ -165,7 +197,8 @@ Exit 0 is PASS, 1 FAIL, 2 INCONCLUSIVE. Then re-check `task cloud:plan` shows no
 
 ## Known rough edges
 
-- **No single "everything" task.** The order above is a human sequence, not automated.
+- **Aggregate deployment is not yet run end to end.** `build:all` and `deploy:all` now encode
+  the image and application sequences; no full teardown/rebuild result is claimed.
 - **`cloud:plan` showed the two RAI policies updating in place on 2026-10-10** (contentFilters),
   with no policy change on our side; `task cloud:policies` showed them still identical apart from
   `egressPolicy.mode`. Unexplained. Read the plan before any `cloud:up`; do not apply it blind.

@@ -230,9 +230,10 @@ authorization header appears anywhere in exported telemetry.
 **Tested result:** Terraform for the account, both RAI policies and the two controlled
 endpoints on distinct HTTPS hostnames exists and validates in `infra/cloud`. The AKS deploy
 harness is **not** Terraform: cluster workloads are plain manifests under
-`deploy/kustomize/base/` applied with `kubectl` (`task cloud:harness-plan` /
-`cloud:harness-up` / `cloud:harness-status` / `cloud:harness-down`). Authoring validates;
-neither leg is evidence of anything running.
+`deploy/kustomize/base/` applied with `kubectl` (`task foundry-agent:plan` /
+`task deploy:foundry-agent` / `task foundry-agent:status` / `task foundry-agent:down`).
+These are the current command names; the underlying manifest approach is unchanged.
+Authoring validates; neither leg is evidence of anything running.
 Required-but-undocumented RAI policy properties were found by failed applies and are
 recorded in `docs/compatibility.md` Blocker 1: `basePolicyName` is mandatory,
 `properties.contentFilters` is mandatory (a custom policy does **not** inherit the base's
@@ -280,10 +281,11 @@ What replaces it:
   placeholders. They are **never mutated on disk**; each task streams `kustomize build`
   through `sed`, substituting from `terraform output -raw` against `infra/cloud`. The
   diagnostics token and the App Insights connection string exist only inside that pipe.
-- Task names are unchanged: `cloud:harness-plan`, `cloud:harness-up`, `cloud:harness-status`,
-  `cloud:harness-down`. Apply order is still `cloud:up` → `build:agent` → `cloud:harness-up`,
-  with `cloud:kubeconfig` once beforehand.
-- `harness-plan` is a **server-side dry run**
+- Current names are `foundry-agent:plan`, `deploy:foundry-agent`, `foundry-agent:status`
+  and `foundry-agent:down`; the old `cloud:harness-*` names still work. Full application
+  standup uses `build:all` then `deploy:all`, after infrastructure and kubeconfig.
+  The new aggregate sequence is not yet tested end to end; see the rebuild runbook.
+- `foundry-agent:plan` is a **server-side dry run**
   (`kubectl apply --server-side --force-conflicts --dry-run=server`), deliberately not
   `kubectl diff`, because a diff of this stream prints the Secret's contents into any
   captured demo log. It reports whether each object would be accepted; it does **not** prove
