@@ -555,7 +555,8 @@ token scope `https://ai.azure.com/.default`. The card lives at
 and contexts are retained 60 days from last write.
 
 - [ ] Narrow application-owned API: start case, query status, submit authorized event.
-- [ ] `samples/onprem_harness/` — standalone agent runtime, no Dapr install, no sidecar.
+- [ ] `samples/onprem_harness/` — standalone agent runtime, no Dapr install or Dapr sidecar.
+      The Entra authentication sidecar in issue #4 is a separate dependency, not Dapr.
       Deployed to AKS as manifests under `deploy/kustomize/` in its own overlay, not as a
       Terraform resource (Phase 4). Keep it separate from the containment harness overlay so
       the two can be applied and torn down independently.
@@ -580,13 +581,150 @@ and contexts are retained 60 days from last write.
 
 ---
 
+## Issue #4 — End-to-end agent and user identity
+
+**Status (2026-10-15): scope agreed; planning and primary-reference research only.**
+No identity implementation, ingress, Entra object, consent, or role assignment has been
+created by this work. This expands the former sidecar-only investigation. Execute the
+identity stages below in order; it does not mark the existing Phase 0 or containment gates
+as newly tested. References and documented-versus-unverified findings are in
+[`compatibility.md`](compatibility.md#issue-4-identity-compatibility-research-2026-10-15).
+
+### Agreed outcome and boundaries
+
+```text
+Browser: real HTTPS URL, Entra user login
+  -> AKS harness + private Entra Agent ID auth sidecar (on-premises stand-in)
+  -> private A2A facade -> private Foundry hosted agent, Responses protocol
+  -> Container Apps policy API: authorize the represented user
+
+Foundry's second business tool -> unchanged, unauthenticated test receiver
+```
+
+The A2A facade remains because native incoming A2A on hosted container agents was observed
+unsupported. Carry identity through the facade; do not replace the hosted agent with a
+prompt agent or move its tools onto AKS. Only the harness's interactive surface becomes
+public; Foundry stays private and sidecar, model, and facade ports are not published.
+The two controlled APIs retain their distinct, observable HTTPS destinations.
+
+**Required:** investigate and prove user-delegated authentication on the Foundry invocation
+itself, in addition to user-based downstream authorization. Workload authentication to
+Foundry with an OBO tool token forwarded in `x-client-*` is documented, but does **not**
+satisfy this requirement. Do not silently substitute it. If the required flow is unsupported
+or unavailable, record the evidence, mark the dependent work blocked, and return the scope
+decision to the owner.
+
+### I0 — Compatibility and identity contract (first gate)
+
+- [ ] Inventory the browser client, harness API/blueprint, harness Agent Identity, facade
+      caller, Foundry agent identities, and policy API registration. Distinguish client IDs,
+      service-principal IDs, managed identities, and Agent ID objects; do not rename one
+      identity type to imply another.
+- [ ] Verify the sidecar's supported version/image, AKS workload federation, incoming
+      token validation, and Agent ID OBO flow for the actual audiences. No secret-based
+      shortcut and no assertion that Graph examples prove Foundry compatibility.
+- [ ] Resolve the exact Foundry delegated permission/resource, consent mechanism, applicable
+      user and agent grants, and whether the existing hosted-agent Responses endpoint accepts
+      a sidecar-acquired user-delegated token as its `Authorization` bearer. Record precise
+      primary references; do not invent an OAuth scope.
+- [ ] Prepare an owner-run, opt-in probe from inside the VNet: an authorized user succeeds,
+      a user without Foundry invoke access fails, and an invalid/wrong-audience token fails.
+      Prove the accepted bearer is delegated, not an app-only token with a user-ID header.
+      Record SDK/protocol versions and masked outcomes without recording raw tokens.
+- [ ] Establish separately how the hosted tool receives a policy-API-audience user token.
+      Verify request-scoped custom-header forwarding and trusted resolved user context on
+      the installed SDK/container protocol; never assume Foundry forwards `Authorization`
+      or automatically exchanges a Foundry token for a custom API token.
+- [ ] Identify which agent/application the policy API can actually authenticate from that
+      token. Token forwarding alone does not prove that the hosted agent's own identity is
+      the downstream OAuth client or that there is a cryptographic multi-agent chain.
+
+**Exit:** a dated, reproducible contract for each hop and a successful approved hosted
+probe of the required delegated Foundry invocation. Documentation review alone is not exit.
+No public identity deployment before this gate passes. A named unsupported feature is a
+blocker, not permission to implement a different flow.
+
+### I1 — HTTPS ingress and Entra sign-in (depends on I0)
+
+- [ ] Agree the hostname/DNS owner, certificate lifecycle, ingress mechanism, and tenant.
+      Choose browser authorization-code/PKCE or a server-session design explicitly before
+      implementation. Keep addresses and identity values in environment configuration.
+- [ ] Require Entra login and explicit application assignment for the permitted test users.
+      An authenticated tenant user is not automatically an authorized demo participant.
+      Enforce access at the backend as well as the page; direct API requests cannot bypass it.
+- [ ] Cover redirect-URI validation, session expiry/logout, CSRF where applicable, and
+      wrong-tenant/wrong-audience/expired-token rejection. No shared demo-token bypass on
+      the public deployment; no bearer tokens in URLs or browser persistence.
+
+### I2 — Delegated harness-to-Foundry calls (depends on I1)
+
+- [ ] Add the Entra Agent ID sidecar next to the appropriate AKS caller, private to its pod.
+      Configure blueprint federation and least-privilege delegated grants through reviewed,
+      owner-run Task targets. Keep credential material out of agent code and manifests.
+- [ ] Replace the harness/facade shared-token path for the identity deployment with
+      validated, request-scoped user context and the exact token exchanges established by I0.
+      Preserve A2A version pinning, the private Foundry endpoint, and both audit/enforced calls.
+- [ ] Keep token caches, ADK sessions, and SDK clients isolated by validated user and audience.
+      The current constant `harness` / `demo-user` identifiers are not a multi-user contract.
+      Tokens never become prompts, tool arguments, model output, or mutable global headers.
+- [ ] Surface consent and Conditional Access challenges; missing delegation, expiry, or
+      sidecar errors fail explicitly. Never fall back to app-only access or a shared token.
+
+### I3 — Policy API user authorization (depends on I2)
+
+- [ ] Select Container Apps platform authentication and/or API token validation explicitly.
+      Validate signature, issuer/tenant, audience, expiry, delegated scope, and the supported
+      agent/client provenance established by I0. Trust neither an arbitrary user header nor
+      an unsigned identity claim.
+- [ ] Agree the user authorization rule (Entra groups/app roles or configured user IDs).
+      Prepare two assigned test users: one may read policy; one can invoke the demo but
+      cannot read policy. Keep real user identifiers out of committed configuration.
+- [ ] Return unauthenticated versus unauthorized results distinctly. Protect every policy
+      business route, including its run-ID variant; retain a bounded health-only probe.
+      Issue a policy-API-specific token, never reuse a Foundry-audience bearer at this API.
+- [ ] Keep the test receiver unauthenticated and free of user-dependent behavior. Never
+      send the policy API token to it. Keep both business tools registered unconditionally
+      and the same hosted image/configuration across Audit and Enforced.
+
+### I4 — Evidence, regression tests, and presenter handoff (depends on I3)
+
+- [ ] Unit tests remain offline; hosted/Entra integration probes are opt-in and owner-run.
+      Exercise token rejection, spoofed user headers, missing consent, challenge propagation,
+      cross-user requests, sidecar failure, and no app-only fallback. Tamper-test the guards.
+- [ ] Demonstrate the matrix below with deterministic calls as well as a harness agent turn.
+      Classify a policy-API authorization denial separately from platform egress containment.
+      A denied policy call is not a valid positive control for a containment pass.
+- [ ] Join the signed-in test actor, agent/caller identity, invocation, policy authorization
+      decision, and run ID using observed fields and minimally necessary approved metadata.
+      Use test aliases in reports; no tokens, full claim dumps, credentials, or auth headers
+      in logs, telemetry, model traces, or durable storage. Missing evidence is inconclusive.
+- [ ] Update `architecture-as-built.md`, `demo-runbook.md`, `telemetry-map.md`, evidence
+      templates, `.env.example`, and rebuild/cleanup Task targets when behavior actually ships.
+      Record the new shared image digest; do not reuse historical evidence as a new result.
+
+| Scenario | Policy API | Receiver / containment determination |
+| --- | --- | --- |
+| Assigned user with policy permission, Audit | Authorized success | Receipt plus platform would-deny evidence |
+| Same permitted user, Enforced | Authorized success | Platform denial plus absence of receipt |
+| Assigned user without policy permission | Identity authorization denial | Separate result; never a containment pass based on this run |
+| Unassigned user, missing login, or invalid token | No policy access | Reject at the applicable identity boundary; no successful demo invocation |
+| Missing/expired delegated downstream token | Explicit authentication failure, no fallback | Separate result; never containment proof |
+
+**Execution approval:** this delivery is issue expansion and planning only. The owner runs
+all validation, builds, Entra provisioning/consent, role changes, DNS, ingress, and deployment
+through reviewed Task targets. Decide hostname, login architecture, authorization mapping,
+and tenant prerequisites before authoring those implementation steps. Dapr Workflow,
+true on-premises hosting, and OpenShift portability remain outside this issue.
+
+---
+
 ## Backlog / next (2026-10-09)
 
 Nothing below is done unless stated. Billable items need owner approval first.
 
 | Item | Status |
 | --- | --- |
-| **#4 Entra Agent ID auth SDK sidecar** (harness to façade/Foundry auth) | **Monday work.** Open, not started; the Learn page has not been reviewed (record the access date when it is). Authentication only; containment evidence must not depend on it. Today's auth is one shared bearer token. |
+| **#4 End-to-end agent and user identity** | Expanded 2026-10-15; planning only. HTTPS harness, assigned Entra users, Agent ID sidecar, required delegated Foundry-invocation compatibility gate, and user-authorized policy API. Receiver unchanged; identity and containment have separate verdicts. See the issue #4 track above. |
 | **#2 Document the AKS harness** | Open. Harness built and documented in `docs/architecture-as-built.md`, B13, B14; close after review. |
 | **#3 Local model evaluation** | Open. Qwen2.5-3B is the candidate (B11 laptop, §0.14 one AKS turn). Tool-calling reliability over many turns and speed are unmeasured; result stays functional, not containment. |
 | **#1 Chat UI on AKS** | Open. Harness chat service is the chat UI; the two-button demo UI also still exists. |

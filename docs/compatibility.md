@@ -36,6 +36,41 @@ convention).
 
 ---
 
+## Issue #4 identity compatibility research (2026-10-15)
+
+**Documentation review only; no new hosted, sidecar, Entra, or ingress test was run.**
+The owner's required scenario includes user-delegated authentication to Foundry itself,
+not just a workload calling Foundry while carrying a separate downstream user token.
+See the ordered [implementation track](PLAN.md#issue-4--end-to-end-agent-and-user-identity).
+
+| Capability | Primary-reference finding | Repository status |
+| --- | --- | --- |
+| Entra Agent ID auth sidecar | Handles inbound token validation, client credentials, and OBO. Interactive-agent pattern 4 passes an incoming user bearer plus `AgentIdentity` to the authenticated authorization-header endpoint. | Documented; image/version, AKS federation, and our custom audiences untested. |
+| Hosted-agent user OBO guide | Describes application-managed OBO for a downstream API, separate workload authentication to Foundry, and forwarding the downstream token in an application-defined `x-client-*` header. | Documented alternative; **not** proof of user-delegated bearer authentication to Foundry. |
+| Foundry endpoint RBAC | Hosted-agent permissions reference permits users or service principals with the endpoint interact data action; Foundry Agent Consumer is the least-privilege consumer role. | General user access is documented; sidecar-issued OBO token acceptance, exact delegated grant/consent, and applicable caller/user authorization for our hosted endpoint remain unverified. |
+| End-user identity header | `x-ms-user-identity` requires the custom `Microsoft.CognitiveServices/accounts/AIServices/agents/endpoints/UserIdentityImpersonation/action` data action, not a built-in role. | Applicable to the documented middle-tier impersonation pattern. Not itself a user token, OBO exchange, or approval to grant that action. |
+| Token forwarding into hosted code | OBO guide requires container protocol 2.0.0 and documents `ResponseContext.client_headers` with lowercase keys. Caller `Authorization` is not forwarded. | Verify the deployed protocol and installed SDK before implementation; current adapter does not consume a policy-API token. |
+| Agent identity versus user delegation | General Foundry identity concepts describe attended and unattended flows and platform-managed tool authentication. The hosted-container OBO guide explicitly describes application-managed exchange/forwarding. | Do not transfer toolbox/MCP/prompt-agent claims to our arbitrary Python HTTP tools, or claim a forwarded token identifies the hosted agent as its OAuth client. |
+| Existing repository path | Harness/facade use a shared bearer; facade calls Foundry with `DefaultAzureCredential`; policy API has no user authorization. | Source inspection, not a new live observation: `harness/agent.py`, `a2a_facade/target.py`, `protocol_adapter.py`, and `services/policy_api/main.py`. |
+
+**I0 remains open:** identify and test the actual resource/audience, delegated grant,
+consent, Agent ID provenance, and RBAC evaluation for a user-delegated Foundry invocation
+through the private Responses endpoint. A successful Graph example, user object-ID header,
+or workload-only invocation cannot close this gate. If unavailable, record the exact
+platform limitation and block the dependent identity rollout pending an owner decision;
+do not silently change the requested scenario.
+
+Primary references, accessed **2026-10-15**:
+
+- [Entra authentication SDK sidecar](https://learn.microsoft.com/en-us/entra/agent-id/authentication-with-auth-sdk-sidecar).
+- [Sidecar agent identities, especially interactive-agent pattern 4](https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/agent-identities).
+- [Use OBO with hosted agents](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/use-on-behalf-of-flow).
+- [Hosted-agent permissions: interaction and end-user delegation](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agent-permissions).
+- [Hosted-agent runtime contract](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agent-contract).
+- [Foundry agent identity concepts](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/agent-identity).
+
+---
+
 ## A. Hosted agents
 
 ### A1. Status

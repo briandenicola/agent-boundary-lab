@@ -27,6 +27,21 @@ This repository began as a build specification and is now partly built and teste
 
 ## Demo scope
 
+### Identity extension: issue #4
+
+**Proposed, not deployed (scope agreed 2026-10-15):** expose the AKS harness at a real
+HTTPS URL, require login by assigned Entra users, and demonstrate delegated user access
+through the harness and Foundry hosted agents to the policy API on Container Apps.
+Use the Entra Agent ID authentication sidecar for the harness's token operations.
+**User-delegated authentication to Foundry itself is a required compatibility gate**;
+workload authentication plus a forwarded downstream token is a documented alternative,
+not an approved replacement for this requirement.
+
+Protect only the policy API. The test receiver stays unauthenticated so an API rejection
+cannot masquerade as a platform egress denial. Identity authorization and network containment
+have separate results. AKS continues to stand in for on-premises; true on-premises deployment
+is not claimed. See [the issue #4 implementation track](PLAN.md#issue-4--end-to-end-agent-and-user-identity).
+
 Exactly two business tools remain registered and callable in ADK in every mode:
 
 | Tool | Behavior | Destination policy |
