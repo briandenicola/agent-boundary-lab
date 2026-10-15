@@ -144,6 +144,66 @@ tasks:
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
 
+  acr-network-import:
+    desc: CHANGES LOCAL STATE ONLY. Adopt the owner-approved ACR managed-network endpoint and its two role grants; does not change Azure
+    prompt: Import the existing ACR managed-network endpoint and its approval/Reader grants for this Terraform environment?
+    cmds:
+      - task: _init-once
+      - |
+        set -eu
+        CLOUD_DIR="{{.ROOT_DIR}}/infra/cloud"
+        RESOURCES=$(terraform -chdir="$CLOUD_DIR" state list)
+        imported() { printf '%s\n' "$RESOURCES" | grep -Fqx "$1"; }
+        if imported azapi_resource.foundry_acr_pe_rule &&
+           imported azurerm_role_assignment.foundry_acr_network_approver &&
+           imported azurerm_role_assignment.foundry_acr_network_reader; then
+          echo "ACR managed-network endpoint and grants are already in state; nothing to import."
+          exit 0
+        fi
+        STATE=$(terraform -chdir="$CLOUD_DIR" show -json)
+        state_id() {
+          if ! ID=$(printf '%s\n' "$STATE" | jq -er --arg address "$1" \
+            '.values.root_module.resources[] | select(.address == $address) | .values.id | select(type == "string" and startswith("/subscriptions/"))'); then
+            echo "Missing $1 resource ID in this Terraform state; refusing recovery import." >&2
+            return 1
+          fi
+          printf '%s\n' "$ID"
+        }
+        ACCOUNT_ID=$(state_id azapi_resource.foundry)
+        REGISTRY_ID=$(state_id azurerm_container_registry.main)
+        GROUP_ID=$(state_id azurerm_resource_group.this)
+        PRINCIPAL_ID=$(az resource show --ids "$ACCOUNT_ID" --api-version 2025-10-01-preview \
+          --query identity.principalId -o tsv --only-show-errors)
+        if [ -z "$PRINCIPAL_ID" ] || [ "$PRINCIPAL_ID" = None ]; then
+          echo "Foundry account managed identity is missing; refusing to import grants." >&2
+          exit 1
+        fi
+        import_resource() {
+          terraform -chdir="$CLOUD_DIR" import -input=false \
+            -var "region={{.REGION}}" \
+            -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" \
+            -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" "$1" "$2"
+        }
+        import_role() {
+          if imported "$1"; then return; fi
+          ASSIGNMENTS=$(az role assignment list --assignee-object-id "$PRINCIPAL_ID" \
+            --scope "$2" -o json --only-show-errors)
+          ROLE_ID=$(printf '%s\n' "$ASSIGNMENTS" | jq -er \
+            --arg scope "$2" --arg principal "$PRINCIPAL_ID" --arg role "$3" \
+            '[.[] | select(.scope == $scope and .principalId == $principal and .roleDefinitionName == $role)] |
+             if length == 1 then .[0].id else error("Expected exactly one matching existing role grant; no grant was created") end')
+          import_resource "$1" "$ROLE_ID"
+        }
+        import_role azurerm_role_assignment.foundry_acr_network_approver \
+          "$REGISTRY_ID" "Azure AI Enterprise Network Connection Approver"
+        import_role azurerm_role_assignment.foundry_acr_network_reader "$GROUP_ID" Reader
+        if ! imported azapi_resource.foundry_acr_pe_rule; then
+          import_resource azapi_resource.foundry_acr_pe_rule \
+            "$ACCOUNT_ID/managednetworks/default/outboundrules/acr-pe?api-version=2025-10-01-preview"
+        fi
+    vars:
+      REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
+
   workbook-plan:
     desc: Show what creating ONLY the evidence workbook would change (creates nothing)
     cmds:
@@ -163,21 +223,21 @@ tasks:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
 
   network-plan:
-    desc: Show the managed network and FQDN rules that network-up would apply (creates nothing)
+    desc: Show the managed network, private endpoints, their permission grants and FQDN rules (creates nothing)
     cmds:
       - task: _init-once
-      - terraform -chdir=./{{.CLOUD_DIR}} plan -compact-warnings -target=azapi_resource.managed_network -target=azapi_resource.network_fqdn_rule -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" {{.EXTRA}}
+      - terraform -chdir=./{{.CLOUD_DIR}} plan -compact-warnings -target=azapi_resource.managed_network -target=azapi_resource.foundry_self_pe_rule -target=azapi_resource.foundry_acr_pe_rule -target=azapi_resource.network_fqdn_rule -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" {{.EXTRA}}
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
       EXTRA: '{{default "" .TF_EXTRA}}'
 
   network-up:
-    desc: IRREVERSIBLE + BILLABLE. Applies ONLY the managed network (isolationMode) and FQDN rules (the managed Azure Firewall, Standard, cannot change later). cloud:up does the same
-    prompt: This is ONE-WAY (approved-only cannot be undone) and creates the billable managed Azure Firewall. Apply only the managed-network change?
+    desc: IRREVERSIBLE + BILLABLE. Apply the managed network, private endpoints, their permission grants and FQDN rules. cloud:up does the same
+    prompt: This is ONE-WAY and billable. Apply the managed network, Foundry/ACR private endpoints, required permission grants and FQDN rules?
     cmds:
       - task: _init-once
       - task: arm:_managed-network-imported
-      - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -target=azapi_resource.managed_network -target=azapi_resource.network_fqdn_rule -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" {{.EXTRA}}
+      - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -target=azapi_resource.managed_network -target=azapi_resource.foundry_self_pe_rule -target=azapi_resource.foundry_acr_pe_rule -target=azapi_resource.network_fqdn_rule -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}" {{.EXTRA}}
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
       EXTRA: '{{default "" .TF_EXTRA}}'

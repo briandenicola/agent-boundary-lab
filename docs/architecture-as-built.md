@@ -180,7 +180,7 @@ rows (`AppDependencies`) and receipts (`ContainerAppConsoleLogs_CL`) sit in one 
 | Does a policy-less agent have open egress? | The page does not say. Egress rules live in the attached policy. | **UNKNOWN. Test planned (below)** |
 | Does a policy id that does not exist fail open? | Documented for content safety ("created successfully and reports `active`, but no content filtering is applied"). Not stated for egress. | Documented (content); egress UNKNOWN |
 | Is there an account-wide default egress policy? | Not found in the docs. "Default action Deny" is a setting *inside one policy*, which our `egress-enforced` policy already uses. The only system policy found, `Microsoft.DefaultV2`, carries no `egressPolicy`. | Not found; treat as absent until tested |
-| Could the managed network be the account-level default-deny? | The managed network has `isolationMode: AllowInternetOutbound` today (B10). `AllowOnlyApprovedOutbound` would be the deny-by-default candidate, but how it layers with the egress policy is an open documentation gap (`compatibility.md` D). | **PROPOSED, UNVERIFIED** |
+| Could the managed network be the account-level default-deny? | `AllowOnlyApprovedOutbound` is configured (observed since 2026-10-09). Both controlled API hosts are allowed at this layer; denial of a third, unlisted host has not been tested. | Configured; independent denial test **UNVERIFIED** |
 
 **What to say if challenged:** "The platform enforces the policy that is attached. It is the deployer, not the agent code, who attaches it. A governance control is still needed so every agent version gets one."
 
@@ -188,7 +188,7 @@ rows (`AppDependencies`) and receipts (`ContainerAppConsoleLogs_CL`) sit in one 
 
 ### Managed network `AllowOnlyApprovedOutbound`
 
-**OBSERVED 2026-10-09 16:58 CT:** a one-time `task cloud:network-probe` PATCH (API 2025-10-01-preview) returned a service `TransientError` timeout, yet the readback showed `isolationMode: AllowOnlyApprovedOutbound`, `firewallSku: Standard`, `provisioningState: Succeeded`. Before the PATCH the account reported `changeableIsolationModes: []` and `firewallSku: Standard`. The flip is now declared in Terraform as `azapi_resource.managed_network` with `isolationMode` in the body, so `cloud:up` sets it (not yet applied from scratch). An earlier attempt with `azapi_update_resource` failed ("update target does not exist") although a GET works.
+**OBSERVED 2026-10-09 16:58 CT:** a one-time `task cloud:network-probe` PATCH (API 2025-10-01-preview) returned a service `TransientError` timeout, yet the readback showed `isolationMode: AllowOnlyApprovedOutbound`, `firewallSku: Standard`, `provisioningState: Succeeded`. Before the PATCH the account reported `changeableIsolationModes: []` and `firewallSku: Standard`. The flip is now declared in Terraform as `azapi_resource.managed_network` with `isolationMode` in the body, so `cloud:up` sets it (owner reported a fresh infrastructure apply succeeded 2026-10-15; hosted-agent provisioning then needed the ACR recovery below). An earlier attempt with `azapi_update_resource` failed ("update target does not exist") although a GET works.
 
 **OBSERVED 2026-10-09 17:30–17:55 CT (after the flip, before and after the FQDN rules):**
 - Before any FQDN rule: UI runs on both agents behaved exactly as before the flip, and `verify_demo.py` B and C PASSED (run ids `run-e9a8e59a-…`, `run-42bbd349-…`). So the flip alone changed nothing observable.
@@ -209,7 +209,19 @@ rows (`AppDependencies`) and receipts (`ContainerAppConsoleLogs_CL`) sit in one 
 
 **Design rule:** allow `policy-api` and `test-receiver` at the network layer for both agents, so the egress policy stays the only variable. Show the network default-deny separately, with a third host that is not allowed.
 
-**Unknowns to test, not assume:** whether the existing `foundry-account-pe` rule is enough for the model call; whether ACR image pulls for hosted agents need a rule; whether App Insights export needs a rule; whether the egress policy still logs decisions in this mode.
+**OBSERVED 2026-10-15, fresh-environment provisioning recovery:** our AKS VNet's ACR
+private endpoint did not provide a registry path in Foundry's separate managed network.
+After adding the owner-approved `acr-pe` managed private endpoint, registry-scoped Network
+Connection Approver and resource-group Reader grants for the account identity, the rule
+became `Active` and its ACR connection `Approved`. Audit v5 then read `active`; newly
+created Enforced v1 became `active` in 36.8 seconds, with the same image digest and unchanged
+RAI policies. These resources are now declared in `managed-network.tf`. The original
+working versions were provisioned before outbound isolation was tightened, so those runs
+had not validated this cold-start path. This is provisioning recovery, not a new
+containment result; full corrected teardown/rebuild is still unverified. See
+[the recovery and state-import instructions](rebuild-runbook.md#recover-the-acr-managed-network-gap-observed-2026-10-15).
+
+**Unknowns to test, not assume:** whether the existing `foundry-account-pe` rule is enough for the model call; whether App Insights export needs a rule; whether the egress policy still logs decisions in this rebuilt environment.
 
 ### Planned test: agent version with no policy
 

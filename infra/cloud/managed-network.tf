@@ -46,6 +46,53 @@ resource "azapi_resource" "foundry_self_pe_rule" {
   retry      = local.foundry_operation_retry
 }
 
+# AKS's registry endpoint is in our VNet, not Foundry's managed network. Observed
+# 2026-10-15: adding this separate registry endpoint restored hosted-agent provisioning.
+resource "azurerm_role_assignment" "foundry_acr_network_approver" {
+  scope                = azurerm_container_registry.main.id
+  role_definition_name = "Azure AI Enterprise Network Connection Approver"
+  principal_id         = azapi_resource.foundry.output.identity.principalId
+}
+
+# The ACR-specific approval prerequisite includes Reader on the registry's resource
+# group, not just approval rights on the registry. Azure rejected creation without it.
+# Source: https://aka.ms/azureaipeapproval, accessed 2026-10-15.
+resource "azurerm_role_assignment" "foundry_acr_network_reader" {
+  scope                = azurerm_resource_group.this.id
+  role_definition_name = "Reader"
+  principal_id         = azapi_resource.foundry.output.identity.principalId
+}
+
+resource "azapi_resource" "foundry_acr_pe_rule" {
+  type                      = "Microsoft.CognitiveServices/accounts/managednetworks/outboundrules@2025-10-01-preview"
+  name                      = "acr-pe"
+  parent_id                 = azapi_resource.managed_network.id
+  schema_validation_enabled = false
+
+  body = {
+    properties = {
+      type     = "PrivateEndpoint"
+      category = "UserDefined"
+      destination = {
+        serviceResourceId = azurerm_container_registry.main.id
+        subresourceTarget = "registry"
+      }
+    }
+  }
+
+  depends_on = [
+    azurerm_role_assignment.foundry_acr_network_approver,
+    azurerm_role_assignment.foundry_acr_network_reader,
+  ]
+  locks = [azapi_resource.foundry.id]
+  # The first retry after assigning approval rights still failed while RBAC propagated.
+  retry = merge(local.foundry_operation_retry, {
+    error_message_regex = concat(local.foundry_operation_retry.error_message_regex, [
+      "Foundry account managed identity don't have required permissions to read and approve private endpoint connections",
+    ])
+  })
+}
+
 #############################################
 # ISOLATION MODE: AllowOnlyApprovedOutbound (ONE-WAY)
 #

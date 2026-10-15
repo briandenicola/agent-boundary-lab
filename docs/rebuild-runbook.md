@@ -2,10 +2,12 @@
 
 Written 2026-10-09 from the Taskfiles and the tasks' own prerequisite checks.
 
-**Status: NOT TESTED as one run.** No full teardown and rebuild has ever been executed. The
-underlying operations have been exercised separately; the new aggregate command sequence
-has not. The timings and the steps marked **UNVERIFIED** remain unverified. Record
-what really happens the first time and correct this page.
+**Status: clean rebuild attempted 2026-10-15; not yet verified end to end.** Infrastructure
+creation exposed image/state/order failures, then hosted-agent provisioning failed until
+an ACR private endpoint was added to Foundry's managed network (recovery below). Both
+hosted versions subsequently reported `active`. The corrected Terraform has not yet been
+tested through another full teardown/rebuild, nor has the aggregate application deployment
+and containment verification completed on this environment.
 
 Brian runs every step that changes Azure or the cluster. All commands run from the repo root.
 Add `--yes` to any task that prompts when you are not on a terminal.
@@ -15,7 +17,7 @@ Add `--yes` to any task that prompts when you are not on a terminal.
 | Covered by Terraform (`infra/cloud`) | NOT covered: separate steps below |
 | --- | --- |
 | Resource group, VNet, ACR, Log Analytics, Container Apps environment and the two controlled endpoints | |
-| Foundry account, project, both RAI policies, the `foundry-account-pe` rule | Container images (`build:<component>`, `build:all`) |
+| Foundry account, project, both RAI policies, the `foundry-account-pe` and `acr-pe` managed-network rules and their permission grants | Container images (`build:<component>`, `build:all`) |
 | The managed network (`AllowOnlyApprovedOutbound`) and its FQDN rules (only when `managed_network_isolation_mode` is `AllowOnlyApprovedOutbound`, the default) | Agent versions (published by `deploy:foundry-agent`) |
 | AKS cluster, role grants for the apps identity, the evidence workbook | Applications and their Secrets (`deploy:<component>`, `deploy:all`) |
 | | Agent model-access grants (included in `deploy:foundry-agent`) |
@@ -99,6 +101,54 @@ Provider references checked **2026-10-15** (configuration guidance, not deployed
 | --- | --- | --- |
 | 2.1 | `task cloud:plan` | Must report no changes after `cloud:up`. |
 | 2.2 | Read back `managednetworks/default` | `isolationMode` must read `AllowOnlyApprovedOutbound`; trust the readback over any timeout message. |
+| 2.3 | Check the `foundry-account-pe` and `acr-pe` outbound rules | Both must be `Active`; ACR must show the managed-network private-endpoint connection `Approved`. The ACR endpoint in our AKS VNet is a different connection. |
+
+### Recover the ACR managed-network gap observed 2026-10-15
+
+**Observed:** Audit versions 1-4 failed with generic `ProvisioningError`; the publisher
+repeatedly timed out while versions were `creating`. AKS pulled the same image and reached
+Foundry through its private endpoint, but Foundry's separate approved-only managed network
+had no registry private endpoint or explicit registry allow rule. The original working
+agents were provisioned before outbound isolation was tightened; that sequence did not
+exercise this cold-start configuration.
+
+With owner approval, the following were created using Azure CLI:
+
+- Account managed identity: **Azure AI Enterprise Network Connection Approver** at ACR scope.
+- Same identity: **Reader** at the registry's resource-group scope. Endpoint creation was
+  still rejected without this ACR-specific prerequisite.
+- `acr-pe`: managed-network `PrivateEndpoint` rule targeting this ACR's `registry`
+  subresource. This is not another endpoint in the AKS VNet.
+
+At **2026-10-15 22:34:50 UTC**, the rule read `Active` and the ACR connection `Approved`.
+After restarting only the existing publisher pod, Audit v5 read `active`; Enforced v1 was
+created at 22:35:54 UTC and became `active` after 36.8 seconds. SDK GETs confirmed both used
+`sha256:1952a5b88a52eb124a81593a3fa451ee5a7dca032ead60d7627b3d5eee359370` and their
+unchanged Audit/Enforced RAI policies. No image rebuild, RAI change, or timeout increase
+was used. This verifies provisioning recovery, **not** tool execution or containment.
+
+The endpoint and grants are now declared in `managed-network.tf`; a fresh environment
+creates them during `cloud:up`. The endpoint depends on both grants and narrowly retries
+the observed RBAC-propagation error. `network-plan`/`network-up` include both managed
+private endpoints and their prerequisite grants.
+
+**For the environment repaired manually above, import before any plan/apply/deployment:**
+
+```bash
+task cloud:acr-network-import
+task cloud:plan
+```
+
+The import changes **local Terraform state only**. It derives the account, registry and
+resource group from that state, discovers the existing grants for that account identity,
+and skips resources already managed. It creates no Azure resources or grants. If the
+endpoint/grants do not exist, do not use this recovery import; review `cloud:plan` for
+their normal creation instead. Do not blindly apply unrelated policy drift. Until the
+import runs, the successful manual changes are still outside Terraform state.
+
+Approval prerequisite reference, accessed **2026-10-15**:
+[the guide linked by Azure's actual creation error](https://aka.ms/azureaipeapproval),
+section "Approval of private endpoints" (including the ACR resource-group Reader note).
 
 ### 3. Cluster access
 
@@ -197,8 +247,9 @@ Exit 0 is PASS, 1 FAIL, 2 INCONCLUSIVE. Then re-check `task cloud:plan` shows no
 
 ## Known rough edges
 
-- **Aggregate deployment is not yet run end to end.** `build:all` and `deploy:all` now encode
-  the image and application sequences; no full teardown/rebuild result is claimed.
+- **Aggregate deployment is not yet run end to end.** The 2026-10-15 clean attempt recovered
+  hosted-agent provisioning after adding the missing managed-network ACR path. A complete
+  teardown/rebuild of the corrected configuration and a containment result remain unverified.
 - **`cloud:plan` showed the two RAI policies updating in place on 2026-10-10** (contentFilters),
   with no policy change on our side; `task cloud:policies` showed them still identical apart from
   `egressPolicy.mode`. Unexplained. Read the plan before any `cloud:up`; do not apply it blind.
