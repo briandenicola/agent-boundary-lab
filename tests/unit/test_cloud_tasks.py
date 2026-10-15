@@ -154,9 +154,7 @@ def test_managed_network_requires_exact_state_address(
 
 
 def test_network_state_read_failure_stops_before_apply(tmp_path: Path) -> None:
-    result, _ = run_guard(
-        tmp_path, shell_body("_managed-network-imported"), terraform_failure=True
-    )
+    result, _ = run_guard(tmp_path, shell_body("_managed-network-imported"), terraform_failure=True)
     assert result.returncode != 0
     assert "Cannot read Terraform state" in result.stderr
 
@@ -187,8 +185,10 @@ def test_full_apply_checks_images_and_network_before_applying(
     file: str, name: str, tag: str
 ) -> None:
     body = task_body(file, name)
-    assert body.index("arm:_endpoint-images") < body.index(" apply ")
-    assert body.index("arm:_managed-network-imported") < body.index(" apply ")
+    apply_command = re.search(r"(?m)^ *(?:- )?terraform\b[^\n]*\bapply\b", body)
+    assert apply_command, body
+    assert body.index("arm:_endpoint-images") < apply_command.start()
+    assert body.index("arm:_managed-network-imported") < apply_command.start()
     assert f"TAG: '{tag}'" in body
 
 

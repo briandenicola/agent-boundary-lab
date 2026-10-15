@@ -44,6 +44,10 @@ def dry_task(tmp_path: Path):
         pytest.skip("Go Task is required to compile command aliases")
     shutil.copy2(ROOT / "Taskfile.yml", tmp_path / "Taskfile.yml")
     shutil.copytree(ROOT / "tasks", tmp_path / "tasks")
+    taskfiles = [tmp_path / "Taskfile.yml", *(tmp_path / "tasks").glob("Taskfile.*.yml")]
+    for taskfile in taskfiles:
+        # Dry runs obey silence too; expose commands only in these isolated copies.
+        taskfile.write_text(re.sub(r"(?m)^silent: true$", "silent: false", taskfile.read_text()))
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     terraform = bin_dir / "terraform"
@@ -202,7 +206,9 @@ def plan_with(address: str, actions: list[str], mode: str = "managed") -> str:
         {
             "format_version": "1.2",
             "planned_values": {"root_module": {}},
-            "resource_changes": [{"address": address, "mode": mode, "change": {"actions": actions}}],
+            "resource_changes": [
+                {"address": address, "mode": mode, "change": {"actions": actions}},
+            ],
         }
     )
 
@@ -256,9 +262,9 @@ def run_namespace_guard(tmp_path: Path, context: str, *, tamper: bool = False):
     scripts = {
         "terraform": (
             '#!/bin/sh\ncase "$*" in\n'
-            '  *aks_cluster_name) echo test-aks ;;\n'
-            '  *kubernetes_namespace) echo test-namespace ;;\n'
-            '  *) exit 1 ;;\nesac\n'
+            "  *aks_cluster_name) echo test-aks ;;\n"
+            "  *kubernetes_namespace) echo test-namespace ;;\n"
+            "  *) exit 1 ;;\nesac\n"
         ),
         "kubectl": (
             '#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALL_LOG"\n'
@@ -266,7 +272,7 @@ def run_namespace_guard(tmp_path: Path, context: str, *, tamper: bool = False):
             '  "config current-context") printf "%s\\n" "$TEST_CONTEXT" ;;\n'
             '  "create namespace "*) echo namespace-manifest ;;\n'
             '  "apply --server-side -f -") cat >/dev/null ;;\n'
-            '  *) exit 1 ;;\nesac\n'
+            "  *) exit 1 ;;\nesac\n"
         ),
         "kustomize": "#!/bin/sh\nexit 1\n",
         "openssl": "#!/bin/sh\nexit 1\n",
