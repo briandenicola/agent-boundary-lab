@@ -1,0 +1,162 @@
+version: '3'
+
+silent: true
+
+tasks:
+  init:
+    desc: Download providers for the isolated identity-probe Terraform state; does not provision identities
+    cmds:
+      - terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" init -input=false
+
+  setup-plan:
+    desc: BLOCKED by provider lifecycle gate. Plan dedicated I0 identities, consent and the allowed user's invoke role
+    cmds:
+      - terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" plan -input=false
+
+  setup:
+    desc: BLOCKED by provider lifecycle gate. Would create dedicated probe identities, consent, federation and invoke RBAC
+    prompt: Create the reviewed dedicated I0 identities, delegated consent, AKS federation and allowed-user Foundry role? No public ingress is created.
+    cmds:
+      - terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" apply -input=false
+      - task: configure
+
+  configure:
+    desc: Write sensitive probe configuration from local Terraform state to gitignored owner-only files
+    cmds:
+      - |
+        set -eu
+        umask 077
+        mkdir -p "{{.ROOT_DIR}}/.identity-probe"
+        CONFIG="{{.ROOT_DIR}}/.identity-probe/config.json"
+        TMP=$(mktemp "{{.ROOT_DIR}}/.identity-probe/config.XXXXXX")
+        trap 'rm -f "$TMP"' EXIT
+        terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" output -json probe_config > "$TMP"
+        "{{.ROOT_DIR}}/.venv/bin/python" -m containment_demo.identity_probe check --config "$TMP"
+        mv "$TMP" "$CONFIG"
+
+  login:
+    desc: Open Entra login for one test user; write a short-lived token to a gitignored owner-only file, never stdout
+    prompt: Sign in as the selected synthetic test user and save a short-lived probe token locally?
+    vars:
+      CASE: '{{default "allowed" .CASE}}'
+    cmds:
+      - '"{{.ROOT_DIR}}/.venv/bin/python" -m containment_demo.identity_probe login --config "{{.ROOT_DIR}}/.identity-probe/config.json" --case "{{.CASE}}"'
+
+  manifest:
+    desc: Render the private, finite I0 Job, pod-local sidecar and ServiceAccount; does not contact the cluster
+    cmds:
+      - '"{{.ROOT_DIR}}/.venv/bin/python" -m containment_demo.identity_probe manifest --config "{{.ROOT_DIR}}/.identity-probe/config.json"'
+
+  probe:
+    desc: BILLABLE. Run the private I0 Job with two user tokens; invokes the existing Foundry agent, never app-only
+    prompt: Replace only the dedicated probe Job and its Secret, start the private Agent ID sidecar, and invoke Foundry for the four authentication cases? May incur model/tool usage.
+    cmds:
+      - task: _cluster
+      - |
+        set -eu
+        CONFIG="{{.ROOT_DIR}}/.identity-probe/config.json"
+        NAME=$(jq -er .probe_name "$CONFIG")
+        NS=$(jq -er .namespace "$CONFIG")
+        "{{.ROOT_DIR}}/.venv/bin/python" -m containment_demo.identity_probe check --config "$CONFIG" \
+          --tokens-dir "{{.ROOT_DIR}}/.identity-probe"
+        SECRET=$(kubectl -n "$NS" create secret generic "$NAME" \
+          --from-file=config.json="$CONFIG" \
+          --from-file=allowed.jwt="{{.ROOT_DIR}}/.identity-probe/allowed.jwt" \
+          --from-file=denied.jwt="{{.ROOT_DIR}}/.identity-probe/denied.jwt" \
+          --dry-run=client -o json)
+        SECRET=$(printf '%s\n' "$SECRET" | jq --arg name "$NAME" \
+          '.metadata.labels = {"app.kubernetes.io/part-of":"identity-probe","identity-probe/name":$name}')
+        MANIFEST=$("{{.ROOT_DIR}}/.venv/bin/python" -m containment_demo.identity_probe manifest --config "$CONFIG")
+        kubectl -n "$NS" delete job "$NAME" --ignore-not-found --wait=true --timeout=60s
+        printf '%s\n' "$SECRET" | kubectl -n "$NS" apply --server-side --field-manager=identity-probe -f -
+        printf '%s\n' "$MANIFEST" | kubectl apply --server-side --field-manager=identity-probe -f -
+        echo "Started dedicated I0 probe. Read outcomes with task identity:status."
+
+  status:
+    desc: Read the dedicated I0 Job status and redacted probe output, not sidecar token/claim responses
+    cmds:
+      - task: _cluster
+      - |
+        set -eu
+        CONFIG="{{.ROOT_DIR}}/.identity-probe/config.json"
+        NAME=$(jq -er .probe_name "$CONFIG")
+        NS=$(jq -er .namespace "$CONFIG")
+        kubectl -n "$NS" get job "$NAME"
+        kubectl -n "$NS" logs "job/$NAME" -c probe
+
+  down:
+    desc: DELETE only the dedicated probe Job, token Secret, source ConfigMap and ServiceAccount; Entra objects remain
+    prompt: Delete the dedicated I0 probe workload and its token Secret? Hosted agents and Entra identities remain.
+    cmds:
+      - task: _cluster
+      - |
+        set -eu
+        CONFIG="{{.ROOT_DIR}}/.identity-probe/config.json"
+        NAME=$(jq -er .probe_name "$CONFIG")
+        NS=$(jq -er .namespace "$CONFIG")
+        kubectl -n "$NS" delete job "$NAME" --ignore-not-found --wait=true --timeout=60s
+        kubectl -n "$NS" delete secret,configmap,serviceaccount "$NAME" --ignore-not-found
+
+  setup-down:
+    desc: DELETE dedicated probe Entra identities, their consent and the allowed user's probe-managed Foundry role
+    prompt: Destroy only infra/identity-probe's dedicated identities, consent, federation and invoke grant? Run identity:down first.
+    cmds:
+      - task: _cluster
+      - |
+        set -eu
+        CONFIG="{{.ROOT_DIR}}/.identity-probe/config.json"
+        NAME=$(jq -er .probe_name "$CONFIG")
+        NS=$(jq -er .namespace "$CONFIG")
+        OBJECTS=$(kubectl -n "$NS" get job,secret,configmap,serviceaccount "$NAME" --ignore-not-found -o json)
+        printf '%s\n' "$OBJECTS" | jq -e '.items | length == 0' >/dev/null || {
+          echo "Run task identity:down before destroying probe identities." >&2; exit 1; }
+      - terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" destroy -input=false
+
+  test:
+    desc: Run offline I0 tests; no token acquisition, Azure, cluster access or model calls
+    cmds:
+      - '"{{.ROOT_DIR}}/.venv/bin/python" -m pytest "{{.ROOT_DIR}}/tests/unit/test_identity_probe.py" -q'
+
+  sdk-test:
+    desc: Download pinned probe-only SDKs into an isolated environment, then run mocked SDK tests; never contacts Azure
+    prompt: Download the pinned probe SDK dependencies into .identity-probe/validation-venv and run offline SDK tests?
+    cmds:
+      - |
+        set -eu
+        PYTHON="{{.ROOT_DIR}}/.identity-probe/validation-venv/bin/python"
+        [ -x "$PYTHON" ] || uv venv --python 3.12 "{{.ROOT_DIR}}/.identity-probe/validation-venv"
+        PACKAGES=$("{{.ROOT_DIR}}/.venv/bin/python" -c \
+          'import pathlib,sys,tomllib; print(" ".join(tomllib.loads(pathlib.Path(sys.argv[1]).read_text())["project"]["optional-dependencies"]["identity-probe"]))' \
+          "{{.ROOT_DIR}}/pyproject.toml")
+        uv pip install --python "$PYTHON" $PACKAGES 'pytest>=8.3'
+        PYTHONPATH="{{.ROOT_DIR}}/src" "$PYTHON" -m pytest \
+          "{{.ROOT_DIR}}/tests/unit/test_identity_probe.py" -q -k real_sdk \
+          -W ignore::pytest.PytestConfigWarning
+
+  _cluster:
+    internal: true
+    cmds:
+      - |
+        set -eu
+        CONFIG="{{.ROOT_DIR}}/.identity-probe/config.json"
+        "{{.ROOT_DIR}}/.venv/bin/python" -m containment_demo.identity_probe check --config "$CONFIG"
+        EXPECTED=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" output -raw aks_cluster_name)
+        [ "$(kubectl config current-context)" = "$EXPECTED" ] || {
+          echo "Wrong Kubernetes context; run task cloud:kubeconfig." >&2; exit 1; }
+        EXPECTED_NS=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" output -raw kubernetes_namespace)
+        [ "$(jq -er .namespace "$CONFIG")" = "$EXPECTED_NS" ] || {
+          echo "Probe namespace does not match the Terraform environment." >&2; exit 1; }
+        VERSION=$(kubectl version -o json)
+        printf '%s\n' "$VERSION" | jq -e '
+          .serverVersion | (.major | tonumber) > 1 or
+          ((.major | tonumber) == 1 and (.minor | sub("\\+$"; "") | tonumber) >= 33)
+        ' >/dev/null || {
+          echo "Native Job sidecars require Kubernetes 1.33 or newer." >&2; exit 1; }
+        NAME=$(jq -er .probe_name "$CONFIG")
+        OBJECTS=$(kubectl -n "$EXPECTED_NS" get job,secret,configmap,serviceaccount "$NAME" --ignore-not-found -o json)
+        printf '%s\n' "$OBJECTS" | jq -e --arg name "$NAME" '
+          all(.items[];
+            .metadata.labels["app.kubernetes.io/part-of"] == "identity-probe" and
+            .metadata.labels["identity-probe/name"] == $name)
+        ' >/dev/null || {
+          echo "Refusing: an existing resource is not owned by this identity probe." >&2; exit 1; }

@@ -60,6 +60,13 @@ or workload-only invocation cannot close this gate. If unavailable, record the e
 platform limitation and block the dependent identity rollout pending an owner decision;
 do not silently change the requested scenario.
 
+**Implementation update, 2026-10-16:** the [I0 probe](identity-probe.md) now has offline
+signed-JWT, mocked sidecar/Foundry, real-SDK request and cluster-guard tamper checks.
+No hosted identity result is claimed. Dedicated setup is blocked before apply because
+msgraph 0.5.0 generates collection/type/id lifecycle paths, while Graph documents
+collection/id/type. A schema-valid Terraform module does not resolve that mismatch.
+The exact Foundry delegated grant and sidecar image/federation remain unverified.
+
 Primary references, accessed **2026-10-15**:
 
 - [Entra authentication SDK sidecar](https://learn.microsoft.com/en-us/entra/agent-id/authentication-with-auth-sdk-sidecar).

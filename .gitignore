@@ -20,10 +20,14 @@ build/
 # Local configuration — never commit real resource values or credentials
 .env
 .env.local
+# I0 probe configuration contains test-user identifiers; JWTs must never be tracked.
+.identity-probe/
+*.jwt
 
 # Terraform — local state, per docs/compatibility.md this demo uses local state only
 .terraform
 .terraform.lock.hcl
+!infra/identity-probe/.terraform.lock.hcl
 terraform.tfstate
 terraform.tfstate.*
 terraform.tfstate.d

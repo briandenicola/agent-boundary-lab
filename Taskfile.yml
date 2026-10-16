@@ -61,6 +61,10 @@ includes:
     taskfile: ./tasks/Taskfile.verify.yml
     internal: false
 
+  identity:
+    taskfile: ./tasks/Taskfile.identity.yml
+    internal: false
+
 tasks:
   foundry-agent:plan:
     desc: Server-side dry run of the Foundry publishing helper

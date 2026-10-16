@@ -585,9 +585,12 @@ and contexts are retained 60 days from last write.
 
 ## Issue #4 — End-to-end agent and user identity
 
-**Status (2026-10-15): scope agreed; planning and primary-reference research only.**
-No identity implementation, ingress, Entra object, consent, or role assignment has been
-created by this work. This expands the former sidecar-only investigation. Execute the
+**Status (2026-10-16): I0 probe implemented and checked offline; setup blocked.**
+The [owner-run probe](identity-probe.md) and isolated dedicated-identity Terraform draft
+are checked in. The generic Graph provider's generated Agent ID lifecycle URLs do not
+match the documented paths; a pre-apply guard blocks provisioning pending verification.
+No ingress, Entra object, consent, role assignment or hosted identity probe has been
+created/run by this work. This expands the former sidecar-only investigation. Execute the
 identity stages below in order; it does not mark the existing Phase 0 or containment gates
 as newly tested. References and documented-versus-unverified findings are in
 [`compatibility.md`](compatibility.md#issue-4-identity-compatibility-research-2026-10-15).
@@ -633,6 +636,8 @@ decision to the owner.
       a user without Foundry invoke access fails, and an invalid/wrong-audience token fails.
       Prove the accepted bearer is delegated, not an app-only token with a user-ID header.
       Record SDK/protocol versions and masked outcomes without recording raw tokens.
+      Code and offline checks are available in [`identity-probe.md`](identity-probe.md);
+      dedicated setup is blocked and no hosted result closes this checkbox.
 - [ ] Establish separately how the hosted tool receives a policy-API-audience user token.
       Verify request-scoped custom-header forwarding and trusted resolved user context on
       the installed SDK/container protocol; never assume Foundry forwards `Authorization`

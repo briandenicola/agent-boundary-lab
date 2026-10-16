@@ -80,7 +80,15 @@ telemetry = [
 verify = [
     "azure-monitor-query>=1.4",
 ]
+identity-probe = [
+    "azure-ai-projects==2.8.0",
+    "openai==3.31.0",
+    "httpx==0.28.1",
+    "PyJWT[crypto]==2.15.1",
+    "cryptography==50.0.2",
+]
 dev = [
+    "PyJWT[crypto]==2.15.1",
     # Used by tests/unit/test_dependency_overrides.py to read declared constraints
     # rather than string-matching them. Transitively present, declared so the guard
     # does not depend on another package's dependency tree.
@@ -158,4 +166,3 @@ warn_unused_ignores = true
 module = ["azure.ai.projects.*", "azure.ai.projects", "a2a.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
-

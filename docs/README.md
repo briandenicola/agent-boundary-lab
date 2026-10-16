@@ -18,6 +18,7 @@ This repository began as a build specification and is now partly built and teste
 | [`diagrams/README.md`](diagrams/README.md) | Excalidraw diagram of the whole environment (zones, flows F1-F11, legend) |
 | [`demo-runbook.md`](demo-runbook.md) | Presenter one-pager, harness chat path, full audit procedure |
 | [`rebuild-runbook.md`](rebuild-runbook.md) | Consistent build/deploy commands, component names and complete standup order |
+| [`identity-probe.md`](identity-probe.md) | Issue #4 I0 probe, offline owner commands and blocked identity-setup contract |
 | [`PLAN.md`](PLAN.md) | Phases, status, gates, backlog |
 | [`compatibility.md`](compatibility.md) | Platform research and observed facts (B-sections: hosted agents, A2A, local model, harness) |
 | [`telemetry-map.md`](telemetry-map.md) | Real field names and evidence (§0.12-§0.14 are the join and verified runs) |
@@ -64,6 +65,9 @@ Protect only the policy API. The test receiver stays unauthenticated so an API r
 cannot masquerade as a platform egress denial. Identity authorization and network containment
 have separate results. AKS continues to stand in for on-premises; true on-premises deployment
 is not claimed. See [the issue #4 implementation track](PLAN.md#issue-4--end-to-end-agent-and-user-identity).
+The [I0 probe and dedicated setup draft](identity-probe.md) are now available;
+provisioning is blocked by an unverified Graph provider lifecycle, and no hosted
+identity result or public login rollout is claimed.
 
 Exactly two business tools remain registered and callable in ADK in every mode:
 
