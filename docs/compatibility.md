@@ -83,10 +83,13 @@ prerequisites, cleanup and primary references, accessed **2026-10-16**.
 `identity:tenant-check TENANT_ID=...` add an explicitly selected, process-scoped Graph
 PowerShell sign-in and read-only role check for the owner's separate test tenant.
 PowerShell 7.6.6 executed the script against a local fake SDK; the pinned
-Microsoft.Graph.Authentication 2.36.1 package is published but not installed or
-live-tested by this work. No login, consent or tenant query was run.
-The existing Python lifecycle check still uses a certificate; interactive lifecycle
-integration and Agent ID availability remain unverified.
+Microsoft.Graph.Authentication 2.36.1 package is now installed by the owner, who reported
+a successful isolated sign-in and active-role check. This is not an Agent ID result.
+`identity:interactive-probe` and `identity:interactive-cleanup` reuse the Python lifecycle
+engine through private request/reply pipes while Graph PowerShell retains authentication.
+Separate mutation approval, zero SDK retries, operator-bound private journals and the
+existing uncertain-create guard remain required. The real scripts completed the lifecycle
+against the fake SDK; **no live lifecycle or Foundry result has been collected**.
 
 Primary references, accessed **2026-10-15**:
 

@@ -593,6 +593,9 @@ An owner-approved SDK/API alternative now has a separate temporary directory lif
 check (`task identity:directory-plan`, then separately approved
 `task identity:directory-probe`). It does not configure the complete delegated probe
 or establish Foundry compatibility.
+An interactive alternative now reuses that lifecycle engine without a certificate:
+`task identity:interactive-probe TENANT_ID=...`, with separately approved cleanup.
+The owner verified isolated sign-in; the lifecycle itself has only run against a fake SDK.
 No ingress, Entra object, consent, role assignment or hosted identity probe has been
 created/run by this work. This expands the former sidecar-only investigation. Execute the
 identity stages below in order; it does not mark the existing Phase 0 or containment gates

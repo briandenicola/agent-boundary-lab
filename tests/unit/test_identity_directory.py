@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
@@ -430,3 +431,39 @@ def test_tasks_keep_directory_probe_separate_from_foundry() -> None:
         assert "prompt:" in block
         assert "--approve" in block
         assert "identity_directory" in block
+
+
+def test_stdio_transport_has_no_certificate_or_bearer() -> None:
+    source = StringIO('{"graph_request":1,"status":201,"body":{"id":"synthetic"}}\n')
+    destination = StringIO()
+    api = directory.StdioGraph(source, destination)
+    assert api.request("POST", directory.collection("blueprint"), 201, {"displayName": "test"}) == {
+        "id": "synthetic"
+    }
+    frame = json.loads(destination.getvalue())
+    assert frame == {
+        "graph_request": 1,
+        "method": "POST",
+        "path": directory.collection("blueprint"),
+        "body": {"displayName": "test"},
+    }
+    assert "Authorization" not in destination.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("reply", "error"),
+    [
+        ("", "response_missing"),
+        ("not-json\n", "response_invalid"),
+        ('{"graph_request":2}\n', "sequence_mismatch"),
+        ('{"graph_request":1,"transport_error":true}\n', "transport_failed"),
+        ('{"graph_request":1,"status":true}\n', "status_invalid"),
+        ('{"graph_request":1,"status":201,"body":[]}\n', "body_invalid"),
+        ('{"graph_request":1,"status":403,"body":{"secret":"never-print"}}\n', "http_403"),
+    ],
+)
+def test_stdio_protocol_failures_are_explicit(reply: str, error: str) -> None:
+    api = directory.StdioGraph(StringIO(reply), StringIO())
+    with pytest.raises(ProbeError, match=error) as failure:
+        api.request("POST", directory.collection("blueprint"), 201, {})
+    assert "never-print" not in str(failure.value)

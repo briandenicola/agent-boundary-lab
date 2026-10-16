@@ -29,10 +29,15 @@ function Connect-MgGraph {
         [string] $Environment, [switch] $UseDeviceCode, [double] $ClientTimeout,
         [switch] $NoWelcome
     )
+    $script:Scopes = $Scopes
     if ($TenantId -cne $env:MOCK_TENANT -or $ContextScope -cne 'Process' -or
         $Environment -cne 'Global' -or -not $UseDeviceCode -or
         $ClientTimeout -ne 30 -or -not $NoWelcome -or
-        ($Scopes -join ',') -cne 'User.Read,RoleManagement.Read.Directory') {
+        (($Scopes -join ',') -cne 'User.Read,RoleManagement.Read.Directory' -and
+         ($Scopes -join ',') -cne (
+            'User.Read,AgentIdentityBlueprint.ReadWrite.All,' +
+            'AgentIdentityBlueprintPrincipal.ReadWrite.All,' +
+            'AgentIdentity.Create.All,AgentIdentity.Read.All,AgentIdentity.DeleteRestore.All'))) {
         throw 'Unexpected sign-in request.'
     }
     Record 'connect'
@@ -49,7 +54,8 @@ function Get-MgContext {
         TenantId = $env:MOCK_TENANT
         ContextScope = 'Process'
         AuthType = 'Delegated'
-        Scopes = @('User.Read', 'RoleManagement.Read.Directory')
+        Scopes = $script:Scopes
+        ClientId = '00000000-0000-4000-8000-000000000003'
     }
     switch ($env:MOCK_CASE) {
         'wrong_tenant' { $context.TenantId = $env:MOCK_OTHER }
@@ -59,9 +65,65 @@ function Get-MgContext {
     }
     return [pscustomobject]$context
 }
+function Set-MgRequestContext {
+    param([int] $MaxRetry, [double] $ClientTimeout)
+    if ($MaxRetry -ne 0 -or $ClientTimeout -ne 30) { throw 'Unsafe lifecycle retry settings.' }
+    Record 'configure_transport'
+}
 function Invoke-MgGraphRequest {
     [CmdletBinding()]
-    param([string] $Method, [uri] $Uri, [hashtable] $Headers, [string] $OutputType)
+    param([string] $Method, [uri] $Uri, [hashtable] $Headers, [string] $OutputType,
+        [string] $Body, [string] $ContentType, [switch] $SkipHttpErrorCheck)
+    if ($env:MOCK_ACTION -ne 'Check') {
+        if ($Uri.OriginalString -ceq 'https://graph.microsoft.com/v1.0/me?$select=id') {
+            Record 'get_operator'
+            return @{ id = '00000000-0000-4000-8000-000000000004' }
+        }
+        if ($Uri.Host -cne 'graph.microsoft.com' -or $Uri.Scheme -cne 'https' -or
+            $Headers['OData-Version'] -cne '4.0' -or
+            $OutputType -cne 'HttpResponseMessage' -or -not $SkipHttpErrorCheck) {
+            throw 'Unexpected lifecycle transport.'
+        }
+        Record ("graph:" + $Method + ":" + $Uri.AbsolutePath)
+        if (-not (Test-Path variable:script:Objects)) { $script:Objects = @{} }
+        $kind = ($Uri.AbsolutePath -split '/')[-1]
+        $status = 200
+        $payload = @{}
+        if ($Method -eq 'POST') {
+            if ($env:MOCK_CASE -eq 'uncertain_creation') {
+                throw 'synthetic-private-bearer-do-not-log'
+            }
+            $payload = ConvertFrom-Json -AsHashtable -InputObject $Body
+            $number = switch ($kind) {
+                'microsoft.graph.agentIdentityBlueprint' { 5 }
+                'microsoft.graph.agentIdentityBlueprintPrincipal' { 6 }
+                'microsoft.graph.agentIdentity' { 7 }
+                default { throw 'Unknown object kind.' }
+            }
+            $payload.id = '00000000-0000-4000-8000-00000000000' + $number
+            if ($number -ne 7) { $payload.appId = '00000000-0000-4000-8000-000000000008' }
+            $script:Objects[$kind] = $payload
+            $status = 201
+        } elseif (-not $script:Objects.Contains($kind)) {
+            $status = 404
+        } elseif ($Method -eq 'GET') {
+            $payload = $script:Objects[$kind]
+        } elseif ($Method -eq 'PATCH') {
+            $patch = ConvertFrom-Json -AsHashtable -InputObject $Body
+            $script:Objects[$kind].description = $patch.description
+            $status = 204
+        } elseif ($Method -eq 'DELETE') {
+            $script:Objects.Remove($kind)
+            $status = 204
+        } else {
+            throw 'Unexpected lifecycle method.'
+        }
+        $response = [System.Net.Http.HttpResponseMessage]::new(
+            [System.Net.HttpStatusCode]$status)
+        $response.Content = [System.Net.Http.StringContent]::new(
+            (ConvertTo-Json -InputObject $payload -Depth 8 -Compress))
+        return $response
+    }
     if ($Method -cne 'GET' -or $OutputType -cne 'Hashtable' -or
         $Headers.ConsistencyLevel -cne 'eventual' -or
         $Uri.OriginalString -cne (
@@ -100,7 +162,8 @@ function Disconnect-MgGraph {
         throw 'synthetic-private-bearer-do-not-log'
     }
 }
-Export-ModuleMember -Function Connect-MgGraph,Get-MgContext,Invoke-MgGraphRequest,Disconnect-MgGraph
+Export-ModuleMember -Function Connect-MgGraph,Get-MgContext,Set-MgRequestContext,`
+    Invoke-MgGraphRequest,Disconnect-MgGraph
 """
 
 
@@ -116,7 +179,7 @@ def sdk(tmp_path: Path) -> tuple[dict[str, str], Path]:
         "@{ RootModule='Microsoft.Graph.Authentication.psm1';"
         f"ModuleVersion='{SDK}'; GUID='{OTHER}';"
         "FunctionsToExport=@('Connect-MgGraph','Get-MgContext',"
-        "'Invoke-MgGraphRequest','Disconnect-MgGraph') }"
+        "'Set-MgRequestContext','Invoke-MgGraphRequest','Disconnect-MgGraph') }"
     )
     log = tmp_path / "calls.txt"
     environment = {
@@ -133,7 +196,12 @@ def sdk(tmp_path: Path) -> tuple[dict[str, str], Path]:
 
 
 def execute(
-    sdk: tuple[dict[str, str], Path], case: str = "success", *, approved: bool = True
+    sdk: tuple[dict[str, str], Path],
+    case: str = "success",
+    *,
+    approved: bool = True,
+    action: str = "Check",
+    mutation_approved: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     environment, log = sdk
     command = [
@@ -145,11 +213,20 @@ def execute(
         "$env:PSModulePath = $env:MOCK_MODULE_ROOT + "
         "[IO.Path]::PathSeparator + (Join-Path $PSHOME 'Modules'); "
         "& $env:MOCK_SCRIPT -TenantId $env:MOCK_TENANT "
-        "-ApproveRead:($env:MOCK_APPROVED -eq 'true'); exit $LASTEXITCODE",
+        "-Action $env:MOCK_ACTION -StatePath $env:MOCK_STATE "
+        "-ApproveRead:($env:MOCK_APPROVED -eq 'true') "
+        "-ApproveMutation:($env:MOCK_MUTATION_APPROVED -eq 'true'); exit $LASTEXITCODE",
     ]
     result = subprocess.run(  # noqa: S603 - fixed executable and repository script, no shell
         command,
-        env={**environment, "MOCK_CASE": case, "MOCK_APPROVED": str(approved).lower()},
+        env={
+            **environment,
+            "MOCK_CASE": case,
+            "MOCK_APPROVED": str(approved).lower(),
+            "MOCK_ACTION": action,
+            "MOCK_MUTATION_APPROVED": str(mutation_approved).lower(),
+            "MOCK_STATE": str(log.parent / "directory.json"),
+        },
         capture_output=True,
         text=True,
         timeout=30,
@@ -244,6 +321,52 @@ def test_device_code_instructions_are_visible(sdk: tuple[dict[str, str], Path]) 
     report = json.loads(result.stdout.split("synthetic-device-code-instructions", 1)[1].strip())
     assert report["tenant_check"] == "pass"
     assert calls == ["connect", "context", "get_roles", "disconnect"]
+
+
+@pytest.mark.parametrize("action", ["Run", "Cleanup"])
+def test_lifecycle_requires_separate_mutation_approval(
+    sdk: tuple[dict[str, str], Path], action: str
+) -> None:
+    result, calls = execute(sdk, action=action)
+    assert result.returncode == 2
+    assert json.loads(result.stdout)["detail"] == "explicit_mutation_approval_required"
+    assert calls == []
+
+
+def test_interactive_lifecycle_reuses_python_engine(
+    sdk: tuple[dict[str, str], Path],
+) -> None:
+    result, calls = execute(sdk, action="Run", mutation_approved=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["directory_lifecycle"] == "pass"
+    assert report["foundry_delegation"] == "not_evaluated"
+    assert report["i0_complete"] is False
+    assert len([call for call in calls if call.startswith("graph:POST:")]) == 3
+    assert len([call for call in calls if call.startswith("graph:DELETE:")]) == 3
+    assert len([call for call in calls if call.startswith("graph:PATCH:")]) == 1
+    assert calls[:4] == ["connect", "context", "configure_transport", "get_operator"]
+    assert calls[-1] == "disconnect"
+    for private in ("synthetic-private", TENANT, OTHER, "00000000-0000-4000-8000-000000000004"):
+        assert private not in result.stdout + result.stderr
+    journal = json.loads((sdk[1].parent / "directory.json").read_text())
+    assert all(resource["deleted"] for resource in journal["resources"].values())
+
+
+def test_uncertain_interactive_post_stops_without_retry(
+    sdk: tuple[dict[str, str], Path],
+) -> None:
+    result, calls = execute(
+        sdk, "uncertain_creation", action="Run", mutation_approved=True
+    )
+    assert result.returncode == 2, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["directory_lifecycle"] == "inconclusive"
+    assert report["detail"] == "directory_graph_transport_failed"
+    assert len([call for call in calls if call.startswith("graph:POST:")]) == 1
+    journal = json.loads((sdk[1].parent / "directory.json").read_text())
+    assert journal["pending"] == "blueprint"
+    assert "synthetic-private" not in result.stdout + result.stderr
 
 
 def test_no_active_roles_is_not_agent_id_proof(sdk: tuple[dict[str, str], Path]) -> None:

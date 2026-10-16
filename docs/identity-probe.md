@@ -18,7 +18,8 @@ task identity:tenant-check TENANT_ID=REPLACE-other-tenant-uuid
 The first command prompts before installing **Microsoft.Graph.Authentication 2.36.1**
 for the current user. PowerShell **7.4+** is required (offline script checks run with
 **7.6.6**). The module version is pinned to its published PowerShell Gallery package;
-the actual Graph SDK has not been installed or exercised by this preparation.
+the owner has installed that SDK and successfully completed the isolated sign-in and
+active-role check. That result does not establish Agent ID or Foundry compatibility.
 
 The second command prompts before device-code sign-in. Complete sign-in yourself with
 the account in the requested tenant; review any consent for **User.Read** and
@@ -43,10 +44,40 @@ responses. Limited role metadata or additional pages are **inconclusive**, not e
 of missing roles. PIM eligibility and Agent ID service availability are not evaluated.
 Successful sign-in is not proof of Agent ID provisioning or Foundry compatibility.
 
-**Current boundary:** this is sign-in/read-only preparation, validated with a local
-fake Graph module. The certificate-based directory lifecycle check below has not yet
-been adapted to interactive Graph authentication; do not run it expecting this login
-to supply credentials. Temporary identity creation requires separate owner approval.
+### Interactive directory lifecycle
+
+The lifecycle check now supports interactive Graph authentication without a certificate:
+
+```bash
+task identity:interactive-probe TENANT_ID=REPLACE-other-tenant-uuid
+# If a run stops with recorded objects, use the same tenant and signed-in operator:
+task identity:interactive-cleanup TENANT_ID=REPLACE-other-tenant-uuid
+```
+
+Both commands prompt before sign-in and directory mutations. Review the delegated Graph
+consent request: `User.Read`, `AgentIdentityBlueprint.ReadWrite.All`,
+`AgentIdentityBlueprintPrincipal.ReadWrite.All`, `AgentIdentity.Create.All`,
+`AgentIdentity.Read.All`, and `AgentIdentity.DeleteRestore.All`. These are permissions
+for this temporary lifecycle check, not Foundry grants. Sign in with the approved operator
+in the selected tenant; an Azure subscription and a certificate deployer are not required.
+
+PowerShell owns the process-local Graph authentication. The existing Python lifecycle
+engine asks it to execute fixed-origin typed Graph requests over private process pipes;
+no access token is exported to Python, a file, or the terminal. SDK retries are disabled
+and requests use a 30-second timeout. The same engine and ownership/unknown-creation
+guards serve the certificate and interactive paths.
+
+The private journal defaults to `.identity-probe/interactive-directory.json`, separate
+from the certificate check. It is bound to the tenant, Graph client, and signed-in operator.
+Cleanup refuses a different operator before any object lookup or deletion. An uncertain
+creation retains its intent and is never retried automatically. Retain the journal;
+for another approved run, provide a new `STATE=.identity-probe/interactive-2.json`
+and use that same value for cleanup.
+
+The real PowerShell script and Python engine completed creation, read/update verification
+and reverse-order deletion against a local fake Graph SDK. **No live directory lifecycle
+has run.** A lifecycle pass does not test Foundry, change Azure CLI context, provision
+the browser/sidecar integration, or close I0.
 
 ## SDK-backed directory lifecycle check
 

@@ -13,10 +13,10 @@ import stat
 import sys
 import tempfile
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, TextIO
 from uuid import UUID
 
 import httpx
@@ -62,14 +62,68 @@ class Settings:
     tenant_id: str
     client_id: str
     sponsor_user_id: str = field(repr=False)
-    certificate_path: Path = field(repr=False)
+    certificate_path: Path | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         for value in (self.tenant_id, self.client_id, self.sponsor_user_id):
             identity_id(value)
-        info = self.certificate_path.lstat()
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
-            raise ProbeError("directory_certificate_must_be_owner_only_regular_file")
+        if self.certificate_path is not None:
+            info = self.certificate_path.lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+                raise ProbeError("directory_certificate_must_be_owner_only_regular_file")
+
+
+class DirectoryAPI(Protocol):
+    def request(
+        self, method: str, path: str, status: int, body: dict[str, Any] | None = None
+    ) -> dict[str, Any]: ...
+
+
+class StdioGraph:
+    """Private pipe to the signed-in Graph PowerShell process; no bearer export."""
+
+    def __init__(self, source: TextIO, destination: TextIO) -> None:
+        self.source = source
+        self.destination = destination
+        self.sequence = 0
+
+    def request(
+        self, method: str, path: str, status: int, body: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        self.sequence += 1
+        print(
+            json.dumps(
+                {
+                    "graph_request": self.sequence,
+                    "method": method,
+                    "path": path,
+                    "body": body,
+                }
+            ),
+            file=self.destination,
+            flush=True,
+        )
+        line = self.source.readline(1_048_577)
+        if not line or len(line) > 1_048_576:
+            raise ProbeError("directory_graph_pipe_response_missing_or_oversized")
+        try:
+            response = json.loads(line)
+        except ValueError:
+            raise ProbeError("directory_graph_pipe_response_invalid") from None
+        if not isinstance(response, dict) or response.get("graph_request") != self.sequence:
+            raise ProbeError("directory_graph_pipe_sequence_mismatch")
+        if response.get("transport_error") is True:
+            raise ProbeError("directory_graph_transport_failed")
+        if type(response.get("status")) is not int:
+            raise ProbeError("directory_graph_pipe_status_invalid")
+        if response["status"] != status:
+            raise GraphError(response["status"])
+        payload = response.get("body")
+        if status == 204:
+            return {}
+        if not isinstance(payload, dict):
+            raise ProbeError("directory_graph_pipe_body_invalid")
+        return payload
 
 
 class GraphError(ProbeError):
@@ -194,7 +248,7 @@ def load(path: Path, settings: Settings) -> dict[str, Any]:
 
 
 def verify(
-    graph: Graph, journal: dict[str, Any], key: str, *, missing_ok: bool = False
+    graph: DirectoryAPI, journal: dict[str, Any], key: str, *, missing_ok: bool = False
 ) -> dict[str, Any] | None:
     resource = journal["resources"][key]
     fields = {
@@ -232,7 +286,7 @@ def verify(
     return payload
 
 
-def cleanup(graph: Graph, path: Path, journal: dict[str, Any]) -> None:
+def cleanup(graph: DirectoryAPI, path: Path, journal: dict[str, Any]) -> None:
     if journal["pending"] is not None:
         raise ProbeError("directory_create_outcome_unknown_manual_reconciliation_required")
     # Check every remaining object before deleting any; never cascade past a mismatch.
@@ -254,13 +308,14 @@ def cleanup(graph: Graph, path: Path, journal: dict[str, Any]) -> None:
         save(path, journal)
 
 
-def run(graph: Graph, path: Path, settings: Settings) -> dict[str, Any]:
+def run(graph: DirectoryAPI, path: Path, settings: Settings) -> dict[str, Any]:
     if path.exists():
         raise ProbeError("directory_journal_exists_review_or_cleanup_before_new_run")
     journal: dict[str, Any] = {
         "version": 1,
         "tenant_id": settings.tenant_id,
         "client_id": settings.client_id,
+        "sponsor_user_id": settings.sponsor_user_id,
         "name": f"i0-directory-{secrets.token_hex(6)}",
         "pending": None,
         "resources": {},
@@ -351,6 +406,7 @@ def main() -> int:
     parser.add_argument("command", choices=("plan", "run", "cleanup"))
     parser.add_argument("--state", type=Path, default=Path(".identity-probe/directory.json"))
     parser.add_argument("--approve", action="store_true")
+    parser.add_argument("--graph-stdio", action="store_true")
     args = parser.parse_args()
     for logger in ("azure", "msal", "httpx", "httpcore"):
         logging.getLogger(logger).setLevel(logging.ERROR)
@@ -364,28 +420,40 @@ def main() -> int:
             tenant_id=os.environ.get("IDENTITY_TENANT_ID", ""),
             client_id=os.environ.get("IDENTITY_GRAPH_CLIENT_ID", ""),
             sponsor_user_id=os.environ.get("IDENTITY_SPONSOR_USER_ID", ""),
-            certificate_path=Path(os.environ.get("IDENTITY_GRAPH_CERTIFICATE_PATH", "")),
+            certificate_path=None
+            if args.graph_stdio
+            else Path(os.environ.get("IDENTITY_GRAPH_CERTIFICATE_PATH", "")),
         )
-        with journal_lock(args.state):
+        with journal_lock(args.state), ExitStack() as stack:
             journal = load(args.state, settings) if args.command == "cleanup" else None
-            with (
-                CertificateCredential(
-                    tenant_id=settings.tenant_id,
-                    client_id=settings.client_id,
-                    certificate_path=str(settings.certificate_path),
-                    connection_timeout=10,
-                    read_timeout=30,
-                    retry_total=0,
-                ) as credential,
-                http_client(30) as http,
-            ):
-                graph = Graph(http, credential)
-                if journal is None:
-                    report = run(graph, args.state, settings)
-                else:
-                    cleanup(graph, args.state, journal)
-                    report = result("not_evaluated", "directory_recorded_objects_cleaned_up")
-        print(json.dumps(report, indent=2))
+            graph: DirectoryAPI
+            if args.graph_stdio:
+                if (
+                    journal is not None
+                    and journal.get("sponsor_user_id") != settings.sponsor_user_id
+                ):
+                    raise ProbeError("directory_interactive_operator_mismatch")
+                graph = StdioGraph(sys.stdin, sys.stdout)
+            else:
+                if settings.certificate_path is None:
+                    raise ProbeError("directory_certificate_required")
+                credential = stack.enter_context(
+                    CertificateCredential(
+                        tenant_id=settings.tenant_id,
+                        client_id=settings.client_id,
+                        certificate_path=str(settings.certificate_path),
+                        connection_timeout=10,
+                        read_timeout=30,
+                        retry_total=0,
+                    )
+                )
+                graph = Graph(stack.enter_context(http_client(30)), credential)
+            if journal is None:
+                report = run(graph, args.state, settings)
+            else:
+                cleanup(graph, args.state, journal)
+                report = result("not_evaluated", "directory_recorded_objects_cleaned_up")
+        print(json.dumps(report, indent=None if args.graph_stdio else 2))
         return 0
     except ProbeError as exc:
         report = result("inconclusive", str(exc))
@@ -397,7 +465,7 @@ def main() -> int:
         report = result("inconclusive", f"directory_{classify_invocation_exception(exc).value}")
     except (OSError, ValueError, TypeError):
         report = result("inconclusive", "directory_private_file_or_configuration_invalid")
-    print(json.dumps(report, indent=2))
+    print(json.dumps(report, indent=None if args.graph_stdio else 2))
     return 2
 
 

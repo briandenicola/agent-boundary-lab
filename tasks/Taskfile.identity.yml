@@ -7,6 +7,7 @@ env:
 
 vars:
   DIRECTORY_STATE: '{{default ".identity-probe/directory.json" .STATE}}'
+  INTERACTIVE_DIRECTORY_STATE: '{{default ".identity-probe/interactive-directory.json" .STATE}}'
 
 tasks:
   graph-init:
@@ -28,6 +29,22 @@ tasks:
         msg: PowerShell 7.4 or newer is required.
     cmds:
       - pwsh -NoLogo -NoProfile -File "{{.ROOT_DIR}}/scripts/identity_tenant_check.ps1" -TenantId "{{.TENANT_ID}}" -ApproveRead
+
+  interactive-probe:
+    desc: Interactively create, verify, update and delete three temporary Agent ID objects; no certificate or deployment
+    requires:
+      vars: [TENANT_ID]
+    prompt: In tenant {{.TENANT_ID}}, approve Agent ID Graph permissions, create three temporary identity objects, verify and delete them? No Azure deployment, Foundry calls or changes to the existing demo.
+    cmds:
+      - pwsh -NoLogo -NoProfile -File "{{.ROOT_DIR}}/scripts/identity_tenant_check.ps1" -TenantId "{{.TENANT_ID}}" -Action Run -StatePath "{{.INTERACTIVE_DIRECTORY_STATE}}" -ApproveRead -ApproveMutation
+
+  interactive-cleanup:
+    desc: Interactively delete only the temporary Agent ID objects in the specified private journal
+    requires:
+      vars: [TENANT_ID]
+    prompt: Sign in to tenant {{.TENANT_ID}} and delete only temporary objects recorded in {{.INTERACTIVE_DIRECTORY_STATE}}? The tenant and signed-in operator must match the journal.
+    cmds:
+      - pwsh -NoLogo -NoProfile -File "{{.ROOT_DIR}}/scripts/identity_tenant_check.ps1" -TenantId "{{.TENANT_ID}}" -Action Cleanup -StatePath "{{.INTERACTIVE_DIRECTORY_STATE}}" -ApproveRead -ApproveMutation
 
   directory-plan:
     desc: Show the SDK-backed Agent ID lifecycle check and required grants offline; no login or Azure calls
