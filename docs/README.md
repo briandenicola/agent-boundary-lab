@@ -66,8 +66,10 @@ cannot masquerade as a platform egress denial. Identity authorization and networ
 have separate results. AKS continues to stand in for on-premises; true on-premises deployment
 is not claimed. See [the issue #4 implementation track](PLAN.md#issue-4--end-to-end-agent-and-user-identity).
 The [I0 probe and dedicated setup draft](identity-probe.md) are now available;
-provisioning is blocked by an unverified Graph provider lifecycle, and no hosted
-identity result or public login rollout is claimed.
+full setup remains gated by its unverified lifecycle and delegated Foundry contract.
+A separate owner-run SDK/API directory lifecycle check can test temporary Agent ID
+objects without the Terraform URL restriction. No live directory result, hosted identity
+result or public login rollout is claimed.
 
 Exactly two business tools remain registered and callable in ADK in every mode:
 

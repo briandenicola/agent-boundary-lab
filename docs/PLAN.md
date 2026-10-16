@@ -587,8 +587,12 @@ and contexts are retained 60 days from last write.
 
 **Status (2026-10-16): I0 probe implemented and checked offline; setup blocked.**
 The [owner-run probe](identity-probe.md) and isolated dedicated-identity Terraform draft
-are checked in. The generic Graph provider's generated Agent ID lifecycle URLs do not
-match the documented paths; a pre-apply guard blocks provisioning pending verification.
+are checked in. The typed-URL Terraform draft retains its pre-apply lifecycle guard;
+base-API blueprint support means this is not a blanket Terraform incompatibility.
+An owner-approved SDK/API alternative now has a separate temporary directory lifecycle
+check (`task identity:directory-plan`, then separately approved
+`task identity:directory-probe`). It does not configure the complete delegated probe
+or establish Foundry compatibility.
 No ingress, Entra object, consent, role assignment or hosted identity probe has been
 created/run by this work. This expands the former sidecar-only investigation. Execute the
 identity stages below in order; it does not mark the existing Phase 0 or containment gates

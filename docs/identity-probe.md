@@ -1,12 +1,89 @@
 # Issue #4: delegated Foundry authentication probe
 
-**2026-10-16: code and offline checks only. Identity provisioning is blocked.**
-No new Entra identities, consent, RBAC, token acquisitions, Kubernetes workloads,
+**2026-10-16: code and offline checks only. Full identity setup remains blocked.**
+No new Entra identities, consent, RBAC, probe user-token acquisitions, Kubernetes workloads,
 or hosted invocations have been performed for this work. This is the first part
 of [I0](PLAN.md#i0--compatibility-and-identity-contract-first-gate), not an identity rollout.
 Existing hosted agents, policies, images and both business tools are unchanged.
 
-## Current blocker
+## SDK-backed directory lifecycle check
+
+The owner approved using documented Graph APIs/SDKs where Terraform cannot represent
+the lifecycle. `identity:directory-probe` is a separate, opt-in compatibility check:
+Azure Identity's `CertificateCredential` authenticates a dedicated Graph deployer;
+bounded HTTPS requests use the canonical typed Graph v1.0 paths. No Azure CLI bearer,
+client secret, Terraform state rewriting, consent changes, Azure RBAC, federation,
+cluster access, hosted calls or public ingress are involved.
+
+The check creates **three new temporary objects**: a blueprint, its mandatory blueprint
+principal, and an Agent Identity. It reads each back, changes and reads the blueprint's
+description, then deletes those objects in reverse dependency order and checks that
+each typed resource is absent. A completed check reports `directory_lifecycle: pass`,
+**not** Foundry delegation or containment success; `i0_complete` stays false.
+No live result has been collected.
+
+First, review the offline plan:
+
+```bash
+task identity:directory-plan
+```
+
+Before an approved live run, configure these placeholders in your untracked `.env`
+(also listed in `.env.example`):
+
+```dotenv
+IDENTITY_TENANT_ID=REPLACE-current-tenant-uuid
+IDENTITY_GRAPH_CLIENT_ID=REPLACE-dedicated-graph-application-uuid
+IDENTITY_SPONSOR_USER_ID=REPLACE-synthetic-sponsor-user-uuid
+IDENTITY_GRAPH_CERTIFICATE_PATH=/REPLACE/private/graph-deployer.pem
+```
+
+The PEM must contain the deployer's certificate and private key, belong to the operator,
+and have no group/other permissions (for example, mode `0600`). Register its public
+certificate on the **dedicated deployer**, never on an Agent Identity. The check does
+not bootstrap this application or grant its own privileges. The deployer needs reviewed,
+admin-consented Microsoft Graph **application** permissions covering the operations:
+
+| Object | Permissions used by this check |
+| --- | --- |
+| Blueprint | `AgentIdentityBlueprint.ReadWrite.All` |
+| Blueprint principal | `AgentIdentityBlueprintPrincipal.ReadWrite.All` |
+| Agent Identity | `AgentIdentity.Create.All`, `AgentIdentity.Read.All`, `AgentIdentity.DeleteRestore.All` |
+
+These cover the check, not a recommendation for production-wide grants. The typed
+Agent Identity read/delete references also list `AgentIdentity.CreateAsManager` for
+application callers; review that alternative for a blueprint-manager design rather than
+assuming create/read grants authorize deletion. The setup guide requires Privileged Role
+Administrator authority to grant Microsoft Graph application permissions. An Azure
+subscription role alone does not provide it. No privileged deployer or admin consent
+has been created by this work.
+
+After separate owner approval:
+
+```bash
+task identity:directory-probe
+# Only if the run stops and leaves recorded objects:
+task identity:directory-cleanup
+```
+
+`.identity-probe/directory.json` is an owner-only, gitignored journal bound to the
+selected tenant and deployer. It records generated names and object IDs before later
+operations; it never stores a token, private key, Graph response body or user claim dump.
+Concurrent access, mismatched context and object ownership fail explicitly. A failed
+check returns **inconclusive**, preserves the journal, and does not retry creation.
+For HTTP errors, the report includes only the status; a 403 alone does not establish
+whether consent, a role, tenant policy or service availability is responsible.
+
+A timeout, 408, server error or malformed successful POST can leave creation uncertain.
+The journal records that intent **before** POST, and cleanup then refuses to guess an ID.
+An administrator must reconcile the generated name against directory/audit records.
+Do not delete or edit the journal to bypass that warning. After a successful run or
+cleanup, retain the journal as private evidence; use a new journal for another approved
+run, for example `task identity:directory-probe STATE=.identity-probe/directory-2.json`.
+Pass that same `STATE` to `identity:directory-cleanup` if needed. The default Task
+targets deliberately refuse to overwrite an existing journal.
+
+## Remaining full-setup blocker
 
 Microsoft's `msgraph` Terraform provider **0.5.0** constructs an instance URL by
 appending `/{id}` to the creation collection. For a blueprint this produces:
@@ -23,10 +100,19 @@ is unavailable. A failed post-create refresh could leave an identity outside sta
 `infra/identity-probe/compatibility.tf` therefore rejects plans before apply. An
 offline Terraform test with mocked providers proves that rejection.
 
-**Do not remove the guard to try a deployment.** Establish a supported Terraform
-lifecycle covering creation, refresh, update, import and destruction, then update
-the implementation and its tests. No `local-exec`, manual state rewriting, or
-untracked Graph POST is used as a substitute.
+**Correction to the initial finding:** the ordinary application API explicitly supports
+blueprints at `/applications` with `@odata.type`, and the ordinary service-principal API
+supports blueprint principals. Terraform therefore is **not universally incompatible**
+with Agent ID. However, the generic provider sends diff-only PATCH bodies, potentially
+omitting an unchanged type discriminator, and the complete Agent Identity lifecycle at
+the untyped endpoints has not been established. The checked-in typed-URL draft remains
+guarded; it is not the executable directory check above.
+
+**Do not remove the guard to try a deployment.** Full setup still needs an integrated
+ownership/lifecycle contract for identities, federation, consent and RBAC, whether
+implemented with supported Terraform resources or the owner-approved Graph SDK/API path.
+The separate temporary lifecycle check does not populate the Terraform draft or provision
+the browser/sidecar integration.
 
 The exact Foundry resource service principal, delegated scope, token audience and
 Agent ID consent support also remain unverified. Setup requires explicit verified
@@ -91,6 +177,8 @@ Before any future reviewed setup, the owner must supply:
   `AgentIdentityBlueprint.Create`, `AgentIdentityBlueprint.ReadWrite.All`,
   `AgentIdentityBlueprintPrincipal.Create`, `AgentIdentity.Create.All`,
   `AgentIdentity.ReadWrite.All`, and `DelegatedPermissionGrant.ReadWrite.All`.
+  Agent Identity cleanup additionally needs a documented deletion permission such as
+  `AgentIdentity.DeleteRestore.All`; do not infer it from create/read access.
   Verify each operation's current least-privilege and cleanup requirements before consent;
   this module does not bootstrap or consent its own privileged deployer.
 - Two distinct existing synthetic test users and a blueprint sponsor. Inventory
@@ -113,6 +201,7 @@ Available **now**, with no tenant or cluster access:
 
 ```bash
 task identity:test
+task identity:directory-plan
 task identity:sdk-test  # prompts before downloading isolated SDK dependencies
 terraform -chdir=infra/identity-probe validate
 terraform -chdir=infra/identity-probe test
@@ -164,6 +253,15 @@ Accessed **2026-10-16**:
   and [get blueprint: canonical typed instance path](https://learn.microsoft.com/en-us/graph/api/agentidentityblueprint-get?view=graph-rest-1.0).
 - [Create blueprint principal](https://learn.microsoft.com/en-us/graph/api/agentidentityblueprintprincipal-post?view=graph-rest-1.0)
   and [create Agent Identity](https://learn.microsoft.com/en-us/graph/api/agentidentity-post?view=graph-rest-1.0).
+- [Update blueprint](https://learn.microsoft.com/en-us/graph/api/agentidentityblueprint-update?view=graph-rest-1.0),
+  [get blueprint principal](https://learn.microsoft.com/en-us/graph/api/agentidentityblueprintprincipal-get?view=graph-rest-1.0),
+  [get Agent Identity](https://learn.microsoft.com/en-us/graph/api/agentidentity-get?view=graph-rest-1.0),
+  [delete Agent Identity](https://learn.microsoft.com/en-us/graph/api/agentidentity-delete?view=graph-rest-1.0),
+  [delete blueprint principal](https://learn.microsoft.com/en-us/graph/api/agentidentityblueprintprincipal-delete?view=graph-rest-1.0),
+  and [delete blueprint](https://learn.microsoft.com/en-us/graph/api/agentidentityblueprint-delete?view=graph-rest-1.0).
+- [Base application blueprint support](https://learn.microsoft.com/en-us/graph/api/application-post-applications?view=graph-rest-1.0)
+  and [base service-principal blueprint-principal support](https://learn.microsoft.com/en-us/graph/api/serviceprincipal-post-serviceprincipals?view=graph-rest-1.0).
+- [Agent ID setup and admin-consent prerequisites](https://learn.microsoft.com/en-us/entra/agent-id/agent-id-ai-guided-setup).
 - [Delegated grant resource](https://learn.microsoft.com/en-us/graph/api/resources/oauth2permissiongrant?view=graph-rest-1.0).
   The generic v1.0 resource reference does not document `expiryTime`; no such field
   is invented here. Agent ID-specific grant support still needs tenant validation.

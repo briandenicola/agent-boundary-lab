@@ -4,13 +4,14 @@ locals {
   documented_blueprint_instance_url = "applications/{id}/microsoft.graph.agentIdentityBlueprint"
 }
 
-# msgraph 0.5.0 appends /{id} to the creation collection for its entire lifecycle.
-# Do not issue a POST until a supported lifecycle for these typed resources is verified.
+# This draft still uses typed creation URLs. Base /applications + @odata.type is
+# documented for blueprints, so this mismatch is not a blanket Agent ID limitation.
+# The separate SDK-backed directory check uses canonical typed instance URLs.
 resource "terraform_data" "agent_id_provider_gate" {
   lifecycle {
     precondition {
       condition     = local.provider_blueprint_instance_url == local.documented_blueprint_instance_url
-      error_message = "BLOCKED: msgraph 0.5.0 generates a different Agent ID instance URL than the documented API. Creation, refresh, update and destruction need a verified provider lifecycle before provisioning. See docs/identity-probe.md."
+      error_message = "BLOCKED: this Terraform draft still generates unverified typed Agent ID lifecycle URLs. Base-API blueprint support does not establish the complete Agent Identity lifecycle. Use the separate owner-approved identity:directory-probe to check canonical Graph APIs; full setup and Foundry delegation remain gated. See docs/identity-probe.md."
     }
   }
 }

@@ -62,10 +62,22 @@ do not silently change the requested scenario.
 
 **Implementation update, 2026-10-16:** the [I0 probe](identity-probe.md) now has offline
 signed-JWT, mocked sidecar/Foundry, real-SDK request and cluster-guard tamper checks.
-No hosted identity result is claimed. Dedicated setup is blocked before apply because
-msgraph 0.5.0 generates collection/type/id lifecycle paths, while Graph documents
-collection/id/type. A schema-valid Terraform module does not resolve that mismatch.
+No hosted identity result is claimed. The typed-URL Terraform draft is blocked before
+apply because msgraph 0.5.0 generates collection/type/id lifecycle paths, while Graph
+documents collection/id/type. **Correction:** base `/applications` supports blueprints
+using `@odata.type`; base `/servicePrincipals` supports blueprint principals. This is not
+a universal Terraform/Agent ID incompatibility. The generic provider's diff-only PATCH
+can omit unchanged type discriminators; complete untyped Agent Identity lifecycle support
+remains unverified.
+
+With owner approval to use APIs/SDKs where necessary, a separate
+`task identity:directory-probe` now checks canonical typed creation/read, a blueprint
+update, and reverse-order deletion through certificate-authenticated Graph requests.
+It keeps an owner-only journal and does not provision full probe integration or change
+Terraform state. **Code and offline validation only; no live directory result.**
 The exact Foundry delegated grant and sidecar image/federation remain unverified.
+See [the directory check](identity-probe.md#sdk-backed-directory-lifecycle-check) for
+prerequisites, cleanup and primary references, accessed **2026-10-16**.
 
 Primary references, accessed **2026-10-15**:
 

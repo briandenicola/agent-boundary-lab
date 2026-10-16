@@ -2,7 +2,30 @@ version: '3'
 
 silent: true
 
+env:
+  PYTHONPATH: '{{.ROOT_DIR}}/src'
+
+vars:
+  DIRECTORY_STATE: '{{default ".identity-probe/directory.json" .STATE}}'
+
 tasks:
+  directory-plan:
+    desc: Show the SDK-backed Agent ID lifecycle check and required grants offline; no login or Azure calls
+    cmds:
+      - '"{{.ROOT_DIR}}/.venv/bin/python" -m containment_demo.identity_directory plan'
+
+  directory-probe:
+    desc: Create, read, update and delete three temporary Agent ID objects through documented Graph APIs; no deployment
+    prompt: Create a temporary blueprint, blueprint principal and Agent Identity in IDENTITY_TENANT_ID, verify them, update the blueprint description, then delete those three objects? No consent, Azure RBAC or workloads are changed.
+    cmds:
+      - cd "{{.ROOT_DIR}}" && .venv/bin/python -m containment_demo.identity_directory run --state "{{.DIRECTORY_STATE}}" --approve
+
+  directory-cleanup:
+    desc: Delete only objects recorded by the SDK-backed lifecycle check; refuse unknown creation outcomes or ownership mismatches
+    prompt: Delete only the remaining temporary objects recorded in {{.DIRECTORY_STATE}} using the same tenant and Graph application?
+    cmds:
+      - cd "{{.ROOT_DIR}}" && .venv/bin/python -m containment_demo.identity_directory cleanup --state "{{.DIRECTORY_STATE}}" --approve
+
   init:
     desc: Download providers for the isolated identity-probe Terraform state; does not provision identities
     cmds:
@@ -115,7 +138,7 @@ tasks:
   test:
     desc: Run offline I0 tests; no token acquisition, Azure, cluster access or model calls
     cmds:
-      - '"{{.ROOT_DIR}}/.venv/bin/python" -m pytest "{{.ROOT_DIR}}/tests/unit/test_identity_probe.py" -q'
+      - '"{{.ROOT_DIR}}/.venv/bin/python" -m pytest "{{.ROOT_DIR}}/tests/unit/test_identity_probe.py" "{{.ROOT_DIR}}/tests/unit/test_identity_directory.py" -q'
 
   sdk-test:
     desc: Download pinned probe-only SDKs into an isolated environment, then run mocked SDK tests; never contacts Azure
