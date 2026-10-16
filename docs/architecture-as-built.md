@@ -8,6 +8,14 @@ and [`telemetry-map.md`](telemetry-map.md); this page links to them rather than 
 
 ## The claim, and what it rests on
 
+**Identity extension update (2026-10-16): code/offline checks, not deployed.** Interactive
+Agent ID lifecycle checks and shared delegated JWT validation are available.
+The policy API has an opt-in identity mode; existing deployments still use the legacy
+behavior shown below. Public login and delegated harness/facade/Foundry integration
+remain blocked by I0 and owner-selected login/hostname settings. Neither this code nor
+an API authorization denial is new platform-containment evidence.
+See [`identity-probe.md`](identity-probe.md) for repeatable commands and boundaries.
+
 Outbound network containment of the tools inside the Foundry hosted agent is enforced by the
 **platform**, not by our code. Everything on the AKS side (the chat service, the local model,
 the façades) is the stand-in for an on-premises caller and is **not** governed by the Foundry

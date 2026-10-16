@@ -585,7 +585,7 @@ and contexts are retained 60 days from last write.
 
 ## Issue #4 — End-to-end agent and user identity
 
-**Status (2026-10-16): I0 probe implemented and checked offline; setup blocked.**
+**Status (2026-10-16): independent code implemented/offline checked; full setup blocked.**
 The [owner-run probe](identity-probe.md) and isolated dedicated-identity Terraform draft
 are checked in. The typed-URL Terraform draft retains its pre-apply lifecycle guard;
 base-API blueprint support means this is not a blanket Terraform incompatibility.
@@ -596,6 +596,11 @@ or establish Foundry compatibility.
 An interactive alternative now reuses that lifecycle engine without a certificate:
 `task identity:interactive-probe TENANT_ID=...`, with separately approved cleanup.
 The owner verified isolated sign-in; the lifecycle itself has only run against a fake SDK.
+Shared delegated JWT validation and opt-in policy API authorization are implemented.
+Both business routes distinguish 401/403/503 and keep identity denials separate from
+success receipts. The private probe reuses the same validator. Browser login,
+delegated harness/facade calls, policy-token transport and identity deployment remain
+blocked by I0 and the owner's unresolved login/hostname/authorization decisions.
 No ingress, Entra object, consent, role assignment or hosted identity probe has been
 created/run by this work. This expands the former sidecar-only investigation. Execute the
 identity stages below in order; it does not mark the existing Phase 0 or containment gates
@@ -724,10 +729,12 @@ blocker, not permission to implement a different flow.
 | Unassigned user, missing login, or invalid token | No policy access | Reject at the applicable identity boundary; no successful demo invocation |
 | Missing/expired delegated downstream token | Explicit authentication failure, no fallback | Separate result; never containment proof |
 
-**Execution approval:** this delivery is issue expansion and planning only. The owner runs
-all validation, builds, Entra provisioning/consent, role changes, DNS, ingress, and deployment
-through reviewed Task targets. Decide hostname, login architecture, authorization mapping,
-and tenant prerequisites before authoring those implementation steps. Dapr Workflow,
+**Execution approval:** the owner approved independent code and offline checks while away,
+not live operations. The owner runs builds, Entra provisioning/consent, role changes,
+DNS, ingress and deployment through reviewed Task targets. Decide hostname, login
+architecture, authorization mapping and tenant prerequisites before implementing the
+dependent rollout. The opt-in policy authorization code is not approval to enable it.
+Dapr Workflow,
 true on-premises hosting, and OpenShift portability remain outside this issue.
 
 ---
@@ -738,7 +745,7 @@ Nothing below is done unless stated. Billable items need owner approval first.
 
 | Item | Status |
 | --- | --- |
-| **#4 End-to-end agent and user identity** | Expanded 2026-10-15; planning only. HTTPS harness, assigned Entra users, Agent ID sidecar, required delegated Foundry-invocation compatibility gate, and user-authorized policy API. Receiver unchanged; identity and containment have separate verdicts. See the issue #4 track above. |
+| **#4 End-to-end agent and user identity** | Independent code/offline checks available: I0 probe, interactive directory lifecycle, shared delegated JWT validation, opt-in policy authorization and rollout guards. Browser/Foundry integration and deployment remain blocked; no hosted identity result. See the track above. |
 | **#2 Document the AKS harness** | Open. Harness built and documented in `docs/architecture-as-built.md`, B13, B14; close after review. |
 | **#3 Local model evaluation** | Open. Qwen2.5-3B is the candidate (B11 laptop, §0.14 one AKS turn). Tool-calling reliability over many turns and speed are unmeasured; result stays functional, not containment. |
 | **#1 Chat UI on AKS** | Open. Harness chat service is the chat UI; the two-button demo UI also still exists. |

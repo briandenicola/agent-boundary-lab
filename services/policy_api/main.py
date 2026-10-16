@@ -17,11 +17,15 @@ import logging
 import os
 import re
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
+from containment_demo.delegated_auth import AccessGuard, AuthError, configured_guard
 
 SERVICE_NAME = "policy-api"
 
@@ -48,12 +52,6 @@ def _configure_logging() -> logging.Logger:
 
 
 logger = _configure_logging()
-app = FastAPI(
-    title="Containment demo policy API",
-    docs_url=None,
-    redoc_url=None,
-    openapi_url=None,
-)
 
 
 def _path_run_id(run_id: str) -> str:
@@ -69,12 +67,13 @@ def _run_marker(request: Request) -> str:
     accepted so a receipt is still attributable if one is stripped in transit.
     """
     path_id = _path_run_id(request.path_params.get("run_id", ""))
-    return (
+    marker = (
         path_id
         or request.headers.get("x-demo-run-id")
         or request.query_params.get("demo_run_id")
         or ""
     )
+    return _path_run_id(marker) if getattr(request.state, "identity_protected", False) else marker
 
 
 def _receipt(request: Request, **extra: Any) -> dict[str, Any]:
@@ -84,19 +83,18 @@ def _receipt(request: Request, **extra: Any) -> dict[str, Any]:
         "received_at": datetime.now(UTC).isoformat(),
         "demo_run_id": _run_marker(request),
         "method": request.method,
-        "path": request.url.path,
+        "path": ("/policy/{run_id}" if request.url.path.startswith("/policy/") else "/policy")
+        if getattr(request.state, "identity_protected", False)
+        else request.url.path,
         **extra,
     }
 
 
-@app.get("/healthz")
 async def healthz() -> dict[str, str]:
     """Liveness only. Not logged as a receipt, so probes cannot be mistaken for traffic."""
     return {"status": "ok", "service": SERVICE_NAME}
 
 
-@app.get("/policy/{run_id}")
-@app.get("/policy")
 async def get_policy(request: Request) -> JSONResponse:
     """Return the fixed synthetic policy and record that the call arrived."""
     logger.info(json.dumps(_receipt(request, outcome="served")))
@@ -109,10 +107,93 @@ async def get_policy(request: Request) -> JSONResponse:
     )
 
 
+def create_app(*, guard: AccessGuard | None = None) -> FastAPI:
+    guard = guard if guard is not None else configured_guard("POLICY_API")
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        try:
+            if guard is not None:
+                logger.info(
+                    json.dumps(
+                        {
+                            "service": SERVICE_NAME,
+                            "event": "identity_configuration",
+                            "auth_mode": "delegated",
+                            "determination": "identity_only",
+                        }
+                    )
+                )
+            yield
+        finally:
+            if guard is not None:
+                await guard.verifier.close()
+
+    application = FastAPI(
+        title="Containment demo policy API",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=lifespan,
+    )
+
+    if guard is not None:
+        from collections.abc import Awaitable, Callable
+
+        from starlette.responses import Response
+
+        @application.middleware("http")
+        async def require_user(
+            request: Request, call_next: Callable[[Request], Awaitable[Response]]
+        ) -> Response:
+            if request.url.path == "/healthz":
+                return await call_next(request)
+            request.state.identity_protected = True
+            try:
+                context = await guard.authorize(request.headers.get("authorization"))
+                request.state.delegated_user = context.user
+            except AuthError as error:
+                logger.info(
+                    json.dumps(
+                        _receipt(
+                            request,
+                            event="authorization_decision",
+                            outcome="unavailable" if error.status == 503 else "denied",
+                            auth_error=error.code,
+                            determination="identity_only",
+                        )
+                    )
+                )
+                headers = {"Cache-Control": "no-store"}
+                if error.status == 401:
+                    headers["WWW-Authenticate"] = "Bearer"
+                return JSONResponse(
+                    {"error": error.code, "determination": "identity_only"},
+                    status_code=error.status,
+                    headers=headers,
+                )
+            response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+    application.add_api_route("/healthz", healthz, methods=["GET"])
+    application.add_api_route("/policy", get_policy, methods=["GET"])
+    application.add_api_route("/policy/{run_id}", get_policy, methods=["GET"])
+    return application
+
+
+app = create_app()
+
+
 def main() -> None:
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8080")))  # noqa: S104
+    uvicorn.run(
+        app,
+        host="0.0.0.0",  # noqa: S104
+        port=int(os.environ.get("PORT", "8080")),
+        access_log=False,
+    )
 
 
 if __name__ == "__main__":

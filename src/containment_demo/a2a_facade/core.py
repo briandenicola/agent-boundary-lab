@@ -6,7 +6,7 @@ import hmac
 import re
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,6 +25,9 @@ class FacadeSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="DEMO_", extra="ignore")
 
+    a2a_auth_mode: Literal["legacy"] = Field(
+        default="legacy", description="Delegated mode is blocked pending the verified I0 contract."
+    )
     foundry_account_name: str
     foundry_project_name: str
     a2a_target_agent_name: str = Field(description="The one hosted agent this façade fronts.")

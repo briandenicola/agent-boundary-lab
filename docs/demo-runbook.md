@@ -19,6 +19,14 @@ test of these new wrappers. For standup, see [`rebuild-runbook.md`](rebuild-runb
 
 ## Presenter one-pager (A2A path), written 2026-10-09
 
+**Issue #4 update (2026-10-16):** identity code is not deployed. The existing presenter
+path below remains shared-token/port-forwarded, not Entra-authenticated. Owner-run
+interactive directory checks and `task identity:test` are documented in
+[`identity-probe.md`](identity-probe.md). A directory lifecycle pass or policy API
+401/403 is identity evidence only. Do not enable policy authentication on the existing
+demo until the policy-token transport and delegated Foundry gate are proven; otherwise
+the positive control stops working. No public identity rollout is authorized here.
+
 Labels: **TESTED** = we ran it and saw the result (2026-10-09); **PROPOSED** = designed, not
 yet shown. Everything in 1-4 is TESTED unless marked. The numbered sections below this page
 are the older audit procedure (**superseded where they conflict**: Sections B/C are implemented

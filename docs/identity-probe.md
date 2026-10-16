@@ -1,8 +1,9 @@
 # Issue #4: delegated Foundry authentication probe
 
-**2026-10-16: code and offline checks only. Full identity setup remains blocked.**
-No new Entra identities, consent, RBAC, probe user-token acquisitions, Kubernetes workloads,
-or hosted invocations have been performed for this work. This is the first part
+**2026-10-16: independent code/offline checks; full identity setup remains blocked.**
+The owner completed the isolated Graph sign-in/read check. No Agent ID directory lifecycle,
+probe grants/RBAC, identity Kubernetes workloads or hosted identity invocation has run.
+This is the first part
 of [I0](PLAN.md#i0--compatibility-and-identity-contract-first-gate), not an identity rollout.
 Existing hosted agents, policies, images and both business tools are unchanged.
 
@@ -94,6 +95,8 @@ description, then deletes those objects in reverse dependency order and checks t
 each typed resource is absent. A completed check reports `directory_lifecycle: pass`,
 **not** Foundry delegation or containment success; `i0_complete` stays false.
 No live result has been collected.
+Graph deletion removes active objects but retains recoverable deleted objects for up to
+30 days; this check does not permanently purge those tombstones.
 
 First, review the offline plan:
 
@@ -155,6 +158,62 @@ cleanup, retain the journal as private evidence; use a new journal for another a
 run, for example `task identity:directory-probe STATE=.identity-probe/directory-2.json`.
 Pass that same `STATE` to `identity:directory-cleanup` if needed. The default Task
 targets deliberately refuse to overwrite an existing journal.
+
+## Independent policy API identity code (not deployed)
+
+The policy API now has an explicit, disabled-by-default `delegated` mode. Both
+`/policy` and `/policy/{run_id}` use the same shared validator as the I0 probe.
+`/healthz` remains liveness-only and unauthenticated. The receiver is unchanged.
+
+The validator checks an RS256 signature using the configured tenant's fixed Microsoft
+signing-key endpoint, issuer, exact audience, expiry/not-before, tenant, user object ID,
+delegated scope and OAuth client. App-only tokens and forged identity headers do not
+work. A separate configured user-ID set restricts access after authentication.
+This is an implemented authorization option, **not an owner-approved rollout mapping**.
+An authenticated tenant user is not automatically permitted.
+
+| Result | Meaning |
+| --- | --- |
+| 200 | A permitted user/client/scope can read synthetic policy. |
+| 401 + `WWW-Authenticate: Bearer` | Missing or invalid delegated credentials. |
+| 403 | Insufficient scope, untrusted OAuth client, or user not authorized. |
+| 503 | Signing keys unavailable/invalid; no stale-key or application-token fallback. |
+
+Public signing keys alone are cached, for at most five minutes; unknown-key refresh is
+throttled to thirty seconds. Key fetches verify TLS, use a five-second timeout and
+disable redirects. No user/token/session cache or mutable global authorization header
+exists. Request credentials have redacted representations; session-user keys are
+tenant-qualified hashes rather than raw user IDs.
+
+Review the commented `POLICY_API_*` placeholders in `.env.example`. All values are
+required to enable delegated mode. Partial configuration, invalid IDs or an unknown mode
+fail startup instead of falling back to the legacy API. Client IDs must be the **verified
+OAuth client IDs** established by I0, not assumed Agent Identity or managed-identity IDs.
+The API's audience/scope must be its own published contract, never the Foundry audience.
+The policy image installs the pinned `policy-identity` profile from `pyproject.toml`;
+`uv.lock` records the dependency resolution. No hosted-agent image has been rebuilt or replaced.
+
+Policy authentication failures emit `authorization_decision`, not success receipts.
+These records contain safe error categories and run markers, never tokens, claim dumps
+or real user/client IDs. Policy access logging is disabled; structured logs sanitize
+untrusted path/run markers. Responses in protected mode are not cacheable.
+
+Run all offline identity checks with:
+
+```bash
+task identity:test
+```
+
+They use generated signing keys, fake Graph, and mocked HTTPS. No login, consent,
+Azure call or deployment occurs. The private probe's source projection now includes
+the shared validator; no hosted image rebuild is needed merely to prepare that probe.
+
+**Still blocked:** public browser login requires the owner's hostname, certificate and
+PKCE-versus-server-session choice. The delegated Foundry bearer, policy-token transport
+and authenticated agent provenance still require I0. The harness and facade explicitly
+reject `HARNESS_AUTH_MODE=delegated` and `DEMO_A2A_AUTH_MODE=delegated` at startup rather
+than silently using shared credentials. No identity deployment target or ingress has
+been enabled. Existing legacy mode remains for the private, port-forwarded demo only.
 
 ## Remaining full-setup blocker
 

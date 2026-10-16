@@ -264,6 +264,30 @@ def test_token_files_are_private(tmp_path: Path) -> None:
         probe.read_token(token)
 
 
+def test_projected_probe_source_includes_shared_validator(
+    config: probe.Config, tmp_path: Path
+) -> None:
+    rendered = probe.manifest(config, (ROOT / "src/containment_demo/identity_probe.py").read_text())
+    data = rendered["items"][1]["data"]
+    volumes = rendered["items"][2]["spec"]["template"]["spec"]["volumes"]
+    projected = next(volume for volume in volumes if volume["name"] == "source")
+    for item in projected["configMap"]["items"]:
+        destination = tmp_path / item["path"]
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(data[item["key"]])
+    result = subprocess.run(  # noqa: S603 - local copied source and fixed --help only
+        [sys.executable, str(tmp_path / "probe.py"), "--help"],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "containment_demo/delegated_auth.py").is_file()
+
+
 def test_manifest_is_private_and_finite(config: probe.Config) -> None:
     rendered = probe.manifest(config, "# synthetic probe source")
     assert {item["kind"] for item in rendered["items"]} == {"Job", "ConfigMap", "ServiceAccount"}

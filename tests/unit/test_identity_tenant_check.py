@@ -77,6 +77,7 @@ function Invoke-MgGraphRequest {
     if ($env:MOCK_ACTION -ne 'Check') {
         if ($Uri.OriginalString -ceq 'https://graph.microsoft.com/v1.0/me?$select=id') {
             Record 'get_operator'
+            if ($env:MOCK_CASE -eq 'operator_mismatch') { return @{ id = $env:MOCK_OTHER } }
             return @{ id = '00000000-0000-4000-8000-000000000004' }
         }
         if ($Uri.Host -cne 'graph.microsoft.com' -or $Uri.Scheme -cne 'https' -or
@@ -356,9 +357,7 @@ def test_interactive_lifecycle_reuses_python_engine(
 def test_uncertain_interactive_post_stops_without_retry(
     sdk: tuple[dict[str, str], Path],
 ) -> None:
-    result, calls = execute(
-        sdk, "uncertain_creation", action="Run", mutation_approved=True
-    )
+    result, calls = execute(sdk, "uncertain_creation", action="Run", mutation_approved=True)
     assert result.returncode == 2, result.stdout + result.stderr
     report = json.loads(result.stdout)
     assert report["directory_lifecycle"] == "inconclusive"
@@ -367,6 +366,23 @@ def test_uncertain_interactive_post_stops_without_retry(
     journal = json.loads((sdk[1].parent / "directory.json").read_text())
     assert journal["pending"] == "blueprint"
     assert "synthetic-private" not in result.stdout + result.stderr
+
+
+def test_cleanup_rejects_a_different_signed_in_operator(
+    sdk: tuple[dict[str, str], Path],
+) -> None:
+    initial, calls = execute(sdk, action="Run", mutation_approved=True)
+    assert initial.returncode == 0, initial.stdout + initial.stderr
+    result, observed = execute(sdk, "operator_mismatch", action="Cleanup", mutation_approved=True)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert json.loads(result.stdout)["detail"] == "directory_interactive_operator_mismatch"
+    assert observed[len(calls) :] == [
+        "connect",
+        "context",
+        "configure_transport",
+        "get_operator",
+        "disconnect",
+    ]
 
 
 def test_no_active_roles_is_not_agent_id_proof(sdk: tuple[dict[str, str], Path]) -> None:

@@ -173,9 +173,9 @@ tasks:
       - terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" destroy -input=false
 
   test:
-    desc: Run offline I0 tests; no token acquisition, Azure, cluster access or model calls
+    desc: Run offline identity and policy authorization tests; no token acquisition, Azure, cluster access or model calls
     cmds:
-      - '"{{.ROOT_DIR}}/.venv/bin/python" -m pytest "{{.ROOT_DIR}}/tests/unit/test_identity_probe.py" "{{.ROOT_DIR}}/tests/unit/test_identity_directory.py" "{{.ROOT_DIR}}/tests/unit/test_identity_tenant_check.py" -q'
+      - '"{{.ROOT_DIR}}/.venv/bin/python" -m pytest "{{.ROOT_DIR}}/tests/unit/test_identity_probe.py" "{{.ROOT_DIR}}/tests/unit/test_identity_directory.py" "{{.ROOT_DIR}}/tests/unit/test_identity_tenant_check.py" "{{.ROOT_DIR}}/tests/unit/test_delegated_auth.py" "{{.ROOT_DIR}}/tests/unit/test_policy_identity.py" "{{.ROOT_DIR}}/tests/unit/test_identity_rollout_gate.py" -q'
 
   sdk-test:
     desc: Download pinned probe-only SDKs into an isolated environment, then run mocked SDK tests; never contacts Azure

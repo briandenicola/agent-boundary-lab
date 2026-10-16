@@ -22,7 +22,8 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import httpx
-import jwt
+
+from containment_demo.delegated_auth import AuthError, TokenContract, decode_delegated
 
 FOUNDRY_SCOPE = "https://ai.azure.com/.default"
 INPUT_SCOPE = "access_as_user"
@@ -174,41 +175,12 @@ def delegated_claims(
     client_id: str,
 ) -> None:
     try:
-        header = jwt.get_unverified_header(token)
-        matches = [
-            key
-            for key in keys["keys"]
-            if key.get("kid") == header.get("kid")
-            and key.get("kty") == "RSA"
-            and key.get("use", "sig") == "sig"
-        ]
-        if not header.get("kid") or len(matches) != 1 or header.get("alg") != "RS256":
-            raise ProbeError("token_signing_key_or_algorithm_rejected")
-        key = jwt.PyJWK.from_dict(matches[0], algorithm="RS256")
-        claims = jwt.decode(
-            token,
-            key.key,
-            algorithms=["RS256"],
-            audience=audience,
-            issuer=[
-                f"https://login.microsoftonline.com/{config.tenant_id}/v2.0",
-                f"https://sts.windows.net/{config.tenant_id}/",
-            ],
-            options={"require": ["exp", "nbf", "aud", "iss", "tid", "oid", "scp"]},
+        user = decode_delegated(
+            token, keys, TokenContract(config.tenant_id, audience, scope, frozenset({client_id}))
         )
-        if (
-            claims["tid"] != config.tenant_id
-            or claims["oid"] != user_id
-            or claims.get("idtyp") == "app"
-            or not isinstance(claims["scp"], str)
-            or scope not in claims["scp"].split()
-            or claims.get("azp", claims.get("appid")) != client_id
-            or ("appid" in claims and claims["appid"] != client_id)
-            or not isinstance(claims["exp"], (float, int))
-            or not isinstance(claims["nbf"], (float, int))
-        ):
+        if user.object_id != user_id:
             raise ProbeError("delegated_user_scope_or_client_mismatch")
-    except (jwt.PyJWTError, KeyError, TypeError, ValueError):
+    except AuthError:
         raise ProbeError("token_signature_or_claims_rejected") from None
 
 
@@ -476,7 +448,11 @@ def manifest(config: Config, source: str) -> dict[str, Any]:
                 "apiVersion": "v1",
                 "kind": "ConfigMap",
                 "metadata": {"name": name, "namespace": config.namespace, "labels": labels},
-                "data": {"probe.py": source},
+                "data": {
+                    "probe.py": source,
+                    "delegated_auth.py": Path(__file__).with_name("delegated_auth.py").read_text(),
+                    "__init__.py": "",
+                },
             },
             {
                 "apiVersion": "batch/v1",
@@ -553,7 +529,23 @@ def manifest(config: Config, source: str) -> dict[str, Any]:
                                 }
                             ],
                             "volumes": [
-                                {"name": "source", "configMap": {"name": name}},
+                                {
+                                    "name": "source",
+                                    "configMap": {
+                                        "name": name,
+                                        "items": [
+                                            {"key": "probe.py", "path": "probe.py"},
+                                            {
+                                                "key": "delegated_auth.py",
+                                                "path": "containment_demo/delegated_auth.py",
+                                            },
+                                            {
+                                                "key": "__init__.py",
+                                                "path": "containment_demo/__init__.py",
+                                            },
+                                        ],
+                                    },
+                                },
                                 {
                                     "name": "identity",
                                     "secret": {"secretName": name, "defaultMode": 0o440},

@@ -19,6 +19,11 @@ def _env(*names: str) -> AliasChoices:
 class HarnessSettings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
 
+    auth_mode: Literal["legacy"] = Field(
+        default="legacy",
+        validation_alias=_env("HARNESS_AUTH_MODE"),
+        description="Delegated mode is blocked pending I0 and the browser login contract.",
+    )
     local_model_base_url: str = Field(validation_alias=_env("LOCAL_MODEL_BASE_URL"))
     local_model_name: str = Field(
         default="qwen2.5-3b-instruct", validation_alias=_env("LOCAL_MODEL_NAME")

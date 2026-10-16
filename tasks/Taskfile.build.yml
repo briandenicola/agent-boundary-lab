@@ -66,9 +66,9 @@ tasks:
     cmds:
       # TWO images from ONE Dockerfile. services/Dockerfile resolves the app at build
       # time, so a running container cannot be repointed at the other service; building
-      # both from the same file keeps them from drifting apart in base layer or
-      # dependency version, which is what makes the policy API's success a usable control
-      # for the receiver's silence.
+      # both from the same file preserves the shared base. Only policy_api adds the
+      # identity dependency profile; the receiver remains unauthenticated. Identity
+      # denial is not a successful policy control for a containment run.
       - |
         set -eu
         ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)

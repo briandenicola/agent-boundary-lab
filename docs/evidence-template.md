@@ -13,6 +13,15 @@ completed record and its verdict does not count.**
 
 Three verdicts exist: **pass**, **fail**, **inconclusive**. There is no fourth.
 
+**Identity extension (issue #4; not deployed):** keep a separate identity verdict and
+use synthetic actor aliases, never user IDs, bearer tokens or claim dumps. Record the
+policy image/revision and whether `POLICY_API_AUTH_MODE=delegated` actually ran.
+Collect the browser-login, delegated Foundry invocation and policy authorization results
+separately; uncollected hops are **inconclusive**. A policy 401/403 is not platform egress
+denial. A containment run without an authorized successful policy call has lost its
+positive control and cannot pass. A temporary directory lifecycle pass closes none of
+these runtime checks. See [`identity-probe.md`](identity-probe.md) for current blockers.
+
 ---
 
 ## 1. Run identity

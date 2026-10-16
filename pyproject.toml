@@ -67,6 +67,11 @@ services = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
 ]
+policy-identity = [
+    "httpx==0.28.1",
+    "PyJWT[crypto]==2.15.1",
+    "cryptography==50.0.2",
+]
 # Only needed to export traces from a LOCAL run. The hosted container does not use it:
 # the agent server host owns telemetry configuration there, so shipping this in the
 # agent image would add weight for no benefit.

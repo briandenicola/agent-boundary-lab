@@ -100,6 +100,21 @@ Primary references, accessed **2026-10-15**:
 - [Hosted-agent runtime contract](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agent-contract).
 - [Foundry agent identity concepts](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/agent-identity).
 
+**Independent runtime code, 2026-10-16:** `delegated_auth.py` is shared by the I0 probe
+and the policy API's opt-in identity mode. Real-signature tests cover issuer/tenant,
+audience, expiry, not-before, delegated scope, client and user checks; HTTP signing-key
+fetches are mocked. Both policy routes are protected in this mode; the receiver and
+hosted tools are unchanged. Pins: PyJWT **2.15.1**, cryptography **50.0.2**, httpx
+**0.28.1**, resolved in `uv.lock`. The policy image reads these pins from the
+`policy-identity` extra. No image build, publication, deployment or hosted identity
+observation is claimed. API client authorization does not prove the hosted agent's
+identity or an end-to-end delegation chain.
+
+Primary token-validation reference, accessed **2026-10-16**:
+[Microsoft identity platform access tokens](https://learn.microsoft.com/en-us/entra/identity-platform/access-tokens).
+This reference distinguishes custom API token validation from Microsoft-owned API token
+formats. Our custom API validator does not establish Foundry's unverified token contract.
+
 ---
 
 ## A. Hosted agents

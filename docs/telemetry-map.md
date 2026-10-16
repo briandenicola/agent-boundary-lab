@@ -12,6 +12,16 @@ Every row below is exactly one of:
 There is no third state. A plausible-looking KQL column that returns nothing is worse than
 no query at all, because the audience concludes the platform did nothing.
 
+**Issue #4 application schema (2026-10-16): SOURCE/OFFLINE VERIFIED, HOSTED NOT VERIFIED.**
+In opt-in policy identity mode, startup emits JSON `event=identity_configuration`,
+`auth_mode=delegated`, `determination=identity_only`. Authentication/authorization failures
+emit `event=authorization_decision`, `outcome=denied` or `unavailable`, `auth_error`,
+`determination=identity_only`, and the existing `service`, `received_at`, `demo_run_id`,
+`method`, `path` metadata. They are not `event=receipt, outcome=served`.
+Paths/run markers are sanitized; no raw user/client IDs, bearer or claims are emitted.
+These are application JSON properties, **not verified Azure table/column names**.
+Ingestion, actor-alias correlation and the hosted multi-hop identity chain remain unobserved.
+
 **Live resources used for verification (read-only):**
 
 | Thing | Value |
