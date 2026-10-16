@@ -79,6 +79,15 @@ The exact Foundry delegated grant and sidecar image/federation remain unverified
 See [the directory check](identity-probe.md#sdk-backed-directory-lifecycle-check) for
 prerequisites, cleanup and primary references, accessed **2026-10-16**.
 
+**Interactive preparation, 2026-10-16:** `identity:graph-init` and
+`identity:tenant-check TENANT_ID=...` add an explicitly selected, process-scoped Graph
+PowerShell sign-in and read-only role check for the owner's separate test tenant.
+PowerShell 7.6.6 executed the script against a local fake SDK; the pinned
+Microsoft.Graph.Authentication 2.36.1 package is published but not installed or
+live-tested by this work. No login, consent or tenant query was run.
+The existing Python lifecycle check still uses a certificate; interactive lifecycle
+integration and Agent ID availability remain unverified.
+
 Primary references, accessed **2026-10-15**:
 
 - [Entra authentication SDK sidecar](https://learn.microsoft.com/en-us/entra/agent-id/authentication-with-auth-sdk-sidecar).

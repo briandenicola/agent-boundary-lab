@@ -9,6 +9,26 @@ vars:
   DIRECTORY_STATE: '{{default ".identity-probe/directory.json" .STATE}}'
 
 tasks:
+  graph-init:
+    desc: Install pinned Microsoft Graph Authentication SDK for PowerShell; no sign-in or tenant access
+    prompt: Download Microsoft.Graph.Authentication 2.36.1 from PowerShell Gallery into your current user's PowerShell modules? No Azure or Entra access.
+    preconditions:
+      - sh: command -v pwsh >/dev/null
+        msg: PowerShell 7.4 or newer is required.
+    cmds:
+      - pwsh -NoLogo -NoProfile -NonInteractive -Command "Install-Module Microsoft.Graph.Authentication -RequiredVersion 2.36.1 -Scope CurrentUser -Repository PSGallery -Force -ErrorAction Stop"
+
+  tenant-check:
+    desc: Interactive, process-only Graph sign-in and read-only active role check; Azure CLI context is untouched
+    requires:
+      vars: [TENANT_ID]
+    prompt: Sign in to tenant {{.TENANT_ID}} and read your active directory roles? Review any consent for User.Read and RoleManagement.Read.Directory. No directory write permissions, Agent ID objects or Azure resources are requested.
+    preconditions:
+      - sh: command -v pwsh >/dev/null
+        msg: PowerShell 7.4 or newer is required.
+    cmds:
+      - pwsh -NoLogo -NoProfile -File "{{.ROOT_DIR}}/scripts/identity_tenant_check.ps1" -TenantId "{{.TENANT_ID}}" -ApproveRead
+
   directory-plan:
     desc: Show the SDK-backed Agent ID lifecycle check and required grants offline; no login or Azure calls
     cmds:
@@ -138,7 +158,7 @@ tasks:
   test:
     desc: Run offline I0 tests; no token acquisition, Azure, cluster access or model calls
     cmds:
-      - '"{{.ROOT_DIR}}/.venv/bin/python" -m pytest "{{.ROOT_DIR}}/tests/unit/test_identity_probe.py" "{{.ROOT_DIR}}/tests/unit/test_identity_directory.py" -q'
+      - '"{{.ROOT_DIR}}/.venv/bin/python" -m pytest "{{.ROOT_DIR}}/tests/unit/test_identity_probe.py" "{{.ROOT_DIR}}/tests/unit/test_identity_directory.py" "{{.ROOT_DIR}}/tests/unit/test_identity_tenant_check.py" -q'
 
   sdk-test:
     desc: Download pinned probe-only SDKs into an isolated environment, then run mocked SDK tests; never contacts Azure

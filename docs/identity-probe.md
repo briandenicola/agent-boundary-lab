@@ -6,6 +6,45 @@ or hosted invocations have been performed for this work. This is the first part
 of [I0](PLAN.md#i0--compatibility-and-identity-contract-first-gate), not an identity rollout.
 Existing hosted agents, policies, images and both business tools are unchanged.
 
+## Isolated interactive tenant check
+
+For the owner-selected separate tenant, first run:
+
+```bash
+task identity:graph-init
+task identity:tenant-check TENANT_ID=REPLACE-other-tenant-uuid
+```
+
+The first command prompts before installing **Microsoft.Graph.Authentication 2.36.1**
+for the current user. PowerShell **7.4+** is required (offline script checks run with
+**7.6.6**). The module version is pinned to its published PowerShell Gallery package;
+the actual Graph SDK has not been installed or exercised by this preparation.
+
+The second command prompts before device-code sign-in. Complete sign-in yourself with
+the account in the requested tenant; review any consent for **User.Read** and
+**RoleManagement.Read.Directory**. On first use, Microsoft may provision the Graph
+Command Line Tools enterprise application and record your consent. The script does
+not grant permissions programmatically, request directory-write scopes, create Agent ID
+objects, access an Azure subscription, or deploy resources.
+
+The Graph context is explicitly `Process`-scoped, checked for the requested tenant and
+delegated authentication before the read, and disconnected afterward. The command does
+not call `az login`, change the Azure CLI subscription/tenant, read a credential file,
+or export tokens. There is no reusable authenticated session for subsequent Python
+commands. Share the redacted JSON result, not credentials or device codes.
+
+The one Graph GET reads the signed-in user's active directory-role memberships with
+the documented advanced-query header/count. Output includes only relevant built-in
+role names, SDK/runtime versions and verdicts, never account identifiers or full Graph
+responses. Limited role metadata or additional pages are **inconclusive**, not evidence
+of missing roles. PIM eligibility and Agent ID service availability are not evaluated.
+Successful sign-in is not proof of Agent ID provisioning or Foundry compatibility.
+
+**Current boundary:** this is sign-in/read-only preparation, validated with a local
+fake Graph module. The certificate-based directory lifecycle check below has not yet
+been adapted to interactive Graph authentication; do not run it expecting this login
+to supply credentials. Temporary identity creation requires separate owner approval.
+
 ## SDK-backed directory lifecycle check
 
 The owner approved using documented Graph APIs/SDKs where Terraform cannot represent
@@ -247,6 +286,11 @@ client-side last-applied annotation containing a second token copy.
 
 Accessed **2026-10-16**:
 
+- [Connect-MgGraph interactive authentication and process context](https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.authentication/connect-mggraph?view=graph-powershell-1.0),
+  [Invoke-MgGraphRequest](https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.authentication/invoke-mggraphrequest?view=graph-powershell-1.0),
+  and [pinned Graph Authentication package](https://www.powershellgallery.com/packages/Microsoft.Graph.Authentication/2.36.1).
+- [Read signed-in user memberships and limited metadata](https://learn.microsoft.com/en-us/graph/api/user-list-transitivememberof?view=graph-rest-1.0)
+  and [directory-role read permission](https://learn.microsoft.com/en-us/graph/api/directoryrole-get?view=graph-rest-1.0).
 - [Sidecar endpoints and health](https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/endpoints).
 - [Agent identity interactive pattern 4](https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/agent-identities).
 - [Create blueprint](https://learn.microsoft.com/en-us/graph/api/agentidentityblueprint-post?view=graph-rest-1.0)
