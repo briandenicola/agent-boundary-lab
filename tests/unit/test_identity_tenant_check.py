@@ -36,8 +36,11 @@ function Connect-MgGraph {
         throw 'Unexpected sign-in request.'
     }
     Record 'connect'
+    if ($env:MOCK_CASE -eq 'device_code') {
+        'synthetic-device-code-instructions'
+    }
     if ($env:MOCK_CASE -eq 'signin_error') {
-        throw 'synthetic-private-bearer-do-not-log'
+        throw 'AADSTS65001 synthetic-private-bearer-do-not-log'
     }
 }
 function Get-MgContext {
@@ -119,6 +122,8 @@ def sdk(tmp_path: Path) -> tuple[dict[str, str], Path]:
     environment = {
         **os.environ,
         "PSModulePath": str(module_root),
+        "MOCK_MODULE_ROOT": str(module_root),
+        "MOCK_SCRIPT": str(SCRIPT),
         "MOCK_TENANT": TENANT,
         "MOCK_OTHER": OTHER,
         "MOCK_LOG": str(log),
@@ -131,13 +136,20 @@ def execute(
     sdk: tuple[dict[str, str], Path], case: str = "success", *, approved: bool = True
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     environment, log = sdk
-    command = [str(POWERSHELL), "-NoLogo", "-NoProfile", "-NonInteractive", "-File", str(SCRIPT)]
-    command.extend(["-TenantId", TENANT])
-    if approved:
-        command.append("-ApproveRead")
+    command = [
+        str(POWERSHELL),
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "$env:PSModulePath = $env:MOCK_MODULE_ROOT + "
+        "[IO.Path]::PathSeparator + (Join-Path $PSHOME 'Modules'); "
+        "& $env:MOCK_SCRIPT -TenantId $env:MOCK_TENANT "
+        "-ApproveRead:($env:MOCK_APPROVED -eq 'true'); exit $LASTEXITCODE",
+    ]
     result = subprocess.run(  # noqa: S603 - fixed executable and repository script, no shell
         command,
-        env={**environment, "MOCK_CASE": case},
+        env={**environment, "MOCK_CASE": case, "MOCK_APPROVED": str(approved).lower()},
         capture_output=True,
         text=True,
         timeout=30,
@@ -214,6 +226,8 @@ def test_incomplete_or_wrong_context_never_passes(
     assert observed == calls
     assert "synthetic-private" not in result.stdout + result.stderr
     assert "private-id" not in result.stdout + result.stderr
+    if case == "signin_error":
+        assert report["aadsts_codes"] == ["AADSTS65001"]
 
 
 def test_explicit_approval_before_signin(sdk: tuple[dict[str, str], Path]) -> None:
@@ -221,6 +235,15 @@ def test_explicit_approval_before_signin(sdk: tuple[dict[str, str], Path]) -> No
     assert result.returncode == 2
     assert json.loads(result.stdout)["detail"] == "explicit_read_approval_required"
     assert calls == []
+
+
+def test_device_code_instructions_are_visible(sdk: tuple[dict[str, str], Path]) -> None:
+    result, calls = execute(sdk, "device_code")
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert "synthetic-device-code-instructions" in result.stdout
+    report = json.loads(result.stdout.split("synthetic-device-code-instructions", 1)[1].strip())
+    assert report["tenant_check"] == "pass"
+    assert calls == ["connect", "context", "get_roles", "disconnect"]
 
 
 def test_no_active_roles_is_not_agent_id_proof(sdk: tuple[dict[str, str], Path]) -> None:

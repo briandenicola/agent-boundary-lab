@@ -32,6 +32,9 @@ delegated authentication before the read, and disconnected afterward. The comman
 not call `az login`, change the Azure CLI subscription/tenant, read a credential file,
 or export tokens. There is no reusable authenticated session for subsequent Python
 commands. Share the redacted JSON result, not credentials or device codes.
+Device-code instructions are displayed directly to the terminal, not discarded by
+`Out-Null`. Failures include an exception type and any `AADSTS` numeric error codes;
+raw exception messages, tokens and claims remain suppressed.
 
 The one Graph GET reads the signed-in user's active directory-role memberships with
 the documented advanced-query header/count. Output includes only relevant built-in

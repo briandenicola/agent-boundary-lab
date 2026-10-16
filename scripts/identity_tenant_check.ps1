@@ -45,7 +45,7 @@ try {
     $scopes = @('User.Read', 'RoleManagement.Read.Directory')
     Connect-MgGraph -TenantId $TenantId -Scopes $scopes `
         -ContextScope Process -Environment Global -UseDeviceCode `
-        -ClientTimeout 30 -NoWelcome | Out-Null
+        -ClientTimeout 30 -NoWelcome | Out-Host
 
     $context = Get-MgContext
     $stage = 'graph_context_must_be_process_scoped'
@@ -107,8 +107,13 @@ try {
         $exitCode = 0
     }
 } catch {
-    # SDK errors can contain claims or response bodies; expose only our fixed stage.
+    # Show useful error identifiers without logging exception messages or claims.
     $report.detail = $stage
+    $report.error_type = $_.Exception.GetType().FullName
+    $report.aadsts_codes = @(
+        [regex]::Matches($_.Exception.ToString(), 'AADSTS[0-9]{4,9}(?![0-9])') |
+            ForEach-Object { $_.Value } | Sort-Object -Unique
+    )
 } finally {
     if ($disconnect) {
         try {
