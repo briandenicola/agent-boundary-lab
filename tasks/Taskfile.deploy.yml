@@ -10,7 +10,6 @@ includes:
 tasks:
   all:
     desc: CHANGES AZURE AND AKS. Deploy all applications, Secrets and agent model grants; no builds or infrastructure provisioning
-    prompt: Deploy all six application components into the existing cloud environment, including Secrets and model-access grants? Run cloud:up and build:all first.
     cmds:
       - task: tool-apis
       - task: foundry-agent
@@ -21,7 +20,6 @@ tasks:
 
   tool-apis:
     desc: CHANGES AZURE. Update both existing Container Apps; refuse non-application Terraform changes
-    prompt: Plan and apply updates to the two controlled tool APIs only? Infrastructure must already exist.
     vars:
       REGION: '{{default .DEFAULT_REGION .CLI_ARGS}}'
     cmds:
@@ -64,7 +62,6 @@ tasks:
 
   foundry-agent:
     desc: CHANGES AKS AND FOUNDRY. Publish both same-digest agent versions, wait, then grant model access
-    prompt: Publish both Foundry agents through the AKS helper and grant their identities model access?
     cmds:
       - task: _namespace
       - task: :cloud:harness-up
@@ -76,14 +73,12 @@ tasks:
 
   model-server:
     desc: CHANGES AKS. Deploy the CPU Qwen/llama.cpp model server
-    prompt: Deploy the model server into the existing cluster?
     cmds:
       - task: _namespace
       - task: :model-server:up
 
   test-ui:
     desc: CHANGES AKS. Create required Secrets and deploy the two-button page and shared ServiceAccount
-    prompt: Create or preserve the test UI and bridge Secrets, then deploy the test UI?
     cmds:
       - task: _namespace
       - task: :agent-bridge:secret
@@ -92,7 +87,6 @@ tasks:
 
   agent-bridge:
     desc: CHANGES AKS. Create the bridge Secret and deploy both A2A-to-Foundry bridge slots
-    prompt: Create or preserve the bridge Secret and deploy both bridge slots? Deploy test-ui first for its shared ServiceAccount.
     cmds:
       - task: _namespace
       - task: :agent-bridge:secret
@@ -100,7 +94,6 @@ tasks:
 
   chat-agent:
     desc: CHANGES AKS. Create required Secrets and deploy the browser chat agent
-    prompt: Create or preserve the chat and bridge Secrets, then deploy the chat agent? Deploy model-server and agent-bridge first.
     cmds:
       - task: _namespace
       - task: :agent-bridge:secret

@@ -276,8 +276,12 @@ task deploy:all
 ```
 
 `deploy:all` requires completed infrastructure and the kubeconfig context named for the
-Terraform AKS cluster. It does **not** call `cloud:up` or any build. Existing prompts remain;
-`--yes` explicitly accepts them for noninteractive use. The sequence is:
+Terraform AKS cluster. It does **not** call `cloud:up` or any build. Running
+`deploy:all` or a component deployment is authorization to perform that deployment:
+the deployment chain has no confirmation prompts and needs no `--yes`. Infrastructure,
+destructive operations, separate identity/consent tasks and the large model image build
+retain their existing confirmations. Deployment preflights and plan guards still apply.
+The sequence is:
 
 | Order | Build command | Deploy command | Meaning and dependencies |
 | --- | --- | --- | --- |

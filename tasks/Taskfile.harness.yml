@@ -139,7 +139,6 @@ tasks:
 
   up:
     desc: CHANGES THE CLUSTER. Apply the harness manifests and wait for the rollout
-    prompt: This creates the harness chat service deployment in the cluster (ClusterIP only). Continue?
     cmds:
       - task: _require-kubectl
       - |

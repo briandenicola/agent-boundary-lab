@@ -542,7 +542,6 @@ tasks:
 
   harness-up:
     desc: CHANGES THE CLUSTER. Apply the client harness pod and its deploy init container
-    prompt: This creates the harness pod, whose init container publishes BOTH agent versions to the Foundry data plane. Continue?
     cmds:
       # The init container is what actually creates the agent versions, so this is the step
       # that makes the policies apply to something. Until it has run, both RAI policies

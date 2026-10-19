@@ -151,7 +151,6 @@ tasks:
 
   up:
     desc: CHANGES THE CLUSTER. Apply both facade deployments and wait for the rollouts
-    prompt: This creates two A2A facade deployments (audit, enforced; ClusterIP only). Continue?
     cmds:
       - task: _require-kubectl
       - |

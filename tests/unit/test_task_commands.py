@@ -128,6 +128,34 @@ def test_deploy_all_is_sequential_and_builds_nothing(dry_task) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("file", "name"),
+    [
+        *(("Taskfile.deploy.yml", name) for name in ("all", *COMPONENTS)),
+        ("Taskfile.cloud.yml", "harness-up"),
+        ("Taskfile.local-model.yml", "up"),
+        ("Taskfile.ui.yml", "up"),
+        ("Taskfile.a2a.yml", "up"),
+        ("Taskfile.harness.yml", "up"),
+    ],
+)
+def test_deployment_chain_has_no_confirmation_prompts(file: str, name: str) -> None:
+    assert "prompt:" not in task_body(file, name)
+
+
+@pytest.mark.parametrize(
+    ("file", "name"),
+    [
+        ("Taskfile.cloud.yml", "down"),
+        ("Taskfile.cloud.yml", "bootstrap"),
+        ("Taskfile.cloud.yml", "network-up"),
+        ("Taskfile.local-model.yml", "build"),
+    ],
+)
+def test_separate_operations_keep_their_confirmations(file: str, name: str) -> None:
+    assert "prompt:" in task_body(file, name)
+
+
 @pytest.mark.parametrize("component", COMPONENTS)
 def test_every_component_has_matching_build_and_deploy_commands(dry_task, component: str) -> None:
     dry_task(f"build:{component}")
