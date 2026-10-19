@@ -428,7 +428,7 @@ def test_tasks_keep_directory_probe_separate_from_foundry() -> None:
     assert "directory-plan:" in taskfile
     for target in ("directory-probe", "directory-cleanup"):
         block = taskfile.split(f"  {target}:", 1)[1].split("\n\n  ", 1)[0]
-        assert "prompt:" in block
+        assert "prompt:" not in block
         assert "--approve" in block
         assert "identity_directory" in block
 

@@ -11,6 +11,86 @@ vars:
   SETUP_STATE: '{{default ".identity-probe/setup-state.json" .STATE}}'
 
 tasks:
+  verify:
+    desc: Reuse completed setup; sign in as both test users, wait for I0 verdict, then remove ephemeral credentials
+    cmds:
+      - cd "{{.ROOT_DIR}}" && .venv/bin/python -m containment_demo.identity_verification ready --state "{{.SETUP_STATE}}"
+      - |
+        set -eu
+        cd "{{.ROOT_DIR}}"
+        STATUS=0
+        cleanup() {
+          task identity:verify-cleanup || STATUS=1
+        }
+        trap cleanup EXIT
+        run_probe() {
+          .venv/bin/python -m containment_demo.identity_verification record --reason verification_started &&
+          .venv/bin/python -m containment_demo.identity_verification erase-tokens &&
+          { task identity:login CASE=allowed || {
+            .venv/bin/python -m containment_demo.identity_verification record --reason allowed_login_failed
+            return 1
+          }; } &&
+          { task identity:login CASE=denied || {
+            .venv/bin/python -m containment_demo.identity_verification record --reason denied_login_failed
+            return 1
+          }; } &&
+          { task identity:probe || {
+            .venv/bin/python -m containment_demo.identity_verification record --reason probe_start_failed
+            return 1
+          }; } &&
+          task identity:wait
+        }
+        run_probe || STATUS=$?
+        trap - EXIT
+        cleanup
+        exit "$STATUS"
+
+  wait:
+    desc: Wait at most 660 seconds for probe completion and persist only a redacted verdict
+    cmds:
+      - task: _cluster
+      - |
+        set -eu
+        cd "{{.ROOT_DIR}}"
+        CONFIG=".identity-probe/config.json"
+        NAME=$(jq -er .probe_name "$CONFIG")
+        NS=$(jq -er .namespace "$CONFIG")
+        WAITED=false
+        if kubectl --request-timeout=675s -n "$NS" wait "job/$NAME" \
+          --for=condition=complete --timeout=660s >/dev/null 2>&1; then WAITED=true; fi
+        JOB_STATE=unavailable
+        JOB=$(kubectl --request-timeout=15s -n "$NS" get job "$NAME" -o json 2>/dev/null) || JOB='{}'
+        [ -n "$JOB" ] || JOB='{}'
+        if printf '%s\n' "$JOB" | jq -e '(.status.succeeded // 0) > 0 and (.status.failed // 0) == 0' >/dev/null; then
+          JOB_STATE=succeeded
+        elif printf '%s\n' "$JOB" | jq -e '(.status.failed // 0) > 0' >/dev/null 2>&1; then
+          JOB_STATE=failed
+        elif printf '%s\n' "$JOB" | jq -e '.status | type == "object"' >/dev/null 2>&1; then
+          JOB_STATE=running
+        fi
+        LOGS=$(kubectl --request-timeout=15s -n "$NS" logs "job/$NAME" -c probe --limit-bytes=65536 2>/dev/null) || LOGS=''
+        printf '%s' "$LOGS" | jq -Rs --arg state "$JOB_STATE" --argjson waited "$WAITED" \
+          '{logs: ., job_state: $state, waited: $waited}' |
+          .venv/bin/python -m containment_demo.identity_verification result
+
+  verify-cleanup:
+    desc: Stop the owned probe Job and remove its token Secret; preserve setup and redacted evidence
+    cmds:
+      - cd "{{.ROOT_DIR}}" && .venv/bin/python -m containment_demo.identity_verification erase-tokens
+      - task: _cluster
+      - |
+        set -eu
+        CONFIG="{{.ROOT_DIR}}/.identity-probe/config.json"
+        NAME=$(jq -er .probe_name "$CONFIG")
+        NS=$(jq -er .namespace "$CONFIG")
+        STATUS=0
+        kubectl --request-timeout=75s -n "$NS" delete job "$NAME" --ignore-not-found --wait=true --timeout=60s || STATUS=1
+        kubectl --request-timeout=75s -n "$NS" delete secret "$NAME" --ignore-not-found --wait=true --timeout=60s || STATUS=1
+        if [ "$STATUS" -ne 0 ]; then
+          echo "Credential cleanup incomplete; restore the expected cluster connection and rerun task identity:verify-cleanup." >&2
+        fi
+        exit "$STATUS"
+
   graph-init:
     desc: Install pinned Microsoft Graph Authentication SDK for PowerShell; no sign-in or tenant access
     preconditions:

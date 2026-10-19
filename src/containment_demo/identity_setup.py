@@ -98,7 +98,7 @@ class Inputs:
 def load_inputs(path: Path) -> Inputs:
     if not path.exists():
         raise ProbeError("setup_inputs_missing")
-    with os.fdopen(directory.private_open(path)) as source:
+    with os.fdopen(directory.private_open(path, create=False)) as source:
         return Inputs(**json.load(source))
 
 
@@ -327,7 +327,7 @@ def verify(
 def load(path: Path, inputs: Inputs, settings: directory.Settings) -> dict[str, Any]:
     if not path.exists():
         raise ProbeError("setup_journal_missing")
-    with os.fdopen(directory.private_open(path)) as source:
+    with os.fdopen(directory.private_open(path, create=False)) as source:
         journal = json.load(source)
     if (
         not isinstance(journal, dict)

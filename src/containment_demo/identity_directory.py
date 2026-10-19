@@ -182,8 +182,10 @@ def instance(key: str, object_id: str) -> str:
     return f"{parent}/{identity_id(object_id)}/microsoft.graph.{kind}"
 
 
-def private_open(path: Path) -> int:
-    descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+def private_open(path: Path, *, create: bool = True) -> int:
+    """Apply the same privacy checks to creating writes and noncreating reads."""
+    flags = os.O_RDWR | os.O_CREAT if create else os.O_RDONLY
+    descriptor = os.open(path, flags | os.O_NOFOLLOW, 0o600)
     info = os.fstat(descriptor)
     if (
         not stat.S_ISREG(info.st_mode)
@@ -234,7 +236,7 @@ def save(path: Path, journal: dict[str, Any]) -> None:
 def load(path: Path, settings: Settings) -> dict[str, Any]:
     if not path.exists():
         raise ProbeError("directory_journal_missing")
-    with os.fdopen(private_open(path)) as source:
+    with os.fdopen(private_open(path, create=False)) as source:
         journal = json.load(source)
     if (
         not isinstance(journal, dict)

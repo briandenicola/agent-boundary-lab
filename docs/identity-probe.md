@@ -1,12 +1,70 @@
 # Issue #4: delegated Foundry authentication probe
 
-**2026-10-19: directory lifecycle passed; integrated setup code is ready for owner validation.**
+**2026-10-19: owner reports directory lifecycle passed and integrated setup configured.**
 The owner completed isolated Graph sign-in and reported `directory_lifecycle: pass`
-after creation, read/update verification and cleanup. No hosted identity invocation
-has been reported. This does not establish Foundry delegation or containment.
+after creation, read/update verification and cleanup. The owner subsequently reported
+`tenant_check=pass`, `tenant_verified=true`, `identity_setup=configured`,
+`foundry_delegation=not_evaluated`, and `i0_complete=false` from live `identity:setup`.
+These are owner-reported results, not independently observed delegated invocation evidence.
+No hosted identity invocation has been reported. This does not establish Foundry
+delegation or containment.
 This is the first part
 of [I0](PLAN.md#i0--compatibility-and-identity-contract-first-gate), not an identity rollout.
 Existing hosted agents, policies, images and both business tools are unchanged.
+
+## Run the probe using the completed setup
+
+With the existing private `.identity-probe/setup-state.json` and matching `config.json`,
+the expected AKS context selected, and existing CLI/Python prerequisites available:
+
+```bash
+task identity:verify
+```
+
+This target validates the completed setup **locally without changing it**. It does not
+create identities, apply Terraform, start PowerShell, install modules, or request another
+Graph operator sign-in. It does not silently reuse an operator token or introduce a
+persistent token cache. Missing, partial, unknown-outcome, or mismatched setup is refused;
+verification is not a setup/recovery command.
+
+The two interactive Entra sign-ins are necessary actor transitions: first select the
+configured **allowed synthetic test user**, then the **denied synthetic test user**.
+They obtain distinct test-user tokens, not operator credentials. Actual authentication
+and any consent remain interactive. Earlier advanced Graph commands below each use
+separate process-local sessions; running them separately is not a prerequisite for
+verification and would redundantly request operator authentication.
+
+The target checks the existing context, namespace, Kubernetes 1.33+ requirement and
+resource ownership, starts the isolated probe, and waits at most **660 seconds** for Job
+completion (a failed Job may use that entire wait). API calls and cleanup add bounded
+operation time; this is not a 660-second deadline for the interactive sign-ins.
+Only a successful Job with the probe's complete positive/negative-control evidence can
+report `foundry_delegation=pass`. Failures and inconclusive results return nonzero.
+`i0_complete=false` and `containment=not_evaluated` remain unchanged: this probe does
+not establish the HTTPS UI, downstream delegated policy runtime, or the full I0 gate.
+
+The private, mode-600 `.identity-probe/verification-result.json` contains a redacted
+verdict and fixed reason code; when probe output is available it includes only whitelisted
+case names, stages, verdicts and HTTP statuses, plus validated optional correlation IDs.
+It never contains raw logs, token claims, arbitrary exception text, prompts or responses.
+A new run resets the result before sign-in; a login failure records which test-user
+stage failed. Missing/malformed logs and unsuccessful Job state are not passes.
+
+Normal success and failure paths remove local `allowed.jwt` / `denied.jwt`, stop the
+owned probe Job, and delete its token Secret. The journal/config, Graph identities,
+Azure RBAC, source ConfigMap, ServiceAccount and redacted result remain for reuse.
+Cleanup failure makes the command fail even if the probe passed. If cluster access or
+ownership checks prevent deletion, or execution is forcibly interrupted, remote cleanup
+may remain incomplete. After restoring the expected cluster access, use:
+
+```bash
+task identity:verify-cleanup
+```
+
+That recovery target removes local tokens first and retains all ownership/context guards
+before remote deletion. It does not delete Graph identities. This verification workflow
+is **source/offline tested only**; it has not been freshly deployed or live-verified by
+the assistant. Full workshop up/teardown consolidation remains separate work.
 
 ## Isolated interactive tenant check
 
