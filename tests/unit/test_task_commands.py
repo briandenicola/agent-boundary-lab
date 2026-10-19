@@ -73,6 +73,25 @@ def dry_task(tmp_path: Path):
     return run
 
 
+def test_rebuild_defaults_match_task_and_terraform() -> None:
+    taskfile = (ROOT / "Taskfile.yml").read_text()
+    variables = (ROOT / "infra/cloud/variables.tf").read_text()
+    assert re.search(r"(?m)^  DEFAULT_REGION: swedencentral$", taskfile)
+    for name, expected in (("region", "swedencentral"), ("aks_node_size", "Standard_D4as_v7")):
+        block = re.search(rf'(?ms)^variable "{name}" \{{\n(.*?)^\}}', variables)
+        assert block, name
+        assert re.search(rf'(?m)^  default\s+= "{expected}"$', block[1]), name
+
+
+@pytest.mark.parametrize(
+    "command", ["cloud:plan", "cloud:bootstrap", "cloud:up", "deploy:tool-apis"]
+)
+def test_deployment_tasks_resolve_sweden_central(dry_task, command: str) -> None:
+    commands = dry_task(command)
+    assert "region=swedencentral" in commands
+    assert "region=canadacentral" not in commands
+
+
 def test_build_all_has_all_components_and_no_deployment(dry_task) -> None:
     body = task_body("Taskfile.build.yml", "all")
     assert re.findall(r"- task: ([\w-]+)", body) == list(COMPONENTS)

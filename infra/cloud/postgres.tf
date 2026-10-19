@@ -10,11 +10,9 @@
 # for exposing it.
 #
 # CREATED ONLY WHEN var.enable_state_store IS TRUE, AND IT DEFAULTS TO FALSE. Nothing
-# consumes this server before Phase 8, and some regions -- including eastus2, where the
-# containment demo runs today -- restrict Flexible Server provisioning entirely. Because
-# Flexible Server uses VNet injection, the server is pinned to its subnet's region, so
-# creating it unconditionally would force the whole environment to move for a database no
-# phase uses yet. Turn it on when Phase 8 starts, in a region that allows it.
+# consumes this server before Phase 8. Flexible Server uses VNet injection, so the server
+# is pinned to its subnet's region. Recheck subscription-specific regional capabilities
+# before enabling it; advertised capabilities do not prove private-server provisioning.
 #############################################
 
 resource "azurerm_private_dns_zone" "postgres" {

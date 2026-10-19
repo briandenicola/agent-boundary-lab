@@ -12,7 +12,7 @@
 variable "region" {
   description = "Azure region for the demo environment."
   type        = string
-  default     = "eastus2"
+  default     = "swedencentral"
 }
 
 variable "tags" {
@@ -106,9 +106,9 @@ variable "model_name" {
     no mini variant, so the smallest current option is one minor version behind the
     newest full model.
 
-    Verified in canadacentral on 2026-10-08. Check the SKU before changing this: gpt-5-mini
-    and gpt-5 are GlobalProvisionedManaged ONLY in this region and would fail against the
-    GlobalStandard deployment below.
+    Sweden Central advertises version 2026-03-17 with GlobalStandard in the approved
+    rebuild subscription (read-only check 2026-10-19). Check the exact model version,
+    deployment SKU and subscription quota again before changing region or model.
   EOT
   type        = string
   default     = "gpt-5.4-mini"
@@ -137,9 +137,9 @@ variable "aks_node_count" {
 }
 
 variable "aks_node_size" {
-  description = "VM size for AKS nodes."
+  description = "VM size for AKS nodes. Standard_D4as_v7 provides 4 vCPUs and 16 GiB RAM; subscription eligibility and quota checked in Sweden Central on 2026-10-19, not a deployment guarantee."
   type        = string
-  default     = "Standard_D4s_v3"
+  default     = "Standard_D4as_v7"
 }
 
 variable "kubernetes_version" {
@@ -230,20 +230,14 @@ variable "enable_state_store" {
     and billing, and it adds a resource to every teardown, so it is created when it is
     needed rather than kept warm for a future phase. Set this to true when Phase 8 begins.
 
-    The default region (canadacentral) permits Flexible Server, so this flag is now purely
-    about cost and lifecycle, not availability. It began as an availability workaround:
-    the subscription is restricted from provisioning Flexible Server in eastus2, where the
-    containment environment previously ran, and Flexible Server uses VNet injection rather
-    than a private endpoint, so the server is pinned to its subnet's region and could not
-    simply live elsewhere. That conflict was resolved by moving the whole environment to
-    canadacentral.
+    Sweden Central advertises PostgreSQL 16 and Standard_B1ms in zone 1, with
+    OfferRestricted disabled in the approved rebuild subscription (read-only check
+    2026-10-19). This is capability evidence, not a successful private-server deployment.
+    Flexible Server uses VNet injection, so it must share its subnet's region.
 
-    If the region ever changes again, check availability first. Surveyed 2026-10-08:
-    swedencentral, centralus, westus3, northcentralus and canadacentral were unrestricted;
-    eastus, eastus2, westus2, southcentralus and canadaeast were not. A restricted region
-    reports "The value of the 'Version' should be in: []", which names the wrong cause --
-    check the capabilities API for restricted: Enabled. Neighbouring regions do not share
-    the restriction: canadacentral is clear while canadaeast is not.
+    Recheck subscription-specific capabilities before changing region or enabling the
+    server. The earlier region restrictions recorded in compatibility.md A2a/A2b belong
+    to the previous subscription and are not evidence for this rebuild.
   EOT
   type        = bool
   default     = false

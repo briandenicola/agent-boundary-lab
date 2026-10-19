@@ -109,6 +109,14 @@ verbatim — **control-plane acceptance only** (Blocker 1 stage 1, read back fro
 2026-10-08). Canada Central and Sweden Central pass the egress spike; Canada Central is the
 target because PostgreSQL Flexible Server is restricted in East US 2 (A2a, A2b).
 
+**Rebuild update (2026-10-19):** the owner approved Sweden Central with
+`Standard_D4as_v7` for the new single-tenant subscription after Canada Central rejected
+the AKS VM SKU. Taskfile and cloud Terraform defaults now match. Read-only model/quota,
+compute and PostgreSQL capability results are in
+[`rebuild-runbook.md`](rebuild-runbook.md#sweden-central-rebuild-defaults-approved-2026-10-19).
+The earlier regional restrictions above describe the previous subscription; no completed
+Sweden Central deployment is claimed.
+
 **Preview capability:** network egress controls are preview, no SLA, explicitly not for
 production. Hosted agents are GA with preview sub-features (A1, B1, Blocker 2).
 

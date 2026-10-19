@@ -58,8 +58,34 @@ It does not validate quota, regional feature availability, or prove old state wa
 Review the fresh environment configuration before following Steps 1-5 below. Clear stale
 `ENDPOINT_IMAGE_TAG` and old explicit image-digest overrides for this fresh registry;
 use placeholder endpoints until its images are built. Do not reuse old resource URLs,
-identity IDs or kubeconfig as new-environment inputs. The existing region is only a
-configuration default, not verified availability in the new subscription.
+identity IDs or kubeconfig as new-environment inputs. Exported shell values override
+`.env`; unset any stale exported `ENDPOINT_IMAGE_TAG` as well.
+
+### Sweden Central rebuild defaults (approved 2026-10-19)
+
+Both the root Taskfile and `infra/cloud` now default to `swedencentral`; AKS nodes
+default to `Standard_D4as_v7` (AMD EPYC 9005, 4 vCPUs, 16 GiB RAM). Use the tasks
+without a region argument. Remove stale `TF_VAR_aks_node_size` overrides if the new
+default is intended; explicit Terraform variable files can override defaults too.
+The tenant/subscription configuration and all identity gates remain unchanged.
+
+Read-only checks on 2026-10-19 in the approved rebuild subscription found:
+
+| Requirement | Result |
+| --- | --- |
+| `Standard_D4as_v7` | No subscription restriction; 76 regional vCPUs and 100 family vCPUs available |
+| Foundry hosted agents | Sweden Central listed in Microsoft's [regional support](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agents#region-availability), accessed 2026-10-19 |
+| `gpt-5.4-mini` / `2026-03-17` / `GlobalStandard` | Advertised; quota 1,000, usage 30, leaving 970 deployment units for the configured capacity of 30 |
+| Future PostgreSQL state store | Version 16 and `Standard_B1ms` advertised in zone 1; `OfferRestricted` disabled |
+
+These checks establish advertised support and subscription eligibility, not live capacity,
+successful AKS/private PostgreSQL provisioning, or a completed Sweden Central deployment.
+The optional state store remains disabled.
+
+For the owner's redeployment, run `task lint:tasks`, `task lint:cloud`, then
+`task cloud:plan` before following the infrastructure steps below. If Canada Central
+resources remain in this state, the region change can replace them: review those changes
+before applying. This update does not delete resources, remove state, or migrate anything.
 
 This rebuild establishes the private containment baseline, not completion of issue #4.
 Next prove the delegated Foundry bearer in the same tenant (I0), then implement the
