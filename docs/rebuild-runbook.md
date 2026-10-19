@@ -224,6 +224,31 @@ section "Approval of private endpoints" (including the ACR resource-group Reader
 | --- | --- | --- |
 | 3.1 | `task cloud:kubeconfig` | Run it even if `kubectl` already works. Then confirm you are on OUR cluster: see `demo-runbook.md` §3.0 (P0a to P0c). |
 
+#### Separate Terraform and application deployment operators
+
+Terraform grants its caller AKS Cluster User and Azure Kubernetes Service RBAC Cluster
+Admin. Azure Owner does not itself grant Kubernetes data-plane permissions. If kubectl
+uses a different Entra identity, it needs its own approved cluster-scoped grants.
+
+**Observed 2026-10-19:** namespace patch was denied on the Sweden Central cluster.
+Read-only checks confirmed that the current kubectl object ID differed from the
+principal with Terraform-managed AKS admin access. This was not a cluster provisioning
+failure or a reason to enable local admin credentials.
+
+Configure the approved additional operators in untracked `.env`:
+
+```dotenv
+TF_VAR_aks_operator_object_ids='["REPLACE-approved-operator-object-uuid"]'
+```
+
+Use tenant-local object IDs, not application/client IDs. The default empty set adds
+no grants. Duplicate IDs are collapsed; including the Terraform caller does not create
+duplicate role assignments. Existing caller grants remain declared unchanged.
+Run `task lint:tasks`, `task lint:cloud`, `task cloud:plan`, then `task cloud:up` after
+reviewing the plan. Keep `ENDPOINT_IMAGE_TAG` set to the already-deployed tool API tag.
+The additional access is not live until the owner applies it and Azure propagates the
+assignments. Then retry the application deployment with `task deploy:all`.
+
 ### 4. Images (built in ACR, no local Docker)
 
 ```bash

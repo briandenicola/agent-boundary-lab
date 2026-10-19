@@ -142,6 +142,20 @@ variable "aks_node_size" {
   default     = "Standard_D4as_v7"
 }
 
+variable "aks_operator_object_ids" {
+  description = "Additional Entra object IDs granted AKS Cluster User and RBAC Cluster Admin at cluster scope. The Terraform caller retains its existing grants. Configure approved operators locally, not in tracked files."
+  type        = set(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for id in var.aks_operator_object_ids :
+      can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", id))
+    ])
+    error_message = "aks_operator_object_ids must contain lowercase Entra object UUIDs."
+  }
+}
+
 variable "kubernetes_version" {
   description = <<-EOT
     Kubernetes version. NULL BY DEFAULT, which resolves to the region's latest

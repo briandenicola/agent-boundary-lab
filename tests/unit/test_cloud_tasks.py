@@ -177,6 +177,41 @@ def test_target_check_precedes_any_terraform_work(name: str) -> None:
     assert body.index("- task: target-check") < body.index("- task: _init-once")
 
 
+@pytest.mark.parametrize(
+    ("suffix", "role"),
+    [
+        ("admin", "Azure Kubernetes Service RBAC Cluster Admin"),
+        ("user", "Azure Kubernetes Service Cluster User Role"),
+    ],
+)
+def test_extra_aks_operators_preserve_caller_and_scope(suffix: str, role: str) -> None:
+    content = (INFRA / "aks.tf").read_text()
+    for name, principal in (
+        (f"current_user_aks_{suffix}", "data.azurerm_client_config.current.object_id"),
+        (f"aks_operator_{suffix}", "each.value"),
+    ):
+        block = re.search(
+            rf'(?ms)^resource "azurerm_role_assignment" "{name}" \{{\n(.*?)^\}}', content
+        )
+        assert block, name
+        assert "scope                = azurerm_kubernetes_cluster.main.id" in block[1]
+        assert f'role_definition_name = "{role}"' in block[1]
+        assert f"principal_id         = {principal}" in block[1]
+        if principal == "each.value":
+            assert "for_each = local.additional_aks_operator_object_ids" in block[1]
+    assert re.search(
+        r"additional_aks_operator_object_ids = setsubtract\(\s*"
+        r"var\.aks_operator_object_ids,\s*"
+        r"toset\(\[data\.azurerm_client_config\.current\.object_id\]\),\s*\)",
+        content,
+    )
+    variables = (INFRA / "variables.tf").read_text()
+    block = re.search(r'(?ms)^variable "aks_operator_object_ids" \{\n(.*?)^\}', variables)
+    assert block
+    assert re.search(r"(?m)^  type\s+= set\(string\)$", block[1])
+    assert re.search(r"(?m)^  default\s+= \[\]$", block[1])
+
+
 def test_empty_tag_checks_no_registry_and_does_not_apply(tmp_path: Path) -> None:
     result, calls = run_guard(tmp_path, image_script())
     assert result.returncode == 0

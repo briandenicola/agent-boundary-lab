@@ -118,3 +118,27 @@ resource "azurerm_role_assignment" "current_user_aks_user" {
   role_definition_name = "Azure Kubernetes Service Cluster User Role"
   principal_id         = data.azurerm_client_config.current.object_id
 }
+
+locals {
+  # Avoid creating a second assignment for the caller's existing roles.
+  additional_aks_operator_object_ids = setsubtract(
+    var.aks_operator_object_ids,
+    toset([data.azurerm_client_config.current.object_id]),
+  )
+}
+
+resource "azurerm_role_assignment" "aks_operator_admin" {
+  for_each = local.additional_aks_operator_object_ids
+
+  scope                = azurerm_kubernetes_cluster.main.id
+  role_definition_name = "Azure Kubernetes Service RBAC Cluster Admin"
+  principal_id         = each.value
+}
+
+resource "azurerm_role_assignment" "aks_operator_user" {
+  for_each = local.additional_aks_operator_object_ids
+
+  scope                = azurerm_kubernetes_cluster.main.id
+  role_definition_name = "Azure Kubernetes Service Cluster User Role"
+  principal_id         = each.value
+}
