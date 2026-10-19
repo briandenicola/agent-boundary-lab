@@ -56,7 +56,7 @@ task identity:interactive-probe TENANT_ID=REPLACE-deployment-tenant-uuid
 task identity:interactive-cleanup TENANT_ID=REPLACE-deployment-tenant-uuid
 ```
 
-Both commands prompt before sign-in and directory mutations. Review the delegated Graph
+Both commands start sign-in and directory mutations directly. Review the delegated Graph
 consent request: `User.Read`, `AgentIdentityBlueprint.ReadWrite.All`,
 `AgentIdentityBlueprintPrincipal.ReadWrite.All`, `AgentIdentity.Create.All`,
 `AgentIdentity.Read.All`, and `AgentIdentity.DeleteRestore.All`. These are permissions
@@ -150,7 +150,7 @@ Administrator authority to grant Microsoft Graph application permissions. An Azu
 subscription role alone does not provide it. No privileged deployer or admin consent
 has been created by this work.
 
-After separate owner approval:
+The owner starts the approved lifecycle operation directly:
 
 ```bash
 task identity:directory-probe
@@ -421,8 +421,10 @@ task identity:foundry-contract TENANT_ID=REPLACE-deployment-tenant-uuid
 This requests only `User.Read` and `Application.Read.All`, makes one bounded Graph
 resource query, and prints resource IDs, candidate audiences and enabled delegated scopes.
 No identity, grant, Azure role, cluster workload or hosted call is changed.
-Routine identity tasks have no extra Task confirmation. Entra sign-in and consent still
-apply; identity mutations, billable probes and deletion retain their confirmations.
+Identity tasks have no extra Task confirmations. Explicitly running a mutation, billable
+probe or deletion target authorizes that operation; Terraform apply/destroy also run
+without another confirmation. Entra sign-in and consent still apply. Tenant, context,
+ownership and journal guards remain enforced.
 An absent/ambiguous resource, pagination or no enabled scope is **inconclusive**;
 do not guess a scope or substitute workload authentication.
 
@@ -443,7 +445,8 @@ task identity:down
 task identity:setup-down
 ```
 
-Setup/consent/RBAC and probe execution require separate owner approval. Login uses
+The owner initiates setup/RBAC and probe execution through their respective Task targets;
+the assistant does not run them independently. Entra consent remains interactive. Login uses
 the browser client's localhost callback (`http://localhost:8400`), validates the chosen
 test persona before writing, and saves short-lived JWTs in owner-only gitignored files
 without a persistent token cache. This localhost probe is not the future HTTPS UI.

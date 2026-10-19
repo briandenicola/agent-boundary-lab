@@ -636,7 +636,14 @@ def test_routine_identity_tasks_have_no_confirmation(task_name: str) -> None:
         "setup-cleanup",
     ],
 )
-def test_identity_mutations_keep_confirmation(task_name: str) -> None:
+def test_identity_mutations_have_no_duplicate_confirmation(task_name: str) -> None:
     taskfile = (ROOT / "tasks/Taskfile.identity.yml").read_text()
     block = taskfile.split(f"  {task_name}:", 1)[1].split("\n\n  ", 1)[0]
-    assert "prompt:" in block
+    assert "prompt:" not in block
+
+
+def test_identity_tasks_have_no_confirmation_and_terraform_is_noninteractive() -> None:
+    taskfile = (ROOT / "tasks/Taskfile.identity.yml").read_text()
+    assert "prompt:" not in taskfile
+    for action in ("apply", "destroy"):
+        assert f"{action} -input=false -auto-approve" in taskfile

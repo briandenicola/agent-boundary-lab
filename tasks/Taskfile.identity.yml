@@ -33,7 +33,6 @@ tasks:
     desc: Interactively create, verify, update and delete three temporary Agent ID objects; no certificate or deployment
     requires:
       vars: [TENANT_ID]
-    prompt: In tenant {{.TENANT_ID}}, approve Agent ID Graph permissions, create three temporary identity objects, verify and delete them? No Azure deployment, Foundry calls or changes to the existing demo.
     cmds:
       - pwsh -NoLogo -NoProfile -File "{{.ROOT_DIR}}/scripts/identity_tenant_check.ps1" -TenantId "{{.TENANT_ID}}" -Action Run -StatePath "{{.INTERACTIVE_DIRECTORY_STATE}}" -ApproveRead -ApproveMutation
 
@@ -41,7 +40,6 @@ tasks:
     desc: Interactively delete only the temporary Agent ID objects in the specified private journal
     requires:
       vars: [TENANT_ID]
-    prompt: Sign in to tenant {{.TENANT_ID}} and delete only temporary objects recorded in {{.INTERACTIVE_DIRECTORY_STATE}}? The tenant and signed-in operator must match the journal.
     cmds:
       - pwsh -NoLogo -NoProfile -File "{{.ROOT_DIR}}/scripts/identity_tenant_check.ps1" -TenantId "{{.TENANT_ID}}" -Action Cleanup -StatePath "{{.INTERACTIVE_DIRECTORY_STATE}}" -ApproveRead -ApproveMutation
 
@@ -59,13 +57,11 @@ tasks:
 
   directory-probe:
     desc: Create, read, update and delete three temporary Agent ID objects through documented Graph APIs; no deployment
-    prompt: Create a temporary blueprint, blueprint principal and Agent Identity in IDENTITY_TENANT_ID, verify them, update the blueprint description, then delete those three objects? No consent, Azure RBAC or workloads are changed.
     cmds:
       - cd "{{.ROOT_DIR}}" && .venv/bin/python -m containment_demo.identity_directory run --state "{{.DIRECTORY_STATE}}" --approve
 
   directory-cleanup:
     desc: Delete only objects recorded by the SDK-backed lifecycle check; refuse unknown creation outcomes or ownership mismatches
-    prompt: Delete only the remaining temporary objects recorded in {{.DIRECTORY_STATE}} using the same tenant and Graph application?
     cmds:
       - cd "{{.ROOT_DIR}}" && .venv/bin/python -m containment_demo.identity_directory cleanup --state "{{.DIRECTORY_STATE}}" --approve
 
@@ -81,14 +77,13 @@ tasks:
 
   setup:
     desc: Create dedicated I0 naming/RBAC, then Graph identities, AKS federation and per-user delegated consent
-    prompt: Create the reviewed dedicated I0 identities, delegated consent, AKS federation and allowed-user Foundry role? Review Graph sign-in/consent. No public ingress or existing-agent changes.
     preconditions:
       - sh: command -v pwsh >/dev/null
         msg: PowerShell 7.4+ and the pinned Graph SDK are required; run identity:graph-init first.
       - sh: test ! -e "{{.SETUP_STATE}}"
         msg: A setup journal already exists. Review it; use configure for completed setup or setup-cleanup for recorded objects, never rerun creation blindly.
     cmds:
-      - terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" apply -input=false
+      - terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" apply -input=false -auto-approve
       - task: _setup-inputs
       - |
         TENANT=$(jq -er .tenant_id "{{.ROOT_DIR}}/.identity-probe/setup-inputs.json")
@@ -135,7 +130,6 @@ tasks:
 
   probe:
     desc: BILLABLE. Run the private I0 Job with two user tokens; invokes the existing Foundry agent, never app-only
-    prompt: Replace only the dedicated probe Job and its Secret, start the private Agent ID sidecar, and invoke Foundry for the four authentication cases? May incur model/tool usage.
     cmds:
       - task: _cluster
       - |
@@ -172,7 +166,6 @@ tasks:
 
   down:
     desc: DELETE only the dedicated probe Job, token Secret, source ConfigMap and ServiceAccount; Entra objects remain
-    prompt: Delete the dedicated I0 probe workload and its token Secret? Hosted agents and Entra identities remain.
     cmds:
       - task: _cluster
       - |
@@ -185,7 +178,6 @@ tasks:
 
   setup-cleanup:
     desc: DELETE only journal-owned Graph identities, federation and consent; Azure RBAC remains
-    prompt: Delete the dedicated SDK-managed Graph setup? Review Graph sign-in. Any probe workload must already be removed; Azure RBAC remains until setup-down.
     cmds:
       - task: _setup-inputs
       - |
@@ -211,7 +203,7 @@ tasks:
     desc: DELETE dedicated Graph setup, then Terraform-managed naming and the allowed-user invoke grant
     cmds:
       - task: setup-cleanup
-      - terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" destroy -input=false
+      - terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" destroy -input=false -auto-approve
 
   test:
     desc: Run offline identity and policy authorization tests; no token acquisition, Azure, cluster access or model calls
