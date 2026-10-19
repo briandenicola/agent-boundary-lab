@@ -595,14 +595,19 @@ check (`task identity:directory-plan`, then separately approved
 or establish Foundry compatibility.
 An interactive alternative now reuses that lifecycle engine without a certificate:
 `task identity:interactive-probe TENANT_ID=...`, with separately approved cleanup.
-The owner verified isolated sign-in; the lifecycle itself has only run against a fake SDK.
+The owner reported `directory_lifecycle: pass` on 2026-10-19 after the wrapper fix:
+temporary creation, read/update verification and cleanup succeeded in the selected tenant.
+Foundry delegation remains untested. The owner chose a single-tenant rebuild for all
+resources and will handle the old environment's teardown and state removal personally.
+Target checks and the owner-run sequence are in [`rebuild-runbook.md`](rebuild-runbook.md).
 Shared delegated JWT validation and opt-in policy API authorization are implemented.
 Both business routes distinguish 401/403/503 and keep identity denials separate from
 success receipts. The private probe reuses the same validator. Browser login,
 delegated harness/facade calls, policy-token transport and identity deployment remain
 blocked by I0 and the owner's unresolved login/hostname/authorization decisions.
-No ingress, Entra object, consent, role assignment or hosted identity probe has been
-created/run by this work. This expands the former sidecar-only investigation. Execute the
+No identity ingress or hosted identity probe has been deployed/run by the assistant.
+The owner-run temporary directory lifecycle is not a runtime identity rollout.
+This expands the former sidecar-only investigation. Execute the
 identity stages below in order; it does not mark the existing Phase 0 or containment gates
 as newly tested. References and documented-versus-unverified findings are in
 [`compatibility.md`](compatibility.md#issue-4-identity-compatibility-research-2026-10-15).

@@ -49,6 +49,23 @@ tasks:
     cmds:
       - az account show --query "{subscription:name, id:id, tenant:tenantId, user:user.name}" -o table
 
+  target-check:
+    desc: Read-only check that Azure CLI matches the explicitly configured tenant and subscription
+    cmds:
+      - |
+        set -eu
+        : "${ARM_TENANT_ID:?Set ARM_TENANT_ID in .env to the approved deployment tenant.}"
+        : "${ARM_SUBSCRIPTION_ID:?Set ARM_SUBSCRIPTION_ID in .env to the approved deployment subscription.}"
+        ACCOUNT=$(az account show -o json --only-show-errors)
+        if ! printf '%s\n' "$ACCOUNT" | jq -e \
+          --arg tenant "$ARM_TENANT_ID" --arg subscription "$ARM_SUBSCRIPTION_ID" \
+          '.tenantId == $tenant and .id == $subscription and .state == "Enabled"' >/dev/null; then
+          echo "Azure CLI does not match the configured enabled tenant/subscription. No provisioning was started." >&2
+          echo "Sign in to the intended tenant, select its subscription, then rerun task cloud:target-check." >&2
+          exit 1
+        fi
+        echo "Azure CLI matches the configured deployment tenant and subscription."
+
   init:
     desc: Initialise terraform for the demo environment
     cmds:
@@ -88,6 +105,7 @@ tasks:
   plan:
     desc: Show what would be created (creates nothing)
     cmds:
+      - task: target-check
       - task: _init-once
       - terraform -chdir=./{{.CLOUD_DIR}} plan -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}"
     vars:
@@ -97,6 +115,7 @@ tasks:
     desc: CREATES BILLABLE RESOURCES including an AKS cluster. Apply the environment
     aliases: [apply]
     cmds:
+      - task: target-check
       - task: _init-once
       - task: arm:_endpoint-images
         vars:
@@ -111,6 +130,7 @@ tasks:
     desc: CREATES BILLABLE RESOURCES. Create the Foundry account and import its platform-created managed network before the first full apply
     prompt: Create the Foundry account and its dependencies, then import its default managed network into local Terraform state?
     cmds:
+      - task: target-check
       - task: _init-once
       - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -target=azapi_resource.foundry -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}"
       - task: network-import

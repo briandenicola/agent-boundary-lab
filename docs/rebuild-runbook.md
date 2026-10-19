@@ -24,6 +24,48 @@ Add `--yes` to any task that prompts when you are not on a terminal.
 
 State is the local file `infra/cloud/terraform.tfstate`. Losing it orphans the environment.
 
+## Single-tenant rebuild for issue #4 (owner-directed 2026-10-19)
+
+The owner chose one tenant for Agent ID, Foundry, AKS and all supporting resources.
+No cross-tenant integration is planned. The owner handles the old environment's teardown
+and state removal and reported state removal complete. Azure teardown has not yet been
+confirmed; the assistant has not performed or verified either operation. Complete teardown
+before discarding its state. Do not point the old environment's state at the new subscription.
+
+After the owner confirms teardown/state removal, configure the approved target in the
+untracked `.env`:
+
+```dotenv
+ARM_TENANT_ID=REPLACE-approved-deployment-tenant-uuid
+ARM_SUBSCRIPTION_ID=REPLACE-approved-deployment-subscription-uuid
+```
+
+Use the tenant in which the owner verified the Agent ID lifecycle and the subscription
+selected for that tenant. Actual IDs stay in local configuration, not this runbook.
+Sign in and select that subscription yourself:
+
+```bash
+az login --tenant <approved-tenant-id>
+az account set --subscription <approved-subscription-id>
+task cloud:target-check
+```
+
+The check is read-only: active tenant, subscription and Enabled state must match both
+configured values. `cloud:plan`, `cloud:bootstrap` and `cloud:up` run it before provider
+initialization or provisioning; it never changes login or chooses a fallback subscription.
+It does not validate quota, regional feature availability, or prove old state was removed.
+
+Review the fresh environment configuration before following Steps 1-5 below. Clear stale
+`ENDPOINT_IMAGE_TAG` and old explicit image-digest overrides for this fresh registry;
+use placeholder endpoints until its images are built. Do not reuse old resource URLs,
+identity IDs or kubeconfig as new-environment inputs. The existing region is only a
+configuration default, not verified availability in the new subscription.
+
+This rebuild establishes the private containment baseline, not completion of issue #4.
+Next prove the delegated Foundry bearer in the same tenant (I0), then implement the
+owner-selected HTTPS/login architecture and downstream policy-token transport.
+Public ingress, identity grants and enabling policy authentication need separate review.
+
 ## Steps
 
 ### 1. Infrastructure

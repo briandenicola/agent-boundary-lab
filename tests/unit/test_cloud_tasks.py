@@ -115,6 +115,68 @@ def image_script() -> str:
     return shell_body("_endpoint-images").replace("{{.TAG}}", "${ENDPOINT_IMAGE_TAG:-}")
 
 
+@pytest.mark.parametrize(
+    ("tenant", "subscription", "state", "cli_failure", "passes"),
+    [
+        ("tenant", "subscription", "Enabled", False, True),
+        ("other", "subscription", "Enabled", False, False),
+        ("tenant", "other", "Enabled", False, False),
+        ("tenant", "subscription", "Disabled", False, False),
+        ("tenant", "subscription", "Enabled", True, False),
+    ],
+)
+def test_deployment_target_check_is_read_only_and_fail_closed(
+    tmp_path: Path,
+    tenant: str,
+    subscription: str,
+    state: str,
+    cli_failure: bool,
+    passes: bool,
+) -> None:
+    cli = tmp_path / "az"
+    cli.write_text(
+        '#!/bin/sh\n[ "$*" = "account show -o json --only-show-errors" ] || exit 9\n'
+        'if [ "$MOCK_FAIL" = true ]; then exit 1; fi\nprintf "%s\\n" "$MOCK_ACCOUNT"\n'
+    )
+    cli.chmod(0o755)
+    environment = {
+        **os.environ,
+        "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        "ARM_TENANT_ID": "tenant",
+        "ARM_SUBSCRIPTION_ID": "subscription",
+        "MOCK_FAIL": str(cli_failure).lower(),
+        "MOCK_ACCOUNT": json.dumps({"tenantId": tenant, "id": subscription, "state": state}),
+    }
+    script = shell_body("target-check", "Taskfile.cloud.yml")
+    result = subprocess.run(  # noqa: S603 - fixed shell, repository script and fake CLI
+        ["/bin/sh", "-c", script],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is passes, result.stdout + result.stderr
+    if passes:
+        tampered = script.replace('.tenantId == $tenant and .id == $subscription', "true")
+        environment["MOCK_ACCOUNT"] = json.dumps(
+            {"tenantId": "other", "id": "other", "state": "Enabled"}
+        )
+        intact = subprocess.run(  # noqa: S603
+            ["/bin/sh", "-c", script], env=environment, capture_output=True, check=False
+        )
+        broken = subprocess.run(  # noqa: S603
+            ["/bin/sh", "-c", tampered], env=environment, capture_output=True, check=False
+        )
+        assert intact.returncode != 0
+        assert broken.returncode == 0
+
+
+@pytest.mark.parametrize("name", ["plan", "bootstrap", "up"])
+def test_target_check_precedes_any_terraform_work(name: str) -> None:
+    body = task_body("Taskfile.cloud.yml", name)
+    assert body.index("- task: target-check") < body.index("- task: _init-once")
+
+
 def test_empty_tag_checks_no_registry_and_does_not_apply(tmp_path: Path) -> None:
     result, calls = run_guard(tmp_path, image_script())
     assert result.returncode == 0

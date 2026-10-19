@@ -1,8 +1,9 @@
 # Issue #4: delegated Foundry authentication probe
 
-**2026-10-16: independent code/offline checks; full identity setup remains blocked.**
-The owner completed the isolated Graph sign-in/read check. No Agent ID directory lifecycle,
-probe grants/RBAC, identity Kubernetes workloads or hosted identity invocation has run.
+**2026-10-19: owner-run directory lifecycle passed; full identity setup remains blocked.**
+The owner completed isolated Graph sign-in and reported `directory_lifecycle: pass`
+after creation, read/update verification and cleanup. No hosted identity invocation
+has been reported. This does not establish Foundry delegation or containment.
 This is the first part
 of [I0](PLAN.md#i0--compatibility-and-identity-contract-first-gate), not an identity rollout.
 Existing hosted agents, policies, images and both business tools are unchanged.
@@ -91,8 +92,8 @@ for another approved run, provide a new `STATE=.identity-probe/interactive-2.jso
 and use that same value for cleanup.
 
 The real PowerShell script and Python engine completed creation, read/update verification
-and reverse-order deletion against a local fake Graph SDK. **No live directory lifecycle
-has run.** A lifecycle pass does not test Foundry, change Azure CLI context, provision
+and reverse-order deletion against a local fake Graph SDK. **The owner also reported
+a live lifecycle pass on 2026-10-19.** A lifecycle pass does not test Foundry, change Azure CLI context, provision
 the browser/sidecar integration, or close I0.
 
 ## SDK-backed directory lifecycle check
@@ -109,7 +110,7 @@ principal, and an Agent Identity. It reads each back, changes and reads the blue
 description, then deletes those objects in reverse dependency order and checks that
 each typed resource is absent. A completed check reports `directory_lifecycle: pass`,
 **not** Foundry delegation or containment success; `i0_complete` stays false.
-No live result has been collected.
+The certificate backend has no reported live result; the interactive backend passed.
 Graph deletion removes active objects but retains recoverable deleted objects for up to
 30 days; this check does not permanently purge those tombstones.
 

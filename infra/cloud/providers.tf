@@ -38,6 +38,6 @@ provider "azurerm" {
   storage_use_azuread = true
 }
 
-# The subscription is ambient from `az login`. Deliberately not a variable, so a stale
-# value in a tfvars file cannot send a billable apply somewhere unexpected.
+# Providers use ARM_TENANT_ID / ARM_SUBSCRIPTION_ID from the operator environment.
+# cloud:plan/bootstrap/up verify Azure CLI matches that explicit target first.
 data "azurerm_client_config" "current" {}
