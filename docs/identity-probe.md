@@ -68,6 +68,21 @@ no access token is exported to Python, a file, or the terminal. SDK retries are 
 and requests use a 30-second timeout. The same engine and ownership/unknown-creation
 guards serve the certificate and interactive paths.
 
+**Wrapper correction (2026-10-19):** Graph SDK 2.36.1's `Set-MgRequestContext`
+returns a settings object. The wrapper now discards that output so it cannot corrupt
+the engine's final report; device-code instructions remain visible. The offline fake
+SDK reproduces that return behavior. The previous wrapper could report
+`interactive_directory_engine_failed` / `PropertyNotFoundException` **after the engine
+had already run**. That error alone does not establish whether directory objects were
+created or deleted.
+
+If that error occurred, retain the existing journal and first run
+`task identity:interactive-cleanup TENANT_ID=...` with the same operator and `STATE`
+(if one was supplied). Cleanup verifies recorded remaining objects before deletion
+and accepts a journal already marked fully deleted. An unknown creation still requires
+administrator reconciliation; do not bypass it by deleting the journal. After successful
+cleanup, a new lifecycle run requires a fresh `STATE`, as described below.
+
 The private journal defaults to `.identity-probe/interactive-directory.json`, separate
 from the certificate check. It is bound to the tenant, Graph client, and signed-in operator.
 Cleanup refuses a different operator before any object lookup or deletion. An uncertain

@@ -17,7 +17,7 @@ $RequiredGraphVersion = '2.36.1'
 
 function Invoke-DirectoryLifecycle {
     param([string] $Operation, [string] $State, [string] $Tenant, $Context)
-    Set-MgRequestContext -MaxRetry 0 -ClientTimeout 30
+    Set-MgRequestContext -MaxRetry 0 -ClientTimeout 30 | Out-Null
     $profile = Invoke-MgGraphRequest -Method GET `
         -Uri 'https://graph.microsoft.com/v1.0/me?$select=id' -OutputType Hashtable
     $sponsor = ([guid]$profile['id']).ToString()

@@ -69,6 +69,7 @@ function Set-MgRequestContext {
     param([int] $MaxRetry, [double] $ClientTimeout)
     if ($MaxRetry -ne 0 -or $ClientTimeout -ne 30) { throw 'Unsafe lifecycle retry settings.' }
     Record 'configure_transport'
+    [pscustomobject]@{ MaxRetry = $MaxRetry; ClientTimeout = $ClientTimeout }
 }
 function Invoke-MgGraphRequest {
     [CmdletBinding()]
@@ -249,6 +250,7 @@ def test_isolated_interactive_check(sdk: tuple[dict[str, str], Path]) -> None:
     assert report["directory_lifecycle"] == "not_evaluated"
     assert report["foundry_delegation"] == "not_evaluated"
     assert report["i0_complete"] is False
+    assert "MaxRetry" not in result.stdout + result.stderr
     assert calls == ["connect", "context", "get_roles", "disconnect"]
     for private in ("private-id", "synthetic-private", TENANT, OTHER):
         assert private not in result.stdout + result.stderr
@@ -352,6 +354,26 @@ def test_interactive_lifecycle_reuses_python_engine(
         assert private not in result.stdout + result.stderr
     journal = json.loads((sdk[1].parent / "directory.json").read_text())
     assert all(resource["deleted"] for resource in journal["resources"].values())
+
+
+def test_interactive_cleanup_accepts_completed_journal(
+    sdk: tuple[dict[str, str], Path],
+) -> None:
+    initial, calls = execute(sdk, action="Run", mutation_approved=True)
+    assert initial.returncode == 0, initial.stdout + initial.stderr
+    result, observed = execute(sdk, action="Cleanup", mutation_approved=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["detail"] == "directory_recorded_objects_cleaned_up"
+    assert report["directory_lifecycle"] == "not_evaluated"
+    assert report["i0_complete"] is False
+    assert observed[len(calls) :] == [
+        "connect",
+        "context",
+        "configure_transport",
+        "get_operator",
+        "disconnect",
+    ]
 
 
 def test_uncertain_interactive_post_stops_without_retry(
