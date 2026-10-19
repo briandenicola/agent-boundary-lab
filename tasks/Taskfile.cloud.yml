@@ -421,6 +421,47 @@ tasks:
         echo "does not need to be: this confirms the path exists, not that a record landed."
         echo "Confirm actual evidence with the KQL in docs/demo-runbook.md after a run."
 
+  logging-status:
+    desc: READ-ONLY. Show Foundry diagnostic destinations, AKS collection bindings and recent workspace table activity
+    cmds:
+      - task: target-check
+      - |
+        set -eu
+        ACCOUNT=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" output -raw foundry_account_id)
+        PROJECT=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" output -raw project_name)
+        WORKSPACE=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" output -raw log_analytics_workspace_id)
+        RG=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" output -raw resource_group_name)
+        AKS=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" output -raw aks_cluster_name)
+        for RESOURCE in "$ACCOUNT" "$ACCOUNT/projects/$PROJECT"; do
+          echo "Diagnostic settings: $RESOURCE"
+          az monitor diagnostic-settings list --resource "$RESOURCE" \
+            --query '[].{name:name,workspace:workspaceId,logs:logs,metrics:metrics}' \
+            -o json --only-show-errors
+        done
+        AKS_ID=$(az aks show -g "$RG" -n "$AKS" --query id -o tsv --only-show-errors)
+        echo "AKS collection associations:"
+        az monitor data-collection rule association list --resource "$AKS_ID" \
+          --query '[].{name:name,rule:dataCollectionRuleId}' -o json --only-show-errors
+        echo "Last hour: observed rows are not containment proof; absent rows are inconclusive."
+        az monitor log-analytics query --workspace "$WORKSPACE" --timespan PT1H \
+          --analytics-query '
+            let expected = datatable(Table:string) [
+              "AppDependencies", "AppRequests", "AppExceptions", "AppTraces",
+              "AzureDiagnostics", "AzureMetrics", "AMLManagedNetworkEvent",
+              "ContainerLogV2", "KubeEvents", "KubePodInventory"];
+            let observed = union isfuzzy=true withsource=Table
+              AppDependencies, AppRequests, AppExceptions, AppTraces,
+              AzureDiagnostics, AzureMetrics, AMLManagedNetworkEvent,
+              ContainerLogV2, KubeEvents, KubePodInventory,
+              (datatable(TimeGenerated:datetime) [])
+              | where TimeGenerated > ago(1h)
+              | summarize Rows=count(), Latest=max(TimeGenerated) by Table;
+            expected | join kind=leftouter observed on Table
+              | project Table, Rows=coalesce(Rows, 0), Latest,
+                  Status=iff(isnotnull(Latest), "observed", "inconclusive")
+              | order by Table asc
+          ' -o table --only-show-errors
+
   #############################################
   # AGENT MODEL ACCESS
   #

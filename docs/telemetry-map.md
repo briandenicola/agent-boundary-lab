@@ -22,6 +22,10 @@ Paths/run markers are sanitized; no raw user/client IDs, bearer or claims are em
 These are application JSON properties, **not verified Azure table/column names**.
 Ingestion, actor-alias correlation and the hosted multi-hop identity chain remain unobserved.
 
+**Sweden Central rebuild (2026-10-19):** the live resources and numbered experiments below
+are historical unless explicitly marked otherwise. The current logging inventory and
+proposed routing repair are recorded in [section 0.15](#015-sweden-central-rebuild-runtime-failure-and-logging-gaps-2026-10-19).
+
 **Live resources used for verification (read-only):**
 
 | Thing | Value |
@@ -172,6 +176,10 @@ a join candidate, and its status is **NOT VERIFIED** on every count that matters
 never produced a row, and it is not documented to carry RAI egress decisions. Revisit only
 if Q0a returns empty after a confirmed invocation. It is not required for GATE 0 and must
 not delay the first invocation.
+
+**Superseded for the 2026-10-19 rebuild:** the owner requested all exposed diagnostics
+in the lab workspace. Section 0.15 records the additive routing repair; it does not
+reclassify `ManagedNetworkEvent` as verified firewall/RAI decision evidence.
 
 ### 0.5 Supporting state, VERIFIED 2026-10-08
 
@@ -536,6 +544,66 @@ An independent read-only query (`AppDependencies`, `DependencyType == "NetworkEg
 **Proposed:** none; observation only.
 
 ---
+
+## 0.15 Sweden Central rebuild: runtime failure and logging gaps (2026-10-19)
+
+**VERIFIED, read-only, before the repair:** both bridge calls returned
+`TASK_STATE_FAILED`. Bridge stdout recorded `category=http_error http_status=500` for
+the Audit and Enforced Foundry Responses endpoints. The original CLI reported
+`layer=ok` because the A2A transport completed, discarded the task status message, and
+exited zero. This was not a successful hosted call or containment evidence.
+
+The linked workspace's `AppExceptions` identified the Audit failure as a LiteLLM dispatch
+import of `mcp.types.CacheableResult` failing with `No module named 'mcp'`. Separate live
+metrics ping exceptions were also present; those are not evidence that the model/tool
+call itself failed for that reason.
+
+| Read-only inventory | Observed before repair |
+| --- | --- |
+| Account diagnostic categories | `Audit`, `RequestResponse`, `AzureOpenAIRequestUsage`, `Trace`, `ManagedNetworkEvent`, `AllMetrics` |
+| Account diagnostic destination | Policy-managed `allLogs` and `AllMetrics` setting, pointing at the separate governance workspace only |
+| Project diagnostic categories | `Audit`, `Trace`, `AllMetrics` |
+| Project diagnostic settings | None |
+| Our workspace | `AppExceptions`, `AppTraces`, `AppRequests`, `AppDependencies` rows present; no `ContainerLogV2` rows in the checked window |
+| AKS collection | `ama-logs` daemonsets exist; no DCR in the lab resource group and no DCR association on this cluster |
+
+**SOURCE/OFFLINE VERIFIED, NOT DEPLOYED:** `infra/cloud/monitoring.tf` adds separate
+account/project diagnostic settings to our existing workspace, enumerating each resource's
+advertised categories and metrics. Governance settings remain outside this configuration.
+Application Insights already uses the same workspace; resource diagnostics are sent
+directly to Log Analytics, not duplicated into Application Insights application tables.
+`ManagedNetworkEvent` remains a candidate source, not a proven per-request firewall or
+RAI-egress sink.
+
+The AKS repair enables managed-identity monitoring and binds an explicit Container Insights
+DCR to the cluster. It collects `Microsoft-ContainerLogV2`, `Microsoft-KubeEvents`, and
+`Microsoft-KubePodInventory`. It deliberately does not enable the blanket default stream
+group or `ContainerInventory`, whose `EnvironmentVar` column can inventory container
+environment values. It does not enable prompt, response, payload, authorization-header,
+or environment capture. Application stdout/stderr still requires the existing safe
+application logging practices.
+
+After owner apply/redeployment, `task cloud:logging-status` reads diagnostic destinations,
+AKS collection associations and table activity in the last hour, without printing log
+bodies. A table with no recent rows is **inconclusive**, never a pass. A dedicated
+diagnostic destination can place categories in resource-specific tables rather than
+`AzureDiagnostics`; inspect their actual table names after emission. Some event streams
+are naturally quiet, so absence is not by itself proof that routing is broken.
+
+**Documented platform limit, checked 2026-10-19:** Foundry's managed firewall is not in
+our tenant or under our control; the managed-network comparison explicitly says
+"No logging of outbound traffic support yet." Standard SKU does not expose customer
+firewall diagnostic settings. This repair cannot create native firewall application,
+network, DNS, or flow logs that Foundry does not expose. RAI egress-policy decisions,
+managed-network events and underlying firewall traffic logs are distinct evidence sources.
+
+Primary references accessed **2026-10-19**:
+
+- [Foundry managed virtual network](https://learn.microsoft.com/en-us/azure/foundry/how-to/managed-virtual-network#compare-managed-and-custom-byo-network), including firewall ownership and outbound logging limitations.
+- [Foundry diagnostic logging](https://learn.microsoft.com/en-us/azure/foundry/how-to/diagnostic-logging); `Trace` is documented for Custom Question Answering, not as a generic agent-trace guarantee.
+- [AKS monitoring onboarding](https://learn.microsoft.com/en-us/azure/azure-monitor/containers/kubernetes-monitoring-enable), managed-identity monitoring plus DCR/DCRA configuration.
+- [Microsoft's Terraform onboarding template](https://github.com/microsoft/Docker-Provider/blob/ci_prod/scripts/onboarding/aks/onboarding-msi-terraform/main.tf).
+- [ContainerInventory schema](https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/containerinventory), including `EnvironmentVar`.
 
 ## 1. Layer 1 — application / tool traces (emitted by our own code)
 

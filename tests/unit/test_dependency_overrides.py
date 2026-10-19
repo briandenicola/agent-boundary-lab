@@ -159,6 +159,18 @@ class TestTheOverriddenStackActuallyWorks:
 
         assert ResponsesAgentServerHost is not None
 
+    def test_litellm_mcp_dispatch_types_are_available(self, pyproject: dict) -> None:
+        import importlib
+
+        from mcp.types import CacheableResult
+
+        requirements = [Requirement(raw) for raw in pyproject["project"]["dependencies"]]
+        declared = next((r for r in requirements if r.name.lower() == "mcp"), None)
+        assert declared is not None, "MCP must be a base runtime dependency, not an optional extra"
+        assert declared.specifier.contains(metadata.version("mcp"))
+        assert CacheableResult is not None
+        assert importlib.import_module("litellm.responses.mcp.chat_completions_handler") is not None
+
     def test_both_halves_of_opentelemetry_are_the_same_version(self) -> None:
         # A split API/SDK pair is the specific way this override fails quietly.
         api = Version(metadata.version("opentelemetry-api"))

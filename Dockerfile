@@ -27,7 +27,8 @@ COPY pyproject.toml README.md* ./
 COPY docs/README.md docs/README.md
 COPY src ./src
 
-RUN uv pip install --system --no-cache .
+RUN uv pip install --system --no-cache . \
+    && python -c "from mcp.types import CacheableResult; import litellm.responses.mcp.chat_completions_handler"
 
 # The agent-version deployer lives in its own interpreter, in this same image.
 #

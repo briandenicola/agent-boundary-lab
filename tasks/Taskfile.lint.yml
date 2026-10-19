@@ -54,7 +54,7 @@ tasks:
     desc: Check cloud recovery tasks and Terraform locally; no Azure operations
     cmds:
       - task --list >/dev/null
-      - .venv/bin/python -m pytest tests/unit/test_cloud_tasks.py -q
+      - .venv/bin/python -m pytest tests/unit/test_cloud_tasks.py tests/unit/test_monitoring_configuration.py -q
       - terraform -chdir=./infra/cloud fmt -check
       - terraform -chdir=./infra/cloud validate -no-color
 

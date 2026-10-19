@@ -16,6 +16,9 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "google-adk>=2.11.0,<3",
     "litellm>=1.0",
+    # LiteLLM's tool-call dispatch imports MCP types even for our plain function tools.
+    # This is a runtime library dependency, not another business tool or MCP endpoint.
+    "mcp>=2.2.0,<3",
     "azure-ai-agentserver-responses==2.2.0",
     "azure-ai-agentserver-core==2.2.0",
     "azure-identity>=1.19",

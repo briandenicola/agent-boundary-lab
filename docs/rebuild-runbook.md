@@ -325,6 +325,48 @@ Low-level legacy `*:up` commands retain their original prerequisite checks; the 
 
 ### 7. Verify
 
+#### Runtime/logging recovery for the 2026-10-19 rebuild
+
+Both bridge calls returned failed tasks with Foundry HTTP 500. Audit hosted exceptions
+identified LiteLLM's missing `mcp` import. The runtime dependency and a build-time import
+check are now declared; this does not add a third business tool. The bridge CLI now
+prints the task's status message and exits nonzero unless the task completed. A
+completed task is still not containment proof.
+
+Terraform also adds Foundry account/project diagnostics to our existing workspace
+without modifying the separate governance settings. Managed-identity AKS monitoring,
+an explicit DCR and its cluster binding collect container stdout/stderr, events and pod
+inventory. Environment inventory and application content capture remain disabled.
+Raw traffic logging for Foundry's managed firewall is not exposed by the service.
+See [`telemetry-map.md` section 0.15](telemetry-map.md#015-sweden-central-rebuild-runtime-failure-and-logging-gaps-2026-10-19)
+for observations, collection limits and primary references.
+
+For the owner's recovery, retain the deployed tool API tag in `ENDPOINT_IMAGE_TAG` and
+the approved operator configuration. Remove stale `AGENT_IMAGE_DIGEST` and
+`A2A_IMAGE_DIGEST` overrides from local configuration/exported environment so deployment
+resolves the newly built tags. Keep build/deploy image tags consistent.
+
+```bash
+task lint:cloud
+task cloud:plan
+task cloud:up
+task build:foundry-agent
+task build:agent-bridge
+task deploy:foundry-agent
+task deploy:agent-bridge
+```
+
+Review the infrastructure plan first. These steps do not rebuild tool APIs, the local
+model, the chat agent or test UI. Both Foundry versions must use the same newly built
+digest. No bootstrap or state removal is needed for this in-place recovery.
+
+Run the bridge verification/calls below, allow ingestion time, then run
+`task cloud:logging-status`. It reports recent table activity as **observed** or
+**inconclusive**, not containment pass/fail. A declared diagnostic setting alone is not
+proof that records arrived, and applying this repair has not yet been verified live.
+
+#### Functional checks and containment evidence
+
 ```
 task test-ui:verify
 task agent-bridge:verify

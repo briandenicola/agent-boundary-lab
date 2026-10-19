@@ -5,7 +5,8 @@ environment and never crosses a command line or the operator's terminal. Prints 
 result and the tool ``run-...`` id if the facade surfaced one; never the token.
 
 A failure is labelled by layer: ``our_call`` (this client could not reach or parse),
-``facade`` (HTTP/JSON-RPC error returned by the facade) or ``ok``. There is no pass path:
+``facade`` (HTTP/JSON-RPC error returned by the facade), ``task`` (an unsuccessful A2A
+task) or ``ok`` (a completed task). There is no containment pass path:
 success here proves the facade answered, not that containment held.
 """
 
@@ -20,6 +21,7 @@ from typing import Any
 from containment_demo import invoke
 
 A2A_VERSION = "1.0"
+COMPLETED_STATE = "TASK_STATE_COMPLETED"
 # The agent only reports a tool's run-... id when asked to return the tool result records
 # verbatim, so the caller (not the facade) sends the same prompt invoke.py uses.
 SYNTHETIC_TEXT = invoke.DEFAULT_PROMPT.format(demo_run_id="a2a-send")
@@ -32,11 +34,17 @@ def summarise(events: list[dict[str, Any]]) -> dict[str, Any]:
     texts: list[str] = []
     run_ids: list[str] = []
     response_id: str | None = None
+    status_message = ""
     for event in events:
         task = event.get("task") or event
         status = task.get("status") or {}
         if status.get("state"):
             state = status["state"]
+            status_message = "\n".join(
+                part["text"]
+                for part in (status.get("message") or {}).get("parts") or []
+                if part.get("text")
+            )
         for artifact in task.get("artifacts") or []:
             for part in artifact.get("parts") or []:
                 if part.get("text"):
@@ -46,7 +54,8 @@ def summarise(events: list[dict[str, Any]]) -> dict[str, Any]:
             response_id = meta.get("downstream_response_id") or response_id
     return {
         "task_state": state,
-        "text": "\n".join(texts),
+        "text": "\n".join(texts) or status_message,
+        "status_message": status_message,
         "tool_run_ids": sorted(set(run_ids)),
         "downstream_response_id": response_id,
     }
@@ -75,7 +84,11 @@ async def send(
         request = SendMessageRequest(message=new_text_message(text, role=Role.ROLE_USER))
         events = [MessageToDict(e) async for e in client.send_message(request)]
         await client.close()
-    return {"layer": "ok", **summarise(events)}
+    summary = summarise(events)
+    return {
+        "layer": "ok" if summary["task_state"] == COMPLETED_STATE else "task",
+        **summary,
+    }
 
 
 def classify(exc: Exception) -> dict[str, Any]:
@@ -97,7 +110,7 @@ def main() -> int:
     except Exception as exc:
         out = classify(exc)
     print(json.dumps(out, indent=2))
-    return 0 if out.get("layer") == "ok" else 1
+    return 0 if out.get("layer") == "ok" and out.get("task_state") == COMPLETED_STATE else 1
 
 
 if __name__ == "__main__":

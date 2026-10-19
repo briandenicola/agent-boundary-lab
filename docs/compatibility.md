@@ -5,6 +5,21 @@
 under [Unverified — must be tested empirically](#unverified--must-be-tested-empirically).
 Nothing in this document was inferred from a plausible-sounding guess.
 
+**Sweden Central rebuild update (2026-10-19):** the sections below retain historical
+subscription/region results. The current single-tenant rebuild defaults and eligibility
+checks are in [`rebuild-runbook.md`](rebuild-runbook.md).
+
+**Runtime dependency repair (2026-10-19):** the rebuilt Audit agent's `AppExceptions`
+identified `No module named 'mcp'`. LiteLLM's tool-call dispatch imported
+`litellm.responses.mcp.chat_completions_handler`, then its proxy MCP catalog, which imports
+`mcp.types.CacheableResult`. This occurred with our ordinary function tools, not an MCP
+tool registration. MCP is now a base runtime requirement (`>=2.2.0,<3`); the lock resolves
+`mcp` and `mcp-types` to **2.3.0**. Local import guards cover `CacheableResult` and the
+dispatch module; the hosted-agent Dockerfile checks those imports during its build.
+The local validation stack remains LiteLLM **1.104.0**, ADK **2.11.0**, and agentserver
+**2.2.0**. No successful hosted call with this repair is claimed until the owner rebuilds,
+deploys the same new image digest to both policies, and verifies the result.
+
 Target region: **Canada Central**, chosen so that the containment environment and the
 Phase 8 workflow state store can share one region. East US 2 hosted the containment
 environment through Phase 0 and is verified there, but it cannot host PostgreSQL Flexible
