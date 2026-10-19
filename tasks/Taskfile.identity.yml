@@ -108,7 +108,6 @@ tasks:
     cmds:
       - |
         set -eu
-        umask 077
         mkdir -p "{{.ROOT_DIR}}/.identity-probe"
         CONFIG="{{.ROOT_DIR}}/.identity-probe/setup-inputs.json"
         TMP=$(mktemp "{{.ROOT_DIR}}/.identity-probe/setup-inputs.XXXXXX")

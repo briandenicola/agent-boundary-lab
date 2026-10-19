@@ -450,6 +450,10 @@ the assistant does not run them independently. Entra consent remains interactive
 the browser client's localhost callback (`http://localhost:8400`), validates the chosen
 test persona before writing, and saves short-lived JWTs in owner-only gitignored files
 without a persistent token cache. This localhost probe is not the future HTTPS UI.
+If Terraform completes but the local export fails before Graph setup, fix the export
+error and rerun `identity:setup`. Terraform reuses the applied state, and the setup-journal
+precondition prevents blindly repeating Graph creation. The atomic export uses `mktemp`
+for an owner-only file without the unsupported `umask` builtin in Task's embedded shell.
 The Job's read-only Secret is short-lived but remains a credential: run
 `identity:down` after collecting results, even if the Job has expired.
 Remove the two local JWT files after the experiment; Kubernetes TTL does not remove

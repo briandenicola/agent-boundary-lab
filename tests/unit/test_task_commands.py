@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
@@ -71,6 +72,94 @@ def dry_task(tmp_path: Path):
         return result.stdout + result.stderr
 
     return run
+
+
+@pytest.mark.parametrize("export_exit", [0, 23])
+def test_identity_setup_runs_in_task_shell_with_private_atomic_export(
+    tmp_path: Path, export_exit: int
+) -> None:
+    runner = shutil.which("task")
+    if runner is None:
+        pytest.skip("Go Task is required to execute the identity setup command")
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    shutil.copy2(ROOT / "tasks/Taskfile.identity.yml", tasks / "Taskfile.identity.yml")
+    (tmp_path / "Taskfile.yml").write_text(
+        "version: '3'\nsilent: true\nincludes:\n"
+        "  identity:\n    taskfile: ./tasks/Taskfile.identity.yml\n"
+    )
+    private = tmp_path / ".identity-probe"
+    private.mkdir()
+    config = private / "setup-inputs.json"
+    previous = '{"previous":true}\n'
+    config.write_text(previous)
+    config.chmod(0o600)
+    payload = {"tenant_id": "00000000-0000-4000-8000-000000000001", "private": "synthetic"}
+    events = tmp_path / "events"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    scripts = {
+        "terraform": """
+            import os, sys
+            from pathlib import Path
+            action = sys.argv[2]
+            with Path(os.environ["FAKE_EVENTS"]).open("a") as log:
+                log.write(action + "\\n")
+            if action == "apply":
+                assert sys.argv[3:] == ["-input=false", "-auto-approve"]
+            elif action == "output":
+                assert sys.argv[3:] == ["-json", "setup_config"]
+                print(os.environ["FAKE_INPUTS"])
+                sys.exit(int(os.environ["FAKE_EXPORT_EXIT"]))
+            else:
+                raise AssertionError(sys.argv)
+        """,
+        "pwsh": """
+            import json, os, sys
+            from pathlib import Path
+            args = sys.argv[1:]
+            assert args[args.index("-Action") + 1] == "Setup"
+            assert "-ApproveRead" in args and "-ApproveMutation" in args
+            path = Path(args[args.index("-InputsPath") + 1])
+            assert path.stat().st_mode & 0o777 == 0o600
+            data = json.loads(path.read_text())
+            assert data == json.loads(os.environ["FAKE_INPUTS"])
+            assert args[args.index("-TenantId") + 1] == data["tenant_id"]
+            with Path(os.environ["FAKE_EVENTS"]).open("a") as log:
+                log.write("graph_setup\\n")
+        """,
+    }
+    for name, source in scripts.items():
+        script = bin_dir / name
+        script.write_text(f"#!{sys.executable}\n" + textwrap.dedent(source))
+        script.chmod(0o755)
+    result = subprocess.run(  # noqa: S603
+        [runner, "identity:setup"],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "FAKE_EVENTS": str(events),
+            "FAKE_INPUTS": json.dumps(payload),
+            "FAKE_EXPORT_EXIT": str(export_exit),
+        },
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    calls = events.read_text().splitlines()
+    if export_exit == 0:
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert json.loads(config.read_text()) == payload
+        assert calls == ["apply", "output", "graph_setup"]
+    else:
+        assert result.returncode != 0
+        assert config.read_text() == previous
+        assert calls == ["apply", "output"]
+    assert config.stat().st_mode & 0o777 == 0o600
+    assert list(private.glob("setup-inputs.*")) == [config]
+    assert "synthetic" not in result.stdout + result.stderr
 
 
 def test_rebuild_defaults_match_task_and_terraform() -> None:
