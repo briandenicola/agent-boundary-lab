@@ -52,6 +52,56 @@ def config() -> probe.Config:
     )
 
 
+@pytest.mark.parametrize(
+    ("case", "expected_user", "expected_result"),
+    [("allowed", ALLOWED, "invocation succeeds"), ("denied", DENIED, "HTTP 403")],
+)
+def test_login_explains_expected_account_before_authentication(
+    config: probe.Config,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    case: str,
+    expected_user: str,
+    expected_result: str,
+) -> None:
+    from azure.core.exceptions import ClientAuthenticationError
+
+    observed = []
+
+    class Credential:
+        def __init__(self, **kwargs: Any) -> None:
+            assert kwargs == {
+                "tenant_id": config.tenant_id,
+                "client_id": config.browser_client_id,
+            }
+
+        def get_token(self, scope: str) -> None:
+            output = capsys.readouterr().out
+            assert f"{case.upper()} test-user sign-in" in output
+            assert f"Expected user object ID: {expected_user}" in output
+            assert f"Tenant: {TENANT}" in output
+            assert f"Expected Foundry result: {expected_result}" in output
+            assert scope == f"api://{BLUEPRINT}/{probe.INPUT_SCOPE}"
+            observed.append("authentication")
+            raise ClientAuthenticationError(message="MUST-NOT-APPEAR-IN-OUTPUT")
+
+        def close(self) -> None:
+            observed.append("closed")
+
+    monkeypatch.setattr(probe, "load_config", lambda _: config)
+    monkeypatch.setattr("azure.identity.DeviceCodeCredential", Credential)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["identity_probe", "login", "--config", str(tmp_path / "config.json"), "--case", case],
+    )
+    assert probe.main() == 2
+    assert observed == ["authentication", "closed"]
+    assert "MUST-NOT-APPEAR-IN-OUTPUT" not in capsys.readouterr().out
+    assert not list(tmp_path.glob("*.jwt"))
+
+
 @pytest.fixture(scope="module")
 def signing_key() -> rsa.RSAPrivateKey:
     return rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -77,6 +127,22 @@ def signed(key: rsa.RSAPrivateKey, payload: dict[str, Any]) -> str:
 def keys(key: rsa.RSAPrivateKey) -> dict[str, Any]:
     public = jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key(), as_dict=True)
     return {"keys": [{**public, "kid": "test", "use": "sig"}]}
+
+
+def test_login_reports_wrong_test_user_specifically(
+    config: probe.Config, signing_key: rsa.RSAPrivateKey
+) -> None:
+    token = signed(signing_key, claims(incoming=True, user=ALLOWED))
+    with pytest.raises(probe.ProbeError, match=r"^delegated_user_mismatch$"):
+        probe.delegated_claims(
+            token,
+            keys(signing_key),
+            config,
+            audience=BLUEPRINT,
+            scope=probe.INPUT_SCOPE,
+            user_id=DENIED,
+            client_id=BROWSER,
+        )
 
 
 def exercise(

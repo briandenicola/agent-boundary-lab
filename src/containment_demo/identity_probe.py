@@ -179,7 +179,7 @@ def delegated_claims(
             token, keys, TokenContract(config.tenant_id, audience, scope, frozenset({client_id}))
         )
         if user.object_id != user_id:
-            raise ProbeError("delegated_user_scope_or_client_mismatch")
+            raise ProbeError("delegated_user_mismatch")
     except AuthError:
         raise ProbeError("token_signature_or_claims_rejected") from None
 
@@ -583,12 +583,23 @@ def main() -> int:
         token_dir = args.tokens_dir or args.config.parent
         if args.command == "login":
             from azure.core.exceptions import ClientAuthenticationError
-            from azure.identity import InteractiveBrowserCredential
+            from azure.identity import DeviceCodeCredential
 
-            credential = InteractiveBrowserCredential(
+            expected_user = (
+                config.allowed_user_id if args.case == "allowed" else config.denied_user_id
+            )
+            expected_result = "invocation succeeds" if args.case == "allowed" else "HTTP 403"
+            print(
+                f"\n{args.case.upper()} test-user sign-in\n"
+                f"Expected user object ID: {expected_user}\n"
+                f"Tenant: {config.tenant_id}\n"
+                f"Expected Foundry result: {expected_result}\n"
+                "Use this test account when completing the device-code sign-in below.",
+                flush=True,
+            )
+            credential = DeviceCodeCredential(
                 tenant_id=config.tenant_id,
                 client_id=config.browser_client_id,
-                redirect_uri="http://localhost:8400",
             )
             try:
                 token = credential.get_token(
@@ -605,9 +616,7 @@ def main() -> int:
                     config,
                     audience=config.blueprint_client_id,
                     scope=INPUT_SCOPE,
-                    user_id=config.allowed_user_id
-                    if args.case == "allowed"
-                    else config.denied_user_id,
+                    user_id=expected_user,
                     client_id=config.browser_client_id,
                 )
             token_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
