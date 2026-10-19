@@ -157,7 +157,7 @@ def test_deployment_target_check_is_read_only_and_fail_closed(
     )
     assert (result.returncode == 0) is passes, result.stdout + result.stderr
     if passes:
-        tampered = script.replace('.tenantId == $tenant and .id == $subscription', "true")
+        tampered = script.replace(".tenantId == $tenant and .id == $subscription", "true")
         environment["MOCK_ACCOUNT"] = json.dumps(
             {"tenantId": "other", "id": "other", "state": "Enabled"}
         )
