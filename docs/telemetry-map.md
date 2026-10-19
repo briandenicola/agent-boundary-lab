@@ -567,7 +567,7 @@ call itself failed for that reason.
 | Our workspace | `AppExceptions`, `AppTraces`, `AppRequests`, `AppDependencies` rows present; no `ContainerLogV2` rows in the checked window |
 | AKS collection | `ama-logs` daemonsets exist; no DCR in the lab resource group and no DCR association on this cluster |
 
-**SOURCE/OFFLINE VERIFIED, NOT DEPLOYED:** `infra/cloud/monitoring.tf` adds separate
+**Repair, subsequently observed live below:** `infra/cloud/monitoring.tf` adds separate
 account/project diagnostic settings to our existing workspace, enumerating each resource's
 advertised categories and metrics. Governance settings remain outside this configuration.
 Application Insights already uses the same workspace; resource diagnostics are sent
@@ -582,6 +582,23 @@ group or `ContainerInventory`, whose `EnvironmentVar` column can inventory conta
 environment values. It does not enable prompt, response, payload, authorization-header,
 or environment capture. Application stdout/stderr still requires the existing safe
 application logging practices.
+
+**VERIFIED, read-only after owner apply:** both Foundry account/project lab destinations
+and the cluster DCR association were present. The last-hour query observed
+`ContainerLogV2` **219** rows (previously zero), `AzureDiagnostics` **38** rows,
+application telemetry, `KubeEvents`, and `KubePodInventory`. No recent
+`AMLManagedNetworkEvent` or `AzureMetrics` rows were observed. Governance destinations
+remained intact. This verifies routing/ingestion, not per-run containment.
+
+**OWNER-REPORTED hosted verification:** the repaired agents, version 2, completed both
+tools. Audit returned policy **200** / receiver **202** for
+`run-8c7cf2d5-84f5-4479-bb4e-a7f164935c60` at approximately **18:25:44 UTC**.
+Enforced returned policy **200** / external **403** for
+`run-1cf1dc35-dffa-41de-bbe6-655ea8c2d0f0` at approximately **18:26:35 UTC**.
+After the ingestion wait the owner reported **OVERALL: PASS** for both verifier sections.
+The full verifier reports/JSON were not retained in this session; this records the
+owner's reported verdicts, not an independent requery or new raw-row inspection.
+These results establish no delegated identity or browser-login result.
 
 After owner apply/redeployment, `task cloud:logging-status` reads diagnostic destinations,
 AKS collection associations and table activity in the last hour, without printing log

@@ -1,6 +1,6 @@
 # Issue #4: delegated Foundry authentication probe
 
-**2026-10-19: owner-run directory lifecycle passed; full identity setup remains blocked.**
+**2026-10-19: directory lifecycle passed; integrated setup code is ready for owner validation.**
 The owner completed isolated Graph sign-in and reported `directory_lifecycle: pass`
 after creation, read/update verification and cleanup. No hosted identity invocation
 has been reported. This does not establish Foundry delegation or containment.
@@ -10,11 +10,11 @@ Existing hosted agents, policies, images and both business tools are unchanged.
 
 ## Isolated interactive tenant check
 
-For the owner-selected separate tenant, first run:
+Use the same tenant as the rebuilt Foundry account and AKS cluster:
 
 ```bash
 task identity:graph-init
-task identity:tenant-check TENANT_ID=REPLACE-other-tenant-uuid
+task identity:tenant-check TENANT_ID=REPLACE-deployment-tenant-uuid
 ```
 
 The first command prompts before installing **Microsoft.Graph.Authentication 2.36.1**
@@ -51,9 +51,9 @@ Successful sign-in is not proof of Agent ID provisioning or Foundry compatibilit
 The lifecycle check now supports interactive Graph authentication without a certificate:
 
 ```bash
-task identity:interactive-probe TENANT_ID=REPLACE-other-tenant-uuid
+task identity:interactive-probe TENANT_ID=REPLACE-deployment-tenant-uuid
 # If a run stops with recorded objects, use the same tenant and signed-in operator:
-task identity:interactive-cleanup TENANT_ID=REPLACE-other-tenant-uuid
+task identity:interactive-cleanup TENANT_ID=REPLACE-deployment-tenant-uuid
 ```
 
 Both commands prompt before sign-in and directory mutations. Review the delegated Graph
@@ -231,7 +231,59 @@ reject `HARNESS_AUTH_MODE=delegated` and `DEMO_A2A_AUTH_MODE=delegated` at start
 than silently using shared credentials. No identity deployment target or ingress has
 been enabled. Existing legacy mode remains for the private, port-forwarded demo only.
 
-## Remaining full-setup blocker
+## Integrated SDK/API setup (source/offline verified, not deployed)
+
+Terraform now manages **only** the generated `random_pet` + `random_id` name,
+incoming scope UUID, and allowed user's project-scoped Azure invoke role. It does not
+manage Graph objects or run an external provisioner. The existing cloud state and
+working hosted agents remain separate.
+
+`identity:setup` first applies that isolated Terraform module, then signs in with
+Graph PowerShell and runs `identity_setup.py` through the existing private request/reply
+pipe. Graph tokens never leave PowerShell. Setup creates and reads back a browser
+public client/principal, blueprint/principal, child Agent Identity, exact AKS
+ServiceAccount federation, scope-only permission inheritance, and four per-user
+delegated grants. It configures and verifies the blueprint's identifier URI.
+Neither the denied user nor the agent receives an Azure invoke role.
+
+Current primary guidance says to preauthorize interactive child-agent permissions on
+the parent blueprint. Foundry consent is therefore granted to the **blueprint
+principal**, for only the two test users; the child inherits delegated scopes for that
+one verified resource. `inheritableRoles` is explicitly `none`. No tenant-wide
+`AllPrincipals` consent, application permissions, secrets, or app-only fallback are added.
+Incoming browser consent targets the blueprint principal, also per user.
+
+The Agent Identity's returned **`id`** is used for the sidecar's `AgentIdentity` parameter,
+not an assumed `appId` property. Blueprint/browser client IDs remain their actual `appId`
+values. These are distinct identifiers with distinct roles.
+
+Before creating any Graph object, setup checks the selected resource's actual ID,
+`https://ai.azure.com` service-principal name, candidate audience, and enabled delegated
+scope. It does not guess a Foundry permission or treat a published scope as proof that
+the hosted endpoint accepts its token.
+
+The owner-only `.identity-probe/setup-state.json` journal is bound to the exact inputs,
+Graph client and signed-in operator. It records intent before each non-idempotent POST,
+keeps successful resources for the subsequent probe, and never retries uncertain creation.
+A rejected request leaves known objects cleanable; a timeout/server/transport error with
+unknown creation requires administrator reconciliation. Do not delete the journal.
+`identity:setup` refuses an existing journal before Terraform apply; use `configure`
+to re-export a completed setup or `setup-cleanup` to delete recorded Graph objects.
+
+Cleanup checks **all** remaining objects' names, linkage, federation and consent
+configuration before deleting any, then verifies reverse-order deletion. It will not
+adopt/delete an unrelated object or silently alter a changed grant. Cleanup refuses
+while the dedicated probe workload or token Secret remains. It also works after partial
+setup when no final probe configuration exists. `setup-down` cleans Graph before removing
+Terraform-managed naming/RBAC. Neither command touches the working containment agents.
+
+Offline validation executes the real PowerShell wrapper against a local fake Graph SDK,
+including persistence, config export, deletion, read-only contract discovery, approval,
+operator isolation, uncertain creation and redaction. Mocked Terraform tests cover the
+same-tenant guard, including targeted RBAC plans. **No live persistent setup, sidecar
+exchange, or delegated hosted invocation is claimed.**
+
+### Historical provider blocker (replaced, not bypassed)
 
 Microsoft's `msgraph` Terraform provider **0.5.0** constructs an instance URL by
 appending `/{id}` to the creation collection. For a blueprint this produces:
@@ -245,8 +297,7 @@ Documented instance:    applications/{id}/microsoft.graph.agentIdentityBlueprint
 The provider has no configurable separate instance URL. The undocumented alternate
 path has **not** been tested against Graph; this is not a finding that Agent ID itself
 is unavailable. A failed post-create refresh could leave an identity outside state.
-`infra/identity-probe/compatibility.tf` therefore rejects plans before apply. An
-offline Terraform test with mocked providers proves that rejection.
+The original typed-URL draft therefore rejected plans before apply.
 
 **Correction to the initial finding:** the ordinary application API explicitly supports
 blueprints at `/applications` with `@odata.type`, and the ordinary service-principal API
@@ -254,13 +305,12 @@ supports blueprint principals. Terraform therefore is **not universally incompat
 with Agent ID. However, the generic provider sends diff-only PATCH bodies, potentially
 omitting an unchanged type discriminator, and the complete Agent Identity lifecycle at
 the untyped endpoints has not been established. The checked-in typed-URL draft remains
-guarded; it is not the executable directory check above.
+never became an executable setup.
 
-**Do not remove the guard to try a deployment.** Full setup still needs an integrated
-ownership/lifecycle contract for identities, federation, consent and RBAC, whether
-implemented with supported Terraform resources or the owner-approved Graph SDK/API path.
-The separate temporary lifecycle check does not populate the Terraform draft or provision
-the browser/sidecar integration.
+The replacement removes **all msgraph-managed resources and the msgraph provider**,
+rather than disabling the guard on those unverified URLs. Canonical Graph SDK/API lifecycle,
+private ownership journaling and Terraform-only Azure RBAC now implement the integrated
+setup. The temporary directory check remains separate and need not be repeated.
 
 The exact Foundry resource service principal, delegated scope, token audience and
 Agent ID consent support also remain unverified. Setup requires explicit verified
@@ -308,27 +358,24 @@ downstream policy-token delivery/provenance and the rest of I0 are separate work
 
 ## Dedicated setup design and prerequisites
 
-The isolated Terraform state is **not included in `cloud:up` or `deploy:all`**.
-Its intended resources are a browser public client and service principal, an Agent ID
+The isolated Terraform state and Graph journal are **not included in `cloud:up` or `deploy:all`**.
+The integrated setup's resources are a browser public client and service principal, an Agent ID
 blueprint and mandatory blueprint principal, an Agent Identity, blueprint workload
 federation, per-user incoming/OBO consent, and one project-scoped **Foundry Agent
 Consumer** assignment to the allowed user. Names use `random_pet` plus `random_id`.
 The blueprint defines its own incoming `access_as_user` scope; that is **not** a
 claim that Foundry publishes a scope with this name.
 
-Before any future reviewed setup, the owner must supply:
+Before reviewed setup, the owner must supply:
 
-- An existing, dedicated certificate-authenticated Graph deployer with reviewed,
-  admin-consented application permissions. Agent ID APIs reject the Azure CLI's
-  `Directory.AccessAsUser.All` token; the Graph provider explicitly disables CLI auth.
-  Relevant API permission families include `Application.ReadWrite.All`,
-  `AgentIdentityBlueprint.Create`, `AgentIdentityBlueprint.ReadWrite.All`,
-  `AgentIdentityBlueprintPrincipal.Create`, `AgentIdentity.Create.All`,
-  `AgentIdentity.ReadWrite.All`, and `DelegatedPermissionGrant.ReadWrite.All`.
-  Agent Identity cleanup additionally needs a documented deletion permission such as
-  `AgentIdentity.DeleteRestore.All`; do not infer it from create/read access.
-  Verify each operation's current least-privilege and cleanup requirements before consent;
-  this module does not bootstrap or consent its own privileged deployer.
+- The approved same-tenant Graph operator and reviewed delegated consent for:
+  `User.Read`, `Application.ReadWrite.All`, `AgentIdentityBlueprint.ReadWrite.All`,
+  `AgentIdentityBlueprintPrincipal.ReadWrite.All`, `AgentIdentity.Create.All`,
+  `AgentIdentity.Read.All`, `AgentIdentity.DeleteRestore.All`,
+  `AgentIdentityBlueprint.AddRemoveCreds.All`, and `DelegatedPermissionGrant.ReadWrite.All`.
+  Setup/cleanup request these through process-scoped Graph sign-in; the operator also
+  needs the applicable directory roles. No certificate deployer or Azure CLI Graph
+  bearer is used. The independent certificate directory check remains optional.
 - Two distinct existing synthetic test users and a blueprint sponsor. Inventory
   inherited/group/subscription/project permissions: the denied user must genuinely
   lack invoke access, and an existing allowed-user assignment must not be duplicated.
@@ -340,7 +387,7 @@ Before any future reviewed setup, the owner must supply:
   No sidecar digest has been resolved or hosted here.
 
 Copy `infra/identity-probe/terraform.tfvars.example` to a gitignored
-`terraform.tfvars` only after resolving the blocker. Never commit actual user IDs,
+`terraform.tfvars` after inspecting the contract and reviewing those inputs. Never commit actual user IDs,
 certificates, tokens, Terraform state or private configuration.
 
 ## Owner commands
@@ -359,15 +406,32 @@ The real-SDK mocked request tests use `azure-ai-projects==2.8.0`,
 `openai==3.31.0`, `httpx==0.28.1`, `PyJWT==2.15.1`, and `cryptography==50.0.2`.
 The ordinary dev suite skips those optional SDK cases if projects SDK is absent;
 `identity:sdk-test` runs them in isolation without changing the agent/model stack.
-The provider lock file records AzureRM **4.81.0**, random **3.9.1** and msgraph
-**0.5.0**. Schema validation is not proof of Graph API compatibility.
+Mocked Terraform validation used the already-installed AzureRM **4.81.0** and random
+**3.9.1** providers in an isolated copy; no provider was installed and the owner's deleted
+identity lock file was not restored. Run `identity:init` to initialize this module
+before its local Terraform commands on the owner's machine. Schema validation is not
+proof of live Graph API compatibility.
 
-**Future owner-run sequence, blocked today; not an instruction to deploy:**
+**First owner-run step: read-only contract inventory.**
+
+```bash
+task identity:foundry-contract TENANT_ID=REPLACE-deployment-tenant-uuid
+```
+
+This requests only `User.Read` and `Application.Read.All`, makes one bounded Graph
+resource query, and prints resource IDs, candidate audiences and enabled delegated scopes.
+No identity, grant, Azure role, cluster workload or hosted call is changed.
+An absent/ambiguous resource, pagination or no enabled scope is **inconclusive**;
+do not guess a scope or substitute workload authentication.
+
+**After contract review and filling the private Terraform inputs, owner-run sequence:**
 
 ```bash
 task identity:init
 task identity:setup-plan
 task identity:setup
+# On a completed setup, configure can re-export the private config without recreation:
+# task identity:configure
 task identity:login CASE=allowed
 task identity:login CASE=denied
 task identity:manifest
@@ -385,6 +449,9 @@ The Job's read-only Secret is short-lived but remains a credential: run
 `identity:down` after collecting results, even if the Job has expired.
 Remove the two local JWT files after the experiment; Kubernetes TTL does not remove
 the Secret or the local files. Then destroy the dedicated identity state.
+Keep the setup journal and exact Terraform inputs for cleanup. If setup stops before
+the final config is exported, use `task identity:setup-cleanup` rather than `identity:down`;
+it checks for remaining workloads using the setup inputs and retains Azure RBAC for review.
 
 Cluster operations validate configuration, expected context and namespace, server
 version, and resource ownership before use. They cannot silently overwrite or delete
@@ -392,6 +459,16 @@ an unrelated resource with the same name. Secret apply is server-side, without a
 client-side last-applied annotation containing a second token copy.
 
 ## Primary references
+
+Rechecked **2026-10-19** for the integrated setup:
+
+- [Interactive-agent pattern 4](https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/agent-identities).
+- [Agent OBO protocol and required preauthorization](https://learn.microsoft.com/en-us/entra/agent-id/agent-on-behalf-of-oauth-flow).
+- [Scope inheritance, no-role inheritance, exact navigation lifecycle](https://learn.microsoft.com/en-us/entra/agent-id/configure-inheritable-permissions-blueprints).
+- [Create/configure blueprint, FIC, identifier URI and scope](https://learn.microsoft.com/en-us/entra/agent-id/create-blueprint).
+- [Agent Identity properties](https://learn.microsoft.com/en-us/graph/api/resources/agentidentity?view=graph-rest-1.0).
+- [Federated credential v1.0 lifecycle](https://learn.microsoft.com/en-us/graph/api/federatedidentitycredential-post?view=graph-rest-1.0)
+  and [per-user delegated grants](https://learn.microsoft.com/en-us/graph/api/oauth2permissiongrant-post?view=graph-rest-1.0).
 
 Accessed **2026-10-16**:
 

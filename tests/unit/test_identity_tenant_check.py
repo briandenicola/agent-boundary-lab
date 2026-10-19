@@ -30,14 +30,24 @@ function Connect-MgGraph {
         [switch] $NoWelcome
     )
     $script:Scopes = $Scopes
+    $lifecycleScopes = 'User.Read,AgentIdentityBlueprint.ReadWrite.All,' +
+        'AgentIdentityBlueprintPrincipal.ReadWrite.All,' +
+        'AgentIdentity.Create.All,AgentIdentity.Read.All,AgentIdentity.DeleteRestore.All'
+    $expectedScopes = switch ($env:MOCK_ACTION) {
+        'Check' { 'User.Read,RoleManagement.Read.Directory' }
+        'FoundryContract' { 'User.Read,Application.Read.All' }
+        'SetupConfigure' { 'User.Read' }
+        { $_ -in @('Setup', 'SetupCleanup') } {
+            $lifecycleScopes + ',Application.ReadWrite.All,' +
+                'DelegatedPermissionGrant.ReadWrite.All,' +
+                'AgentIdentityBlueprint.AddRemoveCreds.All'
+        }
+        default { $lifecycleScopes }
+    }
     if ($TenantId -cne $env:MOCK_TENANT -or $ContextScope -cne 'Process' -or
         $Environment -cne 'Global' -or -not $UseDeviceCode -or
         $ClientTimeout -ne 30 -or -not $NoWelcome -or
-        (($Scopes -join ',') -cne 'User.Read,RoleManagement.Read.Directory' -and
-         ($Scopes -join ',') -cne (
-            'User.Read,AgentIdentityBlueprint.ReadWrite.All,' +
-            'AgentIdentityBlueprintPrincipal.ReadWrite.All,' +
-            'AgentIdentity.Create.All,AgentIdentity.Read.All,AgentIdentity.DeleteRestore.All'))) {
+        ($Scopes -join ',') -cne $expectedScopes) {
         throw 'Unexpected sign-in request.'
     }
     Record 'connect'
@@ -87,6 +97,9 @@ function Invoke-MgGraphRequest {
             throw 'Unexpected lifecycle transport.'
         }
         Record ("graph:" + $Method + ":" + $Uri.AbsolutePath)
+        if ($env:MOCK_ACTION -in @('Setup', 'SetupCleanup', 'SetupConfigure', 'FoundryContract')) {
+            return Invoke-SetupGraph -Method $Method -Uri $Uri -Body $Body
+        }
         if (-not (Test-Path variable:script:Objects)) { $script:Objects = @{} }
         $kind = ($Uri.AbsolutePath -split '/')[-1]
         $status = 200
@@ -168,6 +181,59 @@ Export-ModuleMember -Function Connect-MgGraph,Get-MgContext,Set-MgRequestContext
     Invoke-MgGraphRequest,Disconnect-MgGraph
 """
 
+SETUP_FAKE = r"""
+function Invoke-SetupGraph {
+    param([string] $Method, [uri] $Uri, [string] $Body)
+    $resource = ConvertFrom-Json -AsHashtable -InputObject $env:MOCK_RESOURCE
+    $path = $Uri.AbsolutePath
+    $status = 200
+    $payload = @{}
+    $storage = $env:MOCK_OBJECTS
+    $objects = if (Test-Path -LiteralPath $storage) {
+        ConvertFrom-Json -AsHashtable -InputObject (Get-Content -Raw -LiteralPath $storage)
+    } else { @{} }
+    if ($Method -eq 'GET' -and $path -ceq ('/v1.0/servicePrincipals/' + $resource.id)) {
+        $payload = $resource
+    } elseif ($Method -eq 'GET' -and $path -ceq '/v1.0/servicePrincipals') {
+        $payload = @{ value = @($resource) }
+    } elseif ($Method -eq 'POST') {
+        if ($env:MOCK_CASE -eq 'uncertain_creation') { throw 'synthetic-private-bearer-do-not-log' }
+        $payload = ConvertFrom-Json -AsHashtable -InputObject $Body
+        $number = 100 + $objects.Count
+        $id = '00000000-0000-4000-8000-' + $number.ToString('x12')
+        if ($path.EndsWith('/inheritablePermissions')) { $id = $payload.resourceAppId }
+        if ($path -ceq '/v1.0/oauth2PermissionGrants') { $id = 'grant_' + $number }
+        $payload.id = $id
+        if ($path -ceq '/v1.0/applications' -or
+            $path -ceq '/v1.0/applications/microsoft.graph.agentIdentityBlueprint') {
+            $payload.appId = '00000000-0000-4000-8000-' + (200 + $objects.Count).ToString('x12')
+        }
+        $typed = '^/v1.0/(applications|servicePrincipals)/(microsoft\.graph\.[A-Za-z]+)$'
+        $instance = if ($path -match $typed) {
+            '/v1.0/' + $Matches[1] + '/' + $id + '/' + $Matches[2]
+        } else { $path + '/' + $id }
+        $objects[$instance] = $payload
+        $status = if ($path -ceq '/v1.0/oauth2PermissionGrants') { 200 } else { 201 }
+    } elseif (-not $objects.Contains($path)) {
+        $status = 404
+    } elseif ($Method -eq 'GET') {
+        $payload = $objects[$path]
+    } elseif ($Method -eq 'PATCH') {
+        $patch = ConvertFrom-Json -AsHashtable -InputObject $Body
+        foreach ($key in $patch.Keys) { $objects[$path][$key] = $patch[$key] }
+        $status = 204
+    } elseif ($Method -eq 'DELETE') {
+        $objects.Remove($path)
+        $status = 204
+    } else { throw 'Unexpected setup method.' }
+    ConvertTo-Json -InputObject $objects -Depth 16 -Compress | Set-Content -LiteralPath $storage
+    $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]$status)
+    $response.Content = [System.Net.Http.StringContent]::new(
+        (ConvertTo-Json -InputObject $payload -Depth 16 -Compress))
+    return $response
+}
+"""
+
 
 @pytest.fixture
 def sdk(tmp_path: Path) -> tuple[dict[str, str], Path]:
@@ -176,7 +242,7 @@ def sdk(tmp_path: Path) -> tuple[dict[str, str], Path]:
     module_root = tmp_path / "modules"
     module = module_root / "Microsoft.Graph.Authentication" / SDK
     module.mkdir(parents=True)
-    (module / "Microsoft.Graph.Authentication.psm1").write_text(FAKE_SDK)
+    (module / "Microsoft.Graph.Authentication.psm1").write_text(FAKE_SDK + SETUP_FAKE)
     (module / "Microsoft.Graph.Authentication.psd1").write_text(
         "@{ RootModule='Microsoft.Graph.Authentication.psm1';"
         f"ModuleVersion='{SDK}'; GUID='{OTHER}';"
@@ -192,6 +258,9 @@ def sdk(tmp_path: Path) -> tuple[dict[str, str], Path]:
         "MOCK_TENANT": TENANT,
         "MOCK_OTHER": OTHER,
         "MOCK_LOG": str(log),
+        "MOCK_OBJECTS": str(tmp_path / "objects.json"),
+        "MOCK_INPUTS": str(tmp_path / "inputs.json"),
+        "MOCK_OUTPUT": str(tmp_path / "config.json"),
         "POWERSHELL_TELEMETRY_OPTOUT": "1",
     }
     return environment, log
@@ -216,6 +285,7 @@ def execute(
         "[IO.Path]::PathSeparator + (Join-Path $PSHOME 'Modules'); "
         "& $env:MOCK_SCRIPT -TenantId $env:MOCK_TENANT "
         "-Action $env:MOCK_ACTION -StatePath $env:MOCK_STATE "
+        "-InputsPath $env:MOCK_INPUTS -OutputPath $env:MOCK_OUTPUT "
         "-ApproveRead:($env:MOCK_APPROVED -eq 'true') "
         "-ApproveMutation:($env:MOCK_MUTATION_APPROVED -eq 'true'); exit $LASTEXITCODE",
     ]
@@ -326,7 +396,7 @@ def test_device_code_instructions_are_visible(sdk: tuple[dict[str, str], Path]) 
     assert calls == ["connect", "context", "get_roles", "disconnect"]
 
 
-@pytest.mark.parametrize("action", ["Run", "Cleanup"])
+@pytest.mark.parametrize("action", ["Run", "Cleanup", "Setup", "SetupCleanup"])
 def test_lifecycle_requires_separate_mutation_approval(
     sdk: tuple[dict[str, str], Path], action: str
 ) -> None:
@@ -374,6 +444,108 @@ def test_interactive_cleanup_accepts_completed_journal(
         "get_operator",
         "disconnect",
     ]
+
+
+def seed_setup(sdk: tuple[dict[str, str], Path]) -> dict[str, str]:
+    environment, log = sdk
+    resource = {
+        "id": "00000000-0000-4000-8000-000000000009",
+        "appId": "00000000-0000-4000-8000-000000000010",
+        "servicePrincipalNames": ["https://ai.azure.com"],
+        "oauth2PermissionScopes": [
+            {
+                "id": "00000000-0000-4000-8000-000000000011",
+                "value": "synthetic.invoke",
+                "isEnabled": True,
+            }
+        ],
+    }
+    environment["MOCK_RESOURCE"] = json.dumps(resource)
+    data = {
+        "tenant_id": TENANT,
+        "allowed_user_id": "00000000-0000-4000-8000-000000000012",
+        "denied_user_id": "00000000-0000-4000-8000-000000000013",
+        "foundry_endpoint": "https://synthetic.services.ai.azure.com/api/projects/synthetic",
+        "agent_name": "containment-demo-audit",
+        "foundry_audience": resource["appId"],
+        "foundry_delegated_scope": "synthetic.invoke",
+        "foundry_api_service_principal_id": resource["id"],
+        "aks_oidc_issuer_url": f"https://synthetic.oic.prod-aks.azure.com/{TENANT}/{OTHER}/",
+        "incoming_scope_id": "00000000-0000-4000-8000-000000000014",
+        "probe_name": "calm-otter-1234-identity-probe",
+        "namespace": "agent-boundary-lab",
+        "image": "synthetic.azurecr.io/agent@sha256:" + "a" * 64,
+        "sidecar_image": "mcr.microsoft.com/entra-sdk/auth-sidecar@sha256:" + "b" * 64,
+    }
+    inputs = log.parent / "inputs.json"
+    inputs.write_text(json.dumps(data))
+    inputs.chmod(0o600)
+    return data
+
+
+def test_interactive_persistent_setup_configure_and_cleanup(
+    sdk: tuple[dict[str, str], Path],
+) -> None:
+    inputs = seed_setup(sdk)
+    result, calls = execute(sdk, action="Setup", mutation_approved=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["identity_setup"] == "configured"
+    assert report["foundry_delegation"] == "not_evaluated" and report["i0_complete"] is False
+    assert len([call for call in calls if call.startswith("graph:POST:")]) == 11
+    assert not any(call.startswith("graph:DELETE:") for call in calls)
+    assert (sdk[1].parent / "config.json").stat().st_mode & 0o777 == 0o600
+    config = json.loads((sdk[1].parent / "config.json").read_text())
+    assert config["allowed_user_id"] == inputs["allowed_user_id"]
+    for value in (inputs["allowed_user_id"], inputs["denied_user_id"], TENANT, "synthetic-private"):
+        assert value not in result.stdout + result.stderr
+    configured, after = execute(sdk, action="SetupConfigure", mutation_approved=True)
+    assert configured.returncode == 0, configured.stdout + configured.stderr
+    assert not any(call.startswith("graph:") for call in after[len(calls) :])
+    cleaned, final = execute(sdk, action="SetupCleanup", mutation_approved=True)
+    assert cleaned.returncode == 0, cleaned.stdout + cleaned.stderr
+    assert json.loads(cleaned.stdout)["identity_setup"] == "cleaned_up"
+    assert len([call for call in final if call.startswith("graph:DELETE:")]) == 11
+    assert json.loads((sdk[1].parent / "objects.json").read_text()) == {}
+
+
+def test_foundry_contract_is_read_only_and_requests_no_write_scopes(
+    sdk: tuple[dict[str, str], Path],
+) -> None:
+    seed_setup(sdk)
+    result, calls = execute(sdk, action="FoundryContract")
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["identity_setup"] == "not_evaluated"
+    assert report["enabled_delegated_scopes"][0]["value"] == "synthetic.invoke"
+    assert report["i0_complete"] is False
+    assert [call for call in calls if call.startswith("graph:")] == [
+        "graph:GET:/v1.0/servicePrincipals"
+    ]
+
+
+def test_setup_operator_mismatch_stops_before_graph_object_access(
+    sdk: tuple[dict[str, str], Path],
+) -> None:
+    seed_setup(sdk)
+    initial, calls = execute(sdk, action="Setup", mutation_approved=True)
+    assert initial.returncode == 0, initial.stdout + initial.stderr
+    result, after = execute(sdk, "operator_mismatch", action="SetupCleanup", mutation_approved=True)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert json.loads(result.stdout)["detail"] == "setup_journal_context_or_schema_invalid"
+    assert not any(call.startswith("graph:") for call in after[len(calls) :])
+
+
+def test_setup_transport_failure_keeps_unknown_intent(
+    sdk: tuple[dict[str, str], Path],
+) -> None:
+    seed_setup(sdk)
+    result, calls = execute(sdk, "uncertain_creation", action="Setup", mutation_approved=True)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert json.loads(result.stdout)["detail"] == "directory_graph_transport_failed"
+    assert json.loads((sdk[1].parent / "directory.json").read_text())["pending"] == "browser"
+    assert len([call for call in calls if call.startswith("graph:POST:")]) == 1
+    assert "synthetic-private" not in result.stdout + result.stderr
 
 
 def test_uncertain_interactive_post_stops_without_retry(

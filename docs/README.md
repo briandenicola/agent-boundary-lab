@@ -65,11 +65,12 @@ Protect only the policy API. The test receiver stays unauthenticated so an API r
 cannot masquerade as a platform egress denial. Identity authorization and network containment
 have separate results. AKS continues to stand in for on-premises; true on-premises deployment
 is not claimed. See [the issue #4 implementation track](PLAN.md#issue-4--end-to-end-agent-and-user-identity).
-The [I0 probe and dedicated setup draft](identity-probe.md) are now available;
-full setup remains gated by its unverified lifecycle and delegated Foundry contract.
-A separate owner-run SDK/API directory lifecycle check can test temporary Agent ID
-objects without the Terraform URL restriction. No live directory result, hosted identity
-result or public login rollout is claimed.
+The [I0 probe and integrated setup](identity-probe.md) are now available, offline checked.
+Terraform owns naming/Azure RBAC; a journaled Graph SDK/API path owns identities,
+federation and per-user consent, replacing the unsupported typed-URL provider draft.
+The owner reported the temporary directory lifecycle passed on 2026-10-19.
+Persistent setup, the delegated Foundry contract and public login remain unverified;
+the first owner-run step is `identity:foundry-contract`, not a public rollout.
 
 Exactly two business tools remain registered and callable in ADK in every mode:
 

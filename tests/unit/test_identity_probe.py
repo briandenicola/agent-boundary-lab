@@ -323,19 +323,14 @@ def test_setup_has_distinct_identities_and_no_denied_user_role() -> None:
     source = (ROOT / "infra/identity-probe/identities.tf").read_text() + (
         ROOT / "infra/identity-probe/compatibility.tf"
     ).read_text()
-    for name in (
-        "applications/microsoft.graph.agentIdentityBlueprint",
-        "servicePrincipals/microsoft.graph.agentIdentityBlueprintPrincipal",
-        "servicePrincipals/microsoft.graph.agentIdentity",
-    ):
-        assert name in source
-    assert "depends_on             = [msgraph_resource.blueprint_principal]" in source
-    assert 'consentType = "Principal"' in source
+    assert "msgraph_resource" not in source
+    assert "depends_on           = [terraform_data.setup_target]" in source
     assert "var.allowed_user_id" in source
     assert "principal_id         = var.denied_user_id" not in source
     assert 'role_definition_name = "Foundry Agent Consumer"' in source
     provider = (ROOT / "infra/identity-probe/providers.tf").read_text()
-    assert "use_cli                 = false" in provider
+    assert 'provider "msgraph"' not in provider
+    assert "tenant_id       = var.tenant_id" in provider
 
 
 def test_config_file_reports_no_raw_values(config: probe.Config, tmp_path: Path) -> None:
@@ -485,7 +480,7 @@ def test_cluster_guards_block_and_tampering_breaks_each_guard(
     assert mutated.returncode == 0, mutated.stdout + mutated.stderr
 
 
-@pytest.mark.parametrize("name", ["probe", "status", "down", "setup-down"])
+@pytest.mark.parametrize("name", ["probe", "status", "down"])
 def test_cluster_operations_always_run_guards_first(name: str) -> None:
     source = (ROOT / "tasks/Taskfile.identity.yml").read_text()
     match = re.search(rf"(?ms)^  {name}:\n(.*?)(?=^  [\w-]+:|\Z)", source)

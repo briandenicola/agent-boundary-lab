@@ -1,17 +1,14 @@
-locals {
-  blueprint_create_url              = "applications/microsoft.graph.agentIdentityBlueprint"
-  provider_blueprint_instance_url   = "${local.blueprint_create_url}/{id}"
-  documented_blueprint_instance_url = "applications/{id}/microsoft.graph.agentIdentityBlueprint"
-}
+data "azurerm_client_config" "current" {}
 
-# This draft still uses typed creation URLs. Base /applications + @odata.type is
-# documented for blueprints, so this mismatch is not a blanket Agent ID limitation.
-# The separate SDK-backed directory check uses canonical typed instance URLs.
-resource "terraform_data" "agent_id_provider_gate" {
+resource "terraform_data" "setup_target" {
   lifecycle {
     precondition {
-      condition     = local.provider_blueprint_instance_url == local.documented_blueprint_instance_url
-      error_message = "BLOCKED: this Terraform draft still generates unverified typed Agent ID lifecycle URLs. Base-API blueprint support does not establish the complete Agent Identity lifecycle. Use the separate owner-approved identity:directory-probe to check canonical Graph APIs; full setup and Foundry delegation remain gated. See docs/identity-probe.md."
+      condition     = data.azurerm_client_config.current.tenant_id == var.tenant_id
+      error_message = "The Azure provider must authenticate in the same tenant as the probe."
+    }
+    precondition {
+      condition     = var.allowed_user_id != var.denied_user_id
+      error_message = "Use distinct existing synthetic test users."
     }
   }
 }

@@ -2,20 +2,6 @@ variable "tenant_id" {
   type = string
 }
 
-variable "graph_deployer_client_id" {
-  type = string
-}
-
-variable "graph_deployer_certificate_path" {
-  type      = string
-  sensitive = true
-}
-
-variable "sponsor_user_id" {
-  type      = string
-  sensitive = true
-}
-
 variable "allowed_user_id" {
   type      = string
   sensitive = true

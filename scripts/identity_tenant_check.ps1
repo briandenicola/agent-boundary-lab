@@ -5,18 +5,25 @@ param(
     [ValidatePattern('^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')]
     [string] $TenantId,
     [switch] $ApproveRead,
-    [ValidateSet('Check', 'Run', 'Cleanup')]
+    [ValidateSet('Check', 'Run', 'Cleanup', 'Setup', 'SetupCleanup', 'SetupConfigure', 'FoundryContract')]
     [string] $Action = 'Check',
     [string] $StatePath = '.identity-probe/interactive-directory.json',
+    [string] $InputsPath = '.identity-probe/setup-inputs.json',
+    [string] $OutputPath = '.identity-probe/config.json',
     [switch] $ApproveMutation
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $RequiredGraphVersion = '2.36.1'
+if ($Action.StartsWith('Setup') -and -not $PSBoundParameters.ContainsKey('StatePath')) {
+    $StatePath = '.identity-probe/setup-state.json'
+}
 
 function Invoke-DirectoryLifecycle {
-    param([string] $Operation, [string] $State, [string] $Tenant, $Context)
+    param([string] $Operation, [string] $State, [string] $Tenant, $Context,
+        [string] $Inputs, [string] $Output)
+    $setup = $Operation.StartsWith('Setup') -or $Operation -eq 'FoundryContract'
     Set-MgRequestContext -MaxRetry 0 -ClientTimeout 30 | Out-Null
     $profile = Invoke-MgGraphRequest -Method GET `
         -Uri 'https://graph.microsoft.com/v1.0/me?$select=id' -OutputType Hashtable
@@ -30,8 +37,21 @@ function Invoke-DirectoryLifecycle {
     $start.RedirectStandardInput = $true
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
-    foreach ($argument in @('-m', 'containment_demo.identity_directory',
-            $Operation.ToLowerInvariant(), '--state', $State, '--approve', '--graph-stdio')) {
+    $engineArguments = if ($Operation -eq 'FoundryContract') {
+        @('-m', 'containment_demo.identity_setup', 'contract', '--approve')
+    } elseif ($setup) {
+        $command = switch ($Operation) {
+            'Setup' { 'run' }
+            'SetupCleanup' { 'cleanup' }
+            'SetupConfigure' { 'configure' }
+        }
+        @('-m', 'containment_demo.identity_setup', $command, '--state', $State,
+            '--inputs', $Inputs, '--output', $Output, '--approve')
+    } else {
+        @('-m', 'containment_demo.identity_directory', $Operation.ToLowerInvariant(),
+            '--state', $State, '--approve', '--graph-stdio')
+    }
+    foreach ($argument in $engineArguments) {
         $start.ArgumentList.Add($argument)
     }
     $start.Environment['PYTHONPATH'] = Join-Path $root 'src'
@@ -50,16 +70,25 @@ function Invoke-DirectoryLifecycle {
             if ($line.Length -gt 1048576) { throw 'Directory engine frame too large.' }
             $frame = ConvertFrom-Json -AsHashtable -InputObject $line
             if (-not $frame.Contains('graph_request')) {
-                if (-not $frame.Contains('directory_lifecycle')) {
+                if (-not $frame.Contains($(if ($setup) { 'identity_setup' } else { 'directory_lifecycle' }))) {
                     throw 'Directory engine result invalid.'
                 }
                 $final = $frame
                 continue
             }
             $sequence += 1
+            $directoryPath = '^(applications|servicePrincipals)/(?:[0-9a-f-]{36}/)?microsoft\.graph\.(agentIdentityBlueprint|agentIdentityBlueprintPrincipal|agentIdentity)(?:\?\$select=[A-Za-z,]+)?$'
+            $setupPath = '^(?:(?:applications|servicePrincipals)(?:/[0-9a-f-]{36})?|(?:applications|servicePrincipals)/(?:[0-9a-f-]{36}/)?microsoft\.graph\.(?:agentIdentityBlueprint|agentIdentityBlueprintPrincipal|agentIdentity)|applications/[0-9a-f-]{36}/federatedIdentityCredentials(?:/[0-9a-f-]{36})?|applications/microsoft\.graph\.agentIdentityBlueprint/[0-9a-f-]{36}/inheritablePermissions(?:/[0-9a-f-]{36})?|oauth2PermissionGrants(?:/[A-Za-z0-9_-]{1,512})?)(?:\?\$select=[A-Za-z0-9,]+)?$'
+            $pathPattern = if ($setup) { $setupPath } else { $directoryPath }
+            $contractPath = "servicePrincipals?`$filter=servicePrincipalNames/any(n:n eq 'https://ai.azure.com')&`$select=id,appId,servicePrincipalNames,oauth2PermissionScopes"
+            $validPath = if ($Operation -eq 'FoundryContract') {
+                $frame['method'] -ceq 'GET' -and $frame['path'] -ceq $contractPath
+            } else {
+                $frame['path'] -cmatch $pathPattern
+            }
             if ($frame['graph_request'] -ne $sequence -or
                 $frame['method'] -cnotin @('GET', 'POST', 'PATCH', 'DELETE') -or
-                $frame['path'] -cnotmatch '^(applications|servicePrincipals)/(?:[0-9a-f-]{36}/)?microsoft\.graph\.(agentIdentityBlueprint|agentIdentityBlueprintPrincipal|agentIdentity)(?:\?\$select=[A-Za-z,]+)?$') {
+                -not $validPath) {
                 throw 'Directory engine request invalid.'
             }
             $reply = @{ graph_request = $sequence }
@@ -128,7 +157,7 @@ try {
         throw 'Approval required.'
     }
     $stage = 'explicit_mutation_approval_required'
-    if ($Action -ne 'Check' -and -not $ApproveMutation) {
+    if ($Action -notin @('Check', 'FoundryContract') -and -not $ApproveMutation) {
         throw 'Mutation approval required.'
     }
     $stage = 'graph_module_missing_run_identity_graph_init'
@@ -147,6 +176,14 @@ try {
         @('User.Read', 'AgentIdentityBlueprint.ReadWrite.All',
             'AgentIdentityBlueprintPrincipal.ReadWrite.All',
             'AgentIdentity.Create.All', 'AgentIdentity.Read.All', 'AgentIdentity.DeleteRestore.All')
+    }
+    if ($Action -eq 'FoundryContract') {
+        $scopes = @('User.Read', 'Application.Read.All')
+    } elseif ($Action -eq 'SetupConfigure') {
+        $scopes = @('User.Read')
+    } elseif ($Action.StartsWith('Setup')) {
+        $scopes += @('Application.ReadWrite.All', 'DelegatedPermissionGrant.ReadWrite.All',
+            'AgentIdentityBlueprint.AddRemoveCreds.All')
     }
     Connect-MgGraph -TenantId $TenantId -Scopes $scopes `
         -ContextScope Process -Environment Global -UseDeviceCode `
@@ -171,9 +208,17 @@ try {
     if ($Action -ne 'Check') {
         $stage = 'interactive_directory_engine_failed'
         $outcome = Invoke-DirectoryLifecycle -Operation $Action -State $StatePath `
-            -Tenant $TenantId -Context $context
+            -Tenant $TenantId -Context $context -Inputs $InputsPath -Output $OutputPath
         $report.tenant_check = 'pass'
-        $report.directory_lifecycle = $outcome.Report['directory_lifecycle']
+        if ($Action.StartsWith('Setup') -or $Action -eq 'FoundryContract') {
+            $report.identity_setup = $outcome.Report['identity_setup']
+            foreach ($key in @('foundry_resource_service_principal_id', 'foundry_resource_app_id',
+                    'candidate_audiences', 'enabled_delegated_scopes', 'note')) {
+                if ($outcome.Report.Contains($key)) { $report[$key] = $outcome.Report[$key] }
+            }
+        } else {
+            $report.directory_lifecycle = $outcome.Report['directory_lifecycle']
+        }
         if ($outcome.Report.Contains('detail')) {
             $report.detail = $outcome.Report['detail']
         }

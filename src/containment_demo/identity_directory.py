@@ -75,7 +75,11 @@ class Settings:
 
 class DirectoryAPI(Protocol):
     def request(
-        self, method: str, path: str, status: int, body: dict[str, Any] | None = None
+        self,
+        method: str,
+        path: str,
+        status: int | tuple[int, ...],
+        body: dict[str, Any] | None = None,
     ) -> dict[str, Any]: ...
 
 
@@ -88,7 +92,11 @@ class StdioGraph:
         self.sequence = 0
 
     def request(
-        self, method: str, path: str, status: int, body: dict[str, Any] | None = None
+        self,
+        method: str,
+        path: str,
+        status: int | tuple[int, ...],
+        body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.sequence += 1
         print(
@@ -116,7 +124,7 @@ class StdioGraph:
             raise ProbeError("directory_graph_transport_failed")
         if type(response.get("status")) is not int:
             raise ProbeError("directory_graph_pipe_status_invalid")
-        if response["status"] != status:
+        if response["status"] not in ((status,) if isinstance(status, int) else status):
             raise GraphError(response["status"])
         payload = response.get("body")
         if status == 204:
@@ -138,7 +146,11 @@ class Graph:
         self.credential = credential
 
     def request(
-        self, method: str, path: str, status: int, body: dict[str, Any] | None = None
+        self,
+        method: str,
+        path: str,
+        status: int | tuple[int, ...],
+        body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         token = self.credential.get_token("https://graph.microsoft.com/.default").token
         response = self.http.request(
@@ -147,7 +159,7 @@ class Graph:
             headers={"Authorization": f"Bearer {token}", "OData-Version": "4.0"},
             json=body,
         )
-        if response.status_code != status:
+        if response.status_code not in ((status,) if isinstance(status, int) else status):
             raise GraphError(response.status_code)
         if status == 204:
             return {}

@@ -17,8 +17,9 @@ tool registration. MCP is now a base runtime requirement (`>=2.2.0,<3`); the loc
 `mcp` and `mcp-types` to **2.3.0**. Local import guards cover `CacheableResult` and the
 dispatch module; the hosted-agent Dockerfile checks those imports during its build.
 The local validation stack remains LiteLLM **1.104.0**, ADK **2.11.0**, and agentserver
-**2.2.0**. No successful hosted call with this repair is claimed until the owner rebuilds,
-deploys the same new image digest to both policies, and verifies the result.
+**2.2.0**. The owner subsequently reported both repaired hosted calls completed and
+Sections B/C returned PASS on 2026-10-19; see telemetry-map §0.15. The verifier reports
+were owner-run, not independently rerun by the assistant.
 
 Target region: **Canada Central**, chosen so that the containment environment and the
 Phase 8 workflow state store can share one region. East US 2 hosted the containment
@@ -89,7 +90,8 @@ With owner approval to use APIs/SDKs where necessary, a separate
 `task identity:directory-probe` now checks canonical typed creation/read, a blueprint
 update, and reverse-order deletion through certificate-authenticated Graph requests.
 It keeps an owner-only journal and does not provision full probe integration or change
-Terraform state. **Code and offline validation only; no live directory result.**
+Terraform state. This paragraph describes the initial certificate check, not the later
+owner-reported interactive lifecycle pass.
 The exact Foundry delegated grant and sidecar image/federation remain unverified.
 See [the directory check](identity-probe.md#sdk-backed-directory-lifecycle-check) for
 prerequisites, cleanup and primary references, accessed **2026-10-16**.
@@ -104,7 +106,22 @@ a successful isolated sign-in and active-role check. This is not an Agent ID res
 engine through private request/reply pipes while Graph PowerShell retains authentication.
 Separate mutation approval, zero SDK retries, operator-bound private journals and the
 existing uncertain-create guard remain required. The real scripts completed the lifecycle
-against the fake SDK; **no live lifecycle or Foundry result has been collected**.
+against the fake SDK. The owner subsequently reported a live temporary directory lifecycle
+pass on 2026-10-19; this does not establish delegated Foundry authentication.
+
+**Integrated setup, 2026-10-19 — source/offline verified, not deployed:** the unsupported
+msgraph-managed draft described above has been replaced. Terraform retains naming and
+allowed-user Azure RBAC only. `identity_setup.py` uses documented Graph requests through
+the existing process-scoped PowerShell SDK pipe, with an operator-bound private journal,
+read-back verification and guarded reverse cleanup. Incoming consent is per test user;
+Foundry consent targets the blueprint principal and children inherit delegated scopes
+for that resource, with application-role inheritance explicitly disabled. The sidecar
+uses the child's returned `id`, not an assumed `appId`.
+
+`identity:foundry-contract` performs a read-only inventory before setup. Actual resource,
+audience, enabled scope, sidecar federation and the delegated hosted bearer still require
+owner-run verification. Primary references rechecked **2026-10-19** and the exact sequence
+are in [identity-probe.md](identity-probe.md#integrated-sdkapi-setup-sourceoffline-verified-not-deployed).
 
 Primary references, accessed **2026-10-15**:
 

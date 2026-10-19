@@ -363,7 +363,10 @@ digest. No bootstrap or state removal is needed for this in-place recovery.
 Run the bridge verification/calls below, allow ingestion time, then run
 `task cloud:logging-status`. It reports recent table activity as **observed** or
 **inconclusive**, not containment pass/fail. A declared diagnostic setting alone is not
-proof that records arrived, and applying this repair has not yet been verified live.
+proof that records arrived. The post-apply read-only inventory subsequently confirmed
+both diagnostic destinations, the AKS collection binding, and new container/diagnostic
+records. The owner reported Audit and Enforced verifier PASS; details and provenance
+are recorded in telemetry-map §0.15.
 
 #### Functional checks and containment evidence
 

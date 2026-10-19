@@ -8,6 +8,7 @@ env:
 vars:
   DIRECTORY_STATE: '{{default ".identity-probe/directory.json" .STATE}}'
   INTERACTIVE_DIRECTORY_STATE: '{{default ".identity-probe/interactive-directory.json" .STATE}}'
+  SETUP_STATE: '{{default ".identity-probe/setup-state.json" .STATE}}'
 
 tasks:
   graph-init:
@@ -46,6 +47,14 @@ tasks:
     cmds:
       - pwsh -NoLogo -NoProfile -File "{{.ROOT_DIR}}/scripts/identity_tenant_check.ps1" -TenantId "{{.TENANT_ID}}" -Action Cleanup -StatePath "{{.INTERACTIVE_DIRECTORY_STATE}}" -ApproveRead -ApproveMutation
 
+  foundry-contract:
+    desc: Interactive READ-ONLY inventory of the actual Foundry resource, audiences and published delegated scopes
+    requires:
+      vars: [TENANT_ID]
+    prompt: Sign in to tenant {{.TENANT_ID}} and inspect the Foundry resource with User.Read and Application.Read.All? No identities, grants, Azure roles or hosted calls are changed.
+    cmds:
+      - pwsh -NoLogo -NoProfile -File "{{.ROOT_DIR}}/scripts/identity_tenant_check.ps1" -TenantId "{{.TENANT_ID}}" -Action FoundryContract -ApproveRead
+
   directory-plan:
     desc: Show the SDK-backed Agent ID lifecycle check and required grants offline; no login or Azure calls
     cmds:
@@ -69,29 +78,50 @@ tasks:
       - terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" init -input=false
 
   setup-plan:
-    desc: BLOCKED by provider lifecycle gate. Plan dedicated I0 identities, consent and the allowed user's invoke role
+    desc: Plan dedicated I0 naming and allowed-user Azure RBAC; Graph setup/consent are separate SDK operations
     cmds:
       - terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" plan -input=false
 
   setup:
-    desc: BLOCKED by provider lifecycle gate. Would create dedicated probe identities, consent, federation and invoke RBAC
-    prompt: Create the reviewed dedicated I0 identities, delegated consent, AKS federation and allowed-user Foundry role? No public ingress is created.
+    desc: Create dedicated I0 naming/RBAC, then Graph identities, AKS federation and per-user delegated consent
+    prompt: Create the reviewed dedicated I0 identities, delegated consent, AKS federation and allowed-user Foundry role? Review Graph sign-in/consent. No public ingress or existing-agent changes.
+    preconditions:
+      - sh: command -v pwsh >/dev/null
+        msg: PowerShell 7.4+ and the pinned Graph SDK are required; run identity:graph-init first.
+      - sh: test ! -e "{{.SETUP_STATE}}"
+        msg: A setup journal already exists. Review it; use configure for completed setup or setup-cleanup for recorded objects, never rerun creation blindly.
     cmds:
       - terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" apply -input=false
-      - task: configure
+      - task: _setup-inputs
+      - |
+        TENANT=$(jq -er .tenant_id "{{.ROOT_DIR}}/.identity-probe/setup-inputs.json")
+        pwsh -NoLogo -NoProfile -File "{{.ROOT_DIR}}/scripts/identity_tenant_check.ps1" \
+          -TenantId "$TENANT" -Action Setup -StatePath "{{.SETUP_STATE}}" \
+          -InputsPath "{{.ROOT_DIR}}/.identity-probe/setup-inputs.json" \
+          -OutputPath "{{.ROOT_DIR}}/.identity-probe/config.json" -ApproveRead -ApproveMutation
 
   configure:
-    desc: Write sensitive probe configuration from local Terraform state to gitignored owner-only files
+    desc: Re-export completed SDK setup as private probe configuration; verifies the same signed-in operator
+    cmds:
+      - task: _setup-inputs
+      - |
+        TENANT=$(jq -er .tenant_id "{{.ROOT_DIR}}/.identity-probe/setup-inputs.json")
+        pwsh -NoLogo -NoProfile -File "{{.ROOT_DIR}}/scripts/identity_tenant_check.ps1" \
+          -TenantId "$TENANT" -Action SetupConfigure -StatePath "{{.SETUP_STATE}}" \
+          -InputsPath "{{.ROOT_DIR}}/.identity-probe/setup-inputs.json" \
+          -OutputPath "{{.ROOT_DIR}}/.identity-probe/config.json" -ApproveRead -ApproveMutation
+
+  _setup-inputs:
+    internal: true
     cmds:
       - |
         set -eu
         umask 077
         mkdir -p "{{.ROOT_DIR}}/.identity-probe"
-        CONFIG="{{.ROOT_DIR}}/.identity-probe/config.json"
-        TMP=$(mktemp "{{.ROOT_DIR}}/.identity-probe/config.XXXXXX")
+        CONFIG="{{.ROOT_DIR}}/.identity-probe/setup-inputs.json"
+        TMP=$(mktemp "{{.ROOT_DIR}}/.identity-probe/setup-inputs.XXXXXX")
         trap 'rm -f "$TMP"' EXIT
-        terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" output -json probe_config > "$TMP"
-        "{{.ROOT_DIR}}/.venv/bin/python" -m containment_demo.identity_probe check --config "$TMP"
+        terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" output -json setup_config > "$TMP"
         mv "$TMP" "$CONFIG"
 
   login:
@@ -157,25 +187,40 @@ tasks:
         kubectl -n "$NS" delete job "$NAME" --ignore-not-found --wait=true --timeout=60s
         kubectl -n "$NS" delete secret,configmap,serviceaccount "$NAME" --ignore-not-found
 
-  setup-down:
-    desc: DELETE dedicated probe Entra identities, their consent and the allowed user's probe-managed Foundry role
-    prompt: Destroy only infra/identity-probe's dedicated identities, consent, federation and invoke grant? Run identity:down first.
+  setup-cleanup:
+    desc: DELETE only journal-owned Graph identities, federation and consent; Azure RBAC remains
+    prompt: Delete the dedicated SDK-managed Graph setup? Review Graph sign-in. Any probe workload must already be removed; Azure RBAC remains until setup-down.
     cmds:
-      - task: _cluster
+      - task: _setup-inputs
       - |
         set -eu
-        CONFIG="{{.ROOT_DIR}}/.identity-probe/config.json"
+        CONFIG="{{.ROOT_DIR}}/.identity-probe/setup-inputs.json"
+        EXPECTED=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" output -raw aks_cluster_name)
+        [ "$(kubectl config current-context)" = "$EXPECTED" ] || {
+          echo "Wrong Kubernetes context; run task cloud:kubeconfig." >&2; exit 1; }
         NAME=$(jq -er .probe_name "$CONFIG")
         NS=$(jq -er .namespace "$CONFIG")
+        EXPECTED_NS=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" output -raw kubernetes_namespace)
+        [ "$NS" = "$EXPECTED_NS" ] || {
+          echo "Probe namespace does not match the cloud state." >&2; exit 1; }
         OBJECTS=$(kubectl -n "$NS" get job,secret,configmap,serviceaccount "$NAME" --ignore-not-found -o json)
         printf '%s\n' "$OBJECTS" | jq -e '.items | length == 0' >/dev/null || {
           echo "Run task identity:down before destroying probe identities." >&2; exit 1; }
+        TENANT=$(jq -er .tenant_id "$CONFIG")
+        pwsh -NoLogo -NoProfile -File "{{.ROOT_DIR}}/scripts/identity_tenant_check.ps1" \
+          -TenantId "$TENANT" -Action SetupCleanup -StatePath "{{.SETUP_STATE}}" \
+          -InputsPath "$CONFIG" -ApproveRead -ApproveMutation
+
+  setup-down:
+    desc: DELETE dedicated Graph setup, then Terraform-managed naming and the allowed-user invoke grant
+    cmds:
+      - task: setup-cleanup
       - terraform -chdir="{{.ROOT_DIR}}/infra/identity-probe" destroy -input=false
 
   test:
     desc: Run offline identity and policy authorization tests; no token acquisition, Azure, cluster access or model calls
     cmds:
-      - '"{{.ROOT_DIR}}/.venv/bin/python" -m pytest "{{.ROOT_DIR}}/tests/unit/test_identity_probe.py" "{{.ROOT_DIR}}/tests/unit/test_identity_directory.py" "{{.ROOT_DIR}}/tests/unit/test_identity_tenant_check.py" "{{.ROOT_DIR}}/tests/unit/test_delegated_auth.py" "{{.ROOT_DIR}}/tests/unit/test_policy_identity.py" "{{.ROOT_DIR}}/tests/unit/test_identity_rollout_gate.py" -q'
+      - '"{{.ROOT_DIR}}/.venv/bin/python" -m pytest "{{.ROOT_DIR}}/tests/unit/test_identity_probe.py" "{{.ROOT_DIR}}/tests/unit/test_identity_directory.py" "{{.ROOT_DIR}}/tests/unit/test_identity_setup.py" "{{.ROOT_DIR}}/tests/unit/test_identity_tenant_check.py" "{{.ROOT_DIR}}/tests/unit/test_delegated_auth.py" "{{.ROOT_DIR}}/tests/unit/test_policy_identity.py" "{{.ROOT_DIR}}/tests/unit/test_identity_rollout_gate.py" -q'
 
   sdk-test:
     desc: Download pinned probe-only SDKs into an isolated environment, then run mocked SDK tests; never contacts Azure

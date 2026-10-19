@@ -114,8 +114,9 @@ target because PostgreSQL Flexible Server is restricted in East US 2 (A2a, A2b).
 the AKS VM SKU. Taskfile and cloud Terraform defaults now match. Read-only model/quota,
 compute and PostgreSQL capability results are in
 [`rebuild-runbook.md`](rebuild-runbook.md#sweden-central-rebuild-defaults-approved-2026-10-19).
-The earlier regional restrictions above describe the previous subscription; no completed
-Sweden Central deployment is claimed.
+The earlier regional restrictions above describe the previous subscription. The owner
+subsequently reported Audit and Enforced hosted verification PASS on 2026-10-19;
+the bounded run IDs and directly observed logging recovery are in telemetry-map §0.15.
 
 **Preview capability:** network egress controls are preview, no SLA, explicitly not for
 production. Hosted agents are GA with preview sub-features (A1, B1, Blocker 2).
@@ -593,10 +594,11 @@ and contexts are retained 60 days from last write.
 
 ## Issue #4 — End-to-end agent and user identity
 
-**Status (2026-10-16): independent code implemented/offline checked; full setup blocked.**
-The [owner-run probe](identity-probe.md) and isolated dedicated-identity Terraform draft
-are checked in. The typed-URL Terraform draft retains its pre-apply lifecycle guard;
-base-API blueprint support means this is not a blanket Terraform incompatibility.
+**Status (2026-10-19): integrated setup implemented/offline checked; hosted I0 unverified.**
+The [owner-run probe and setup](identity-probe.md) are checked in. Terraform now owns
+only generated naming and Azure invoke RBAC; the Graph SDK/API engine owns persistent
+identities, federation, scope-only inheritance and per-user consent with private journals.
+All unsupported msgraph-managed resources were replaced, not unguarded.
 An owner-approved SDK/API alternative now has a separate temporary directory lifecycle
 check (`task identity:directory-plan`, then separately approved
 `task identity:directory-probe`). It does not configure the complete delegated probe
@@ -605,7 +607,8 @@ An interactive alternative now reuses that lifecycle engine without a certificat
 `task identity:interactive-probe TENANT_ID=...`, with separately approved cleanup.
 The owner reported `directory_lifecycle: pass` on 2026-10-19 after the wrapper fix:
 temporary creation, read/update verification and cleanup succeeded in the selected tenant.
-Foundry delegation remains untested. The owner chose a single-tenant rebuild for all
+Foundry delegation remains untested. The read-only `identity:foundry-contract` task
+inventories published scopes/audiences before any setup. The owner chose a single-tenant rebuild for all
 resources and will handle the old environment's teardown and state removal personally.
 Target checks and the owner-run sequence are in [`rebuild-runbook.md`](rebuild-runbook.md).
 Shared delegated JWT validation and opt-in policy API authorization are implemented.
@@ -662,7 +665,7 @@ decision to the owner.
       Prove the accepted bearer is delegated, not an app-only token with a user-ID header.
       Record SDK/protocol versions and masked outcomes without recording raw tokens.
       Code and offline checks are available in [`identity-probe.md`](identity-probe.md);
-      dedicated setup is blocked and no hosted result closes this checkbox.
+      integrated setup is offline checked but not deployed; no hosted result closes this checkbox.
 - [ ] Establish separately how the hosted tool receives a policy-API-audience user token.
       Verify request-scoped custom-header forwarding and trusted resolved user context on
       the installed SDK/container protocol; never assume Foundry forwards `Authorization`
