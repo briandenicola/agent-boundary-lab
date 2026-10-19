@@ -13,7 +13,6 @@ vars:
 tasks:
   graph-init:
     desc: Install pinned Microsoft Graph Authentication SDK for PowerShell; no sign-in or tenant access
-    prompt: Download Microsoft.Graph.Authentication 2.36.1 from PowerShell Gallery into your current user's PowerShell modules? No Azure or Entra access.
     preconditions:
       - sh: command -v pwsh >/dev/null
         msg: PowerShell 7.4 or newer is required.
@@ -21,10 +20,9 @@ tasks:
       - pwsh -NoLogo -NoProfile -NonInteractive -Command "Install-Module Microsoft.Graph.Authentication -RequiredVersion 2.36.1 -Scope CurrentUser -Repository PSGallery -Force -ErrorAction Stop"
 
   tenant-check:
-    desc: Interactive, process-only Graph sign-in and read-only active role check; Azure CLI context is untouched
+    desc: Process-only Graph sign-in with User.Read and RoleManagement.Read.Directory; read-only role check, Azure CLI context untouched
     requires:
       vars: [TENANT_ID]
-    prompt: Sign in to tenant {{.TENANT_ID}} and read your active directory roles? Review any consent for User.Read and RoleManagement.Read.Directory. No directory write permissions, Agent ID objects or Azure resources are requested.
     preconditions:
       - sh: command -v pwsh >/dev/null
         msg: PowerShell 7.4 or newer is required.
@@ -51,7 +49,6 @@ tasks:
     desc: Interactive READ-ONLY inventory of the actual Foundry resource, audiences and published delegated scopes
     requires:
       vars: [TENANT_ID]
-    prompt: Sign in to tenant {{.TENANT_ID}} and inspect the Foundry resource with User.Read and Application.Read.All? No identities, grants, Azure roles or hosted calls are changed.
     cmds:
       - pwsh -NoLogo -NoProfile -File "{{.ROOT_DIR}}/scripts/identity_tenant_check.ps1" -TenantId "{{.TENANT_ID}}" -Action FoundryContract -ApproveRead
 
@@ -126,7 +123,6 @@ tasks:
 
   login:
     desc: Open Entra login for one test user; write a short-lived token to a gitignored owner-only file, never stdout
-    prompt: Sign in as the selected synthetic test user and save a short-lived probe token locally?
     vars:
       CASE: '{{default "allowed" .CASE}}'
     cmds:
@@ -224,7 +220,6 @@ tasks:
 
   sdk-test:
     desc: Download pinned probe-only SDKs into an isolated environment, then run mocked SDK tests; never contacts Azure
-    prompt: Download the pinned probe SDK dependencies into .identity-probe/validation-venv and run offline SDK tests?
     cmds:
       - |
         set -eu

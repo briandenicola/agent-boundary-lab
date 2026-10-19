@@ -17,13 +17,13 @@ task identity:graph-init
 task identity:tenant-check TENANT_ID=REPLACE-deployment-tenant-uuid
 ```
 
-The first command prompts before installing **Microsoft.Graph.Authentication 2.36.1**
+The first command installs **Microsoft.Graph.Authentication 2.36.1** without a Task confirmation
 for the current user. PowerShell **7.4+** is required (offline script checks run with
 **7.6.6**). The module version is pinned to its published PowerShell Gallery package;
 the owner has installed that SDK and successfully completed the isolated sign-in and
 active-role check. That result does not establish Agent ID or Foundry compatibility.
 
-The second command prompts before device-code sign-in. Complete sign-in yourself with
+The second command starts device-code sign-in without a Task confirmation. Complete sign-in yourself with
 the account in the requested tenant; review any consent for **User.Read** and
 **RoleManagement.Read.Directory**. On first use, Microsoft may provision the Graph
 Command Line Tools enterprise application and record your consent. The script does
@@ -397,7 +397,7 @@ Available **now**, with no tenant or cluster access:
 ```bash
 task identity:test
 task identity:directory-plan
-task identity:sdk-test  # prompts before downloading isolated SDK dependencies
+task identity:sdk-test  # downloads isolated SDK dependencies without a Task confirmation
 terraform -chdir=infra/identity-probe validate
 terraform -chdir=infra/identity-probe test
 ```
@@ -421,6 +421,8 @@ task identity:foundry-contract TENANT_ID=REPLACE-deployment-tenant-uuid
 This requests only `User.Read` and `Application.Read.All`, makes one bounded Graph
 resource query, and prints resource IDs, candidate audiences and enabled delegated scopes.
 No identity, grant, Azure role, cluster workload or hosted call is changed.
+Routine identity tasks have no extra Task confirmation. Entra sign-in and consent still
+apply; identity mutations, billable probes and deletion retain their confirmations.
 An absent/ambiguous resource, pagination or no enabled scope is **inconclusive**;
 do not guess a scope or substitute workload authentication.
 

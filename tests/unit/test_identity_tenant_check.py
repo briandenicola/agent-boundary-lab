@@ -605,9 +605,38 @@ def test_task_and_module_version_wiring() -> None:
     assert f"Install-Module Microsoft.Graph.Authentication -RequiredVersion {SDK}" in taskfile
     block = taskfile.split("  tenant-check:", 1)[1].split("\n\n  ", 1)[0]
     assert "vars: [TENANT_ID]" in block
-    assert "prompt:" in block and "-ApproveRead" in block
+    assert "prompt:" not in block and "-ApproveRead" in block
     assert "RoleManagement.Read.Directory" in block
     assert "identity_tenant_check.ps1" in block
     assert not re.search(r"\baz\s+(login|account\s+set)\b", script)
     assert "AZURE_CONFIG_DIR" not in script
     assert "-ContextScope Process" in script
+
+
+@pytest.mark.parametrize(
+    "task_name",
+    ["graph-init", "tenant-check", "foundry-contract", "login", "sdk-test"],
+)
+def test_routine_identity_tasks_have_no_confirmation(task_name: str) -> None:
+    taskfile = (ROOT / "tasks/Taskfile.identity.yml").read_text()
+    block = taskfile.split(f"  {task_name}:", 1)[1].split("\n\n  ", 1)[0]
+    assert "prompt:" not in block
+
+
+@pytest.mark.parametrize(
+    "task_name",
+    [
+        "interactive-probe",
+        "interactive-cleanup",
+        "directory-probe",
+        "directory-cleanup",
+        "setup",
+        "probe",
+        "down",
+        "setup-cleanup",
+    ],
+)
+def test_identity_mutations_keep_confirmation(task_name: str) -> None:
+    taskfile = (ROOT / "tasks/Taskfile.identity.yml").read_text()
+    block = taskfile.split(f"  {task_name}:", 1)[1].split("\n\n  ", 1)[0]
+    assert "prompt:" in block
