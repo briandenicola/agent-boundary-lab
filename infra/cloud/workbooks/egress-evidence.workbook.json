@@ -165,6 +165,26 @@
         "crossComponentResources": ["${workspace_id}"],
         "visualization": "table"
       }
+    },
+    {
+      "type": 1,
+      "name": "tool-timeline-title",
+      "content": { "json": "### (g) Tool invocations, last hour: app spans, app traces, platform decisions and receipts\n\nOne timeline across all runs. Under `Audit` you should see the `execute_tool` span, the `demo.tool_result` trace, the decision row and the receipt for each tool. Under `Enforced` the app rows are absent (the platform denies the telemetry export), so read the decision row and the missing `test-receiver` receipt instead (180 s rule). The decision rows carry no run id, so they line up with the app rows by host and time only (inferred, not a join key)." }
+    },
+    {
+      "type": 3,
+      "name": "tool-timeline",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let tools = AppDependencies\n    | where TimeGenerated > ago(1h) and Name startswith \"execute_tool\"\n    | project TimeGenerated, source = \"app span\", what = Name, detail = strcat(\"success=\", tostring(Success));\nlet results = AppTraces\n    | where TimeGenerated > ago(1h) and Message == \"demo.tool_result\"\n    | extend p = parse_json(Properties)\n    | project TimeGenerated, source = \"app trace\", what = tostring(p[\"demo.tool_name\"]),\n        detail = strcat(\"run=\", tostring(p[\"demo.run_id\"]), \" mode=\", tostring(p[\"demo.policy_mode\"]), \" succeeded=\", tostring(p[\"demo.succeeded\"]), \" http=\", tostring(p[\"demo.http_status\"]), \" error=\", tostring(p[\"demo.error_category\"]), \" host=\", tostring(p[\"demo.destination_host\"]));\nlet decisions = AppDependencies\n    | where TimeGenerated > ago(1h) and DependencyType == \"NetworkEgressDecision\"\n    | extend p = parse_json(Properties)\n    | where tostring(p.host) !endswith \"applicationinsights.azure.com\"\n    | project TimeGenerated, source = \"platform decision\", what = tostring(p.host),\n        detail = strcat(tostring(p.decision), \" / \", tostring(p.decisionReasonCode), \" / \", tostring(p.enforcement));\nlet receipts = ContainerAppConsoleLogs_CL\n    | where TimeGenerated > ago(1h) and Log_s has \"\\\"event\\\"\" and Log_s has \"receipt\"\n    | project TimeGenerated, source = \"receipt\", what = ContainerAppName_s, detail = extract(@\"(run-[0-9a-f-]{36})\", 1, Log_s);\nunion tools, results, decisions, receipts\n| order by TimeGenerated desc",
+        "size": 0,
+        "timeContext": { "durationMs": 0 },
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["${workspace_id}"],
+        "visualization": "table"
+      }
     }
   ],
   "isLocked": false,

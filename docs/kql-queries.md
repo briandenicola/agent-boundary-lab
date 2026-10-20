@@ -143,6 +143,37 @@ host `canadacentral-1.in.applicationinsights.azure.com`, `POST //v2.1/track`. So
 telemetry exporter. **Not verified:** that this is why enforced app spans never land (telemetry-map §0.10). Confirm by comparing
 the audit slot (same host should be `Allow`/`AuditWouldDeny`) before stating it.
 
+## 9. Tool invocations, last hour: app spans, app traces, platform decisions and receipts
+
+One timeline across all runs. Under `Audit` each tool shows an `execute_tool` span, a `demo.tool_result` trace, a
+platform decision row and a receipt. Under `Enforced` the app rows are absent (the platform denies the telemetry
+export, §8), so read the decision row and the missing `test-receiver` receipt (180 s rule). Decision rows carry no
+run id, so they line up with app rows by host and time only (inferred). Same query as workbook panel (g).
+
+```kusto
+let tools = AppDependencies
+    | where TimeGenerated > ago(1h) and Name startswith "execute_tool"
+    | project TimeGenerated, source = "app span", what = Name, detail = strcat("success=", tostring(Success));
+let results = AppTraces
+    | where TimeGenerated > ago(1h) and Message == "demo.tool_result"
+    | extend p = parse_json(Properties)
+    | project TimeGenerated, source = "app trace", what = tostring(p["demo.tool_name"]),
+        detail = strcat("run=", tostring(p["demo.run_id"]), " mode=", tostring(p["demo.policy_mode"]), " succeeded=", tostring(p["demo.succeeded"]), " http=", tostring(p["demo.http_status"]), " error=", tostring(p["demo.error_category"]), " host=", tostring(p["demo.destination_host"]));
+let decisions = AppDependencies
+    | where TimeGenerated > ago(1h) and DependencyType == "NetworkEgressDecision"
+    | extend p = parse_json(Properties)
+    | where tostring(p.host) !endswith "applicationinsights.azure.com"
+    | project TimeGenerated, source = "platform decision", what = tostring(p.host),
+        detail = strcat(tostring(p.decision), " / ", tostring(p.decisionReasonCode), " / ", tostring(p.enforcement));
+let receipts = ContainerAppConsoleLogs_CL
+    | where TimeGenerated > ago(1h) and Log_s has "\"event\"" and Log_s has "receipt"
+    | project TimeGenerated, source = "receipt", what = ContainerAppName_s, detail = extract(@"(run-[0-9a-f-]{36})", 1, Log_s);
+union tools, results, decisions, receipts
+| order by TimeGenerated desc
+```
+
+Status: PROPOSED. Built from the field names recorded in `telemetry-map.md`; not yet run as written.
+
 ## What these queries do not show
 
 - The agent's HTTP 403, a DNS error, a timeout or the model's reply. Those are application-layer.
