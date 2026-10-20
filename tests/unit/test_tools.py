@@ -78,13 +78,24 @@ class TestRoutes:
             assert url == f"https://h.example.test{path}/run-abc_1"
 
     def test_routes_match_what_the_services_declare(self) -> None:
+        """Checks the services' actually-registered routes, not their source text: the
+        policy API registers routes via ``add_api_route`` (WP-2, so its auth middleware
+        can wrap every route), while the receiver still uses decorators. Either
+        declaration style must produce the same route shape the tools call."""
         from pathlib import Path
 
+        from services.policy_api.main import create_app as create_policy_app
+
+        policy_routes = {
+            (route.path, method)
+            for route in create_policy_app().routes
+            for method in getattr(route, "methods", set()) or set()
+        }
+        assert (tools.POLICY_PATH, "GET") in policy_routes
+        assert (f"{tools.POLICY_PATH}/{{run_id}}", "GET") in policy_routes
+
         root = Path(__file__).resolve().parents[2]
-        policy_src = (root / "services/policy_api/main.py").read_text()
         receiver_src = (root / "services/test_receiver/main.py").read_text()
-        assert f'@app.get("{tools.POLICY_PATH}")' in policy_src
-        assert f'@app.get("{tools.POLICY_PATH}/{{run_id}}")' in policy_src
         assert f'@app.post("{tools.RECEIVER_PATH}")' in receiver_src
         assert f'@app.post("{tools.RECEIVER_PATH}/{{run_id}}")' in receiver_src
 

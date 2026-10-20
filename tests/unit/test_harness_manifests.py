@@ -40,11 +40,20 @@ def test_harness_has_no_azure_identity_and_is_not_the_agent_image() -> None:
     assert "automountServiceAccountToken: false" in dep
 
 
+def test_harness_read_only_root_has_writable_tmp_mount() -> None:
+    dep = DEPLOYMENT.read_text()
+    assert "readOnlyRootFilesystem: true" in dep
+    assert "name: tmp" in dep
+    assert "emptyDir: {}" in dep
+    assert "mountPath: /tmp" in dep
+
+
 def test_harness_image_has_no_azure_sdk_and_caps_protobuf() -> None:
     docker = DOCKERFILE.read_text()
     code = "\n".join(ln for ln in docker.splitlines() if not ln.lstrip().startswith("#"))
     assert "azure" not in code.lower()
     assert '"protobuf>=5.29.5,<7"' in docker and '"a2a-sdk==1.0.2"' in docker
+    assert '"mcp==2.3.0"' in docker and '"mcp-types==2.3.0"' in docker
     assert "containment_demo.harness.chat" in docker
 
 

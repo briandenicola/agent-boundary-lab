@@ -13,14 +13,24 @@ completed record and its verdict does not count.**
 
 Three verdicts exist: **pass**, **fail**, **inconclusive**. There is no fourth.
 
-**Identity extension (issue #4; not deployed):** keep a separate identity verdict and
-use synthetic actor aliases, never user IDs, bearer tokens or claim dumps. Record the
-policy image/revision and whether `POLICY_API_AUTH_MODE=delegated` actually ran.
-Collect the browser-login, delegated Foundry invocation and policy authorization results
-separately; uncollected hops are **inconclusive**. A policy 401/403 is not platform egress
-denial. A containment run without an authorized successful policy call has lost its
-positive control and cannot pass. A temporary directory lifecycle pass closes none of
-these runtime checks. See [`identity-probe.md`](identity-probe.md) for current blockers.
+**Issue #4 allowed/denied track (see [`issue-4-squad-plan.md`](issue-4-squad-plan.md) and
+[`issue-4-demo-readiness.md`](issue-4-demo-readiness.md)):** record three outcomes
+**separately**, never merged — use synthetic actor aliases, never user IDs, bearer
+tokens or claim dumps:
+- **Identity authorization outcome** — which actor (allowed / denied) the actor-context
+  contract resolved the caller as.
+- **Policy API authorization outcome** — the protected route's own allowed/rejected
+  (401/403) decision for that actor on the same route. A policy 401/403 is not platform
+  egress denial.
+- **Containment evidence outcome** — the usual pass / fail / inconclusive from §4-§10,
+  joined to the same `demo_run_id`. **If that join is missing, the containment outcome
+  is inconclusive, never a pass**, and it is never inferred from either authorization
+  outcome above.
+
+A containment run without an authorized, successful policy call has lost its positive
+control and cannot pass. The full delegated Foundry invocation matrix (browser login,
+Foundry-layer token checks) stays out of scope for this track; see
+[`identity-probe.md`](identity-probe.md) for its current blockers.
 
 ---
 
@@ -38,6 +48,36 @@ these runtime checks. See [`identity-probe.md`](identity-probe.md) for current b
 **If run class is `local`:** this is a **functional test**. It establishes that the code
 works. It establishes nothing about egress enforcement, and §7's verdict may not use the
 word containment. Skip §4 and §5; record §8 anyway.
+
+---
+
+## 1a. Allowed/denied actor outcomes (issue #4 track)
+
+Fill in both rows for this run, even if one scenario was not attempted — write **not
+attempted** rather than leaving a cell blank.
+
+| Field | Allowed-actor run | Denied-actor run |
+| --- | --- | --- |
+| `actor_alias` used | | |
+| Leg exercised | `task app:run-allowed` (offline pytest) / live UI click | `task app:run-denied` (offline pytest) / live UI click |
+| **Identity authorization outcome** (`authorization_intent` issued) | `allowed` | `denied` |
+| **Policy API authorization outcome** (route's own result) | `authorized` (200) / 401 / 403 / **not attempted** | `denied` (403 `actor_context_denied`) / 401 / 200 / **not attempted** |
+| Body `determination` field on that response | `identity_only` / **n/a (200, no field)** | `identity_only` |
+
+**Today (2026-10-19), only the offline pytest leg actually exercises WP-2's actor-context
+authorization** (`tests/unit/test_policy_actor_authorization.py`, run via `task app:run-allowed`
+/ `task app:run-denied`). The deployed policy API (`services/policy_api/main.py`,
+`app = create_app()`) does not pass an `actor_store`, and the UI/harness actor-alias field is
+display-only (see `demo-runbook.md`'s #4 scoped sequence). **A live UI click's
+`policy_authorization_status` is not yet evidence of a denied-actor outcome** — record it as
+`not attempted` for the denied-actor row unless the offline pytest leg was also run and both
+are reported side by side, never substituting one for the other.
+
+A policy API authorization outcome of 401/403 is identity evidence only; it must never be
+copied into §7's verdict or used to justify a containment pass or fail. If the identity or
+policy outcome above could not be obtained at all (offline test not run, or the live route
+unreachable), mark that row **inconclusive** here — do not leave it blank and do not infer it
+from the containment result in §4-§10, or from the other actor's row.
 
 ---
 

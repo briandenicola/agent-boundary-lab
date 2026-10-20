@@ -15,6 +15,10 @@ env:
   DEFAULT_REGION: swedencentral
 
 includes:
+  app:
+    taskfile: ./tasks/Taskfile.app.yml
+    internal: false
+
   cloud:
     taskfile: ./tasks/Taskfile.cloud.yml
     internal: false

@@ -18,6 +18,15 @@ tasks:
       - task: agent-bridge
       - task: chat-agent
 
+  app-components:
+    desc: CHANGES AKS AND FOUNDRY. Deploy app components except the two tool API Container Apps
+    cmds:
+      - task: foundry-agent
+      - task: model-server
+      - task: test-ui
+      - task: agent-bridge
+      - task: chat-agent
+
   tool-apis:
     desc: CHANGES AZURE. Update both existing Container Apps; refuse non-application Terraform changes
     vars:

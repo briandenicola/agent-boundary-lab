@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: harness-external
+  namespace: REPLACE_WITH_NAMESPACE
+  annotations:
+    cert-manager.io/cluster-issuer: REPLACE_WITH_CLUSTER_ISSUER
+    nginx.ingress.kubernetes.io/auth-url: "http://harness-oauth2-proxy.REPLACE_WITH_NAMESPACE.svc.cluster.local/oauth2/auth"
+    nginx.ingress.kubernetes.io/auth-signin: "https://REPLACE_WITH_EXTERNAL_HOSTNAME/oauth2/start?rd=$escaped_request_uri"
+    nginx.ingress.kubernetes.io/auth-response-headers: "x-auth-request-user,x-auth-request-email,x-auth-request-preferred-username"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+spec:
+  ingressClassName: REPLACE_WITH_INGRESS_CLASS
+  tls:
+    - hosts:
+        - REPLACE_WITH_EXTERNAL_HOSTNAME
+      secretName: harness-external-tls
+  rules:
+    - host: REPLACE_WITH_EXTERNAL_HOSTNAME
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: harness
+                port:
+                  number: 80

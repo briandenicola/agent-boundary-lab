@@ -40,6 +40,7 @@ from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 
 from containment_demo import invoke, ui_a2a
+from containment_demo.actor_context import status_from_http
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,11 @@ SLOTS = ("audit", "enforced")
 
 #: Required on POST. A browser cannot attach it to a cross-site form submission.
 CSRF_HEADER = "x-demo-ui"
+
+#: Display-only label for which actor drove this run (WP-3, issue #4). Not checked
+#: against anything; a presenter types it to say who they are demonstrating.
+_ACTOR_ALIAS_RE = re.compile(r"[A-Za-z0-9._-]{1,64}")
+DEFAULT_ACTOR_ALIAS = "unspecified-actor"
 
 _NAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
@@ -127,15 +133,39 @@ def _unauthorised() -> Response:
     )
 
 
-def build_view(result: invoke.InvocationResult, *, slot: str, run_label: str) -> dict[str, Any]:
+def _policy_http_status(tool_outcomes: list[dict[str, Any]]) -> int | None:
+    """The HTTP status ``get_servicing_policy`` reported, or ``None`` if it was never
+    attempted. Never ``send_to_external_processor``, which is the containment tool."""
+    for outcome in tool_outcomes:
+        if outcome.get("tool_name") == "get_servicing_policy":
+            return outcome.get("http_status")
+    return None
+
+
+def build_view(
+    result: invoke.InvocationResult,
+    *,
+    slot: str,
+    run_label: str,
+    actor_alias: str = DEFAULT_ACTOR_ALIAS,
+) -> dict[str, Any]:
     """The JSON the page renders. Built from the invoke record; nothing is re-derived."""
     record = result.as_dict()
+    # Two separate outcome categories, surfaced side by side and never merged:
+    # - policy_authorization_status: WP-2's identity-authorization decision for this
+    #   actor, read only from get_servicing_policy's reported HTTP status.
+    # - determination: the containment determination (always inconclusive without
+    #   platform evidence). A constant, so a policy denial can never be promoted into
+    #   a containment result.
+    policy_status = status_from_http(_policy_http_status(record["results"]))
     return {
         "slot": slot,
         "run_label": run_label,
         "agent_name": record["agent_name"],
         # UI-only id: generated here, appears in no platform row. Do not join on it.
         "ui_run_id": record["demo_run_id"],
+        "actor_alias": actor_alias,
+        "policy_authorization_status": str(policy_status),
         # What the A2A façade reported. Descriptive only; neither is platform evidence.
         "a2a": {
             "task_state": record["response_status"],
@@ -180,6 +210,21 @@ def create_app(settings: UiSettings, *, invoker: Any = None) -> Starlette:
         slot = request.path_params["slot"]
         if slot not in SLOTS:
             return JSONResponse({"error": "unknown slot", "allowed": list(SLOTS)}, status_code=404)
+        # A browser form submits no body for this action; an absent/empty body is not
+        # an error, only an invalid one is.
+        body: dict[str, Any] = {}
+        if await request.body():
+            try:
+                parsed = await request.json()
+            except ValueError:
+                return JSONResponse({"error": "body must be JSON"}, status_code=400)
+            if isinstance(parsed, dict):
+                body = parsed
+        actor_alias = body.get("actor_alias", DEFAULT_ACTOR_ALIAS)
+        if not isinstance(actor_alias, str) or not _ACTOR_ALIAS_RE.fullmatch(actor_alias):
+            return JSONResponse(
+                {"error": "actor_alias must be 1-64 safe characters"}, status_code=400
+            )
         lock = locks[slot]
         if lock.locked():
             return JSONResponse({"error": "a run for this agent is already in progress"}, 409)
@@ -200,7 +245,9 @@ def create_app(settings: UiSettings, *, invoker: Any = None) -> Starlette:
             run_id,
             result.transport_ok,
         )
-        return JSONResponse(build_view(result, slot=slot, run_label=settings.run_label))
+        return JSONResponse(
+            build_view(result, slot=slot, run_label=settings.run_label, actor_alias=actor_alias)
+        )
 
     async def healthz(_: Request) -> Response:
         return Response("ok")
@@ -228,6 +275,8 @@ td,th{border:1px solid #aaa;padding:.25rem;text-align:left}
 <div class="banner">Run label: <b id="label">__RUN_LABEL__</b>. Every result is
 <b>inconclusive-without-platform-evidence</b>. This page does not read platform evidence; a
 failed call is a classified failure, not proof of a block.</div>
+<p>Actor alias (display only, not checked against anything):
+<input id="actor" type="text" maxlength="64" placeholder="unspecified-actor"></p>
 <div class="cols">
 <div class="col" id="audit"><h2>audit</h2><button data-slot="audit">Run audit</button>
 <div class="out"></div></div>
@@ -242,17 +291,23 @@ async function runSlot(slot){
   const out=document.querySelector('#'+slot+' .out'); out.replaceChildren();
   add(out,'p','running...');
   let r, d;
-  try{ r=await fetch('/run/'+slot,{method:'POST',headers:{'X-Demo-UI':'1'}}); d=await r.json();}
+  const actorAlias=document.getElementById('actor').value;
+  try{ r=await fetch('/run/'+slot,{method:'POST',
+      headers:{'X-Demo-UI':'1','Content-Type':'application/json'},
+      body:JSON.stringify(actorAlias?{actor_alias:actorAlias}:{})}); d=await r.json();}
   catch(e){ out.replaceChildren(); add(out,'p','OUR request to this UI failed.','ours'); return;}
   out.replaceChildren();
   if(!r.ok){ add(out,'p','UI error: '+(d.error||r.status),'ours'); return;}
   add(out,'p','run: '+d.run_label+' / '+d.agent_name+' (via A2A facade)');
+  add(out,'p','actor alias: '+d.actor_alias);
+  add(out,'p','policy authorization (identity, not containment): '+d.policy_authorization_status);
   add(out,'p','A2A task state: '+(d.a2a.task_state||'-'));
   add(out,'p','downstream response id: '+(d.a2a.response_id||'-'));
   add(out,'p','tool run id (joins platform egress rows): '+
     (d.tool_run_ids.length?d.tool_run_ids.join(', '):'not available in the invoke result'));
   add(out,'p','UI-only id (joins nothing): '+d.ui_run_id);
-  add(out,'p','determination: '+d.determination);
+  add(out,'p','containment determination (separate from policy authorization above): '+
+    d.determination);
   add(out,'p','platform evidence: '+d.platform_evidence);
   if(!d.our_call.ok){
     add(out,'p','OUR CALL via the A2A facade failed ('+d.our_call.error_category+'): '+

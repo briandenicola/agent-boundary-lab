@@ -11,6 +11,42 @@ vars:
   SETUP_STATE: '{{default ".identity-probe/setup-state.json" .STATE}}'
 
 tasks:
+  validate:
+    desc: STRICT PREFLIGHT. Offline tests, offline directory check, and (if present) identity journal consistency; no sign-ins, no cluster calls
+    cmds:
+      - task: test
+      - task: directory-plan
+      - |
+        set -eu
+        CONFIG="{{.ROOT_DIR}}/.identity-probe/config.json"
+        if [ ! -e "$CONFIG" ]; then
+          echo "No identity configuration yet ($CONFIG); run 'task identity:up' to create one."
+          exit 0
+        fi
+        for FILE in "{{.SETUP_STATE}}" "$CONFIG"; do
+          [ -e "$FILE" ] || { echo "Refusing: $FILE is missing but $CONFIG exists (partial/unknown journal state)." >&2; exit 1; }
+          jq -e . "$FILE" >/dev/null 2>&1 || { echo "Refusing: $FILE exists but is not valid JSON (partial/unknown journal state)." >&2; exit 1; }
+        done
+        echo "Identity journal is present and consistent. Cluster-context checks run as part of identity:up/status/down/destroy."
+
+  up:
+    desc: RERUNNABLE. Create the dedicated identity setup journal if missing, then sign in as both test users and probe
+    cmds:
+      - |
+        set -eu
+        if [ -e "{{.SETUP_STATE}}" ]; then
+          echo "Setup journal already exists at {{.SETUP_STATE}}; reusing it."
+        else
+          task identity:setup
+        fi
+      - task: verify
+
+  destroy:
+    desc: TEARS DOWN. Remove probe objects, then dedicated Graph identities, federation, consent and Terraform-managed naming/RBAC. No prompt -- safety is the existing state/context guards in down and setup-down, not a confirmation dialog
+    cmds:
+      - task: down
+      - task: setup-down
+
   verify:
     desc: Reuse completed setup; sign in as both test users, wait for I0 verdict, then remove ephemeral credentials
     cmds:
@@ -287,7 +323,7 @@ tasks:
   test:
     desc: Run offline identity and policy authorization tests; no token acquisition, Azure, cluster access or model calls
     cmds:
-      - '"{{.ROOT_DIR}}/.venv/bin/python" -m pytest "{{.ROOT_DIR}}/tests/unit/test_identity_probe.py" "{{.ROOT_DIR}}/tests/unit/test_identity_directory.py" "{{.ROOT_DIR}}/tests/unit/test_identity_setup.py" "{{.ROOT_DIR}}/tests/unit/test_identity_tenant_check.py" "{{.ROOT_DIR}}/tests/unit/test_delegated_auth.py" "{{.ROOT_DIR}}/tests/unit/test_policy_identity.py" "{{.ROOT_DIR}}/tests/unit/test_identity_rollout_gate.py" -q'
+      - '"{{.ROOT_DIR}}/.venv/bin/python" -m pytest "{{.ROOT_DIR}}/tests/unit/test_identity_probe.py" "{{.ROOT_DIR}}/tests/unit/test_identity_directory.py" "{{.ROOT_DIR}}/tests/unit/test_identity_setup.py" "{{.ROOT_DIR}}/tests/unit/test_identity_tenant_check.py" "{{.ROOT_DIR}}/tests/unit/test_delegated_auth.py" "{{.ROOT_DIR}}/tests/unit/test_policy_identity.py" "{{.ROOT_DIR}}/tests/unit/test_identity_rollout_gate.py" "{{.ROOT_DIR}}/tests/unit/test_actor_context.py" "{{.ROOT_DIR}}/tests/unit/test_policy_actor_authorization.py" -q'
 
   sdk-test:
     desc: Download pinned probe-only SDKs into an isolated environment, then run mocked SDK tests; never contacts Azure

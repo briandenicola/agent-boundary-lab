@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: harness-oauth2
+  namespace: REPLACE_WITH_NAMESPACE
+  annotations:
+    cert-manager.io/cluster-issuer: REPLACE_WITH_CLUSTER_ISSUER
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+spec:
+  ingressClassName: REPLACE_WITH_INGRESS_CLASS
+  tls:
+    - hosts:
+        - REPLACE_WITH_EXTERNAL_HOSTNAME
+      secretName: harness-external-tls
+  rules:
+    - host: REPLACE_WITH_EXTERNAL_HOSTNAME
+      http:
+        paths:
+          - path: /oauth2
+            pathType: Prefix
+            backend:
+              service:
+                name: harness-oauth2-proxy
+                port:
+                  number: 80

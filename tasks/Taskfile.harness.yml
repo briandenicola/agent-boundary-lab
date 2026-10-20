@@ -20,6 +20,7 @@ env:
   CLOUD_DIR: infra/cloud
   HARNESS_REPOSITORY: containment-demo-harness
   HARNESS_SECRET: harness-config
+  HARNESS_OIDC_SECRET: harness-oidc-config
   HARNESS_LOCAL_PORT: '8082'
 
 tasks:
@@ -57,26 +58,36 @@ tasks:
         echo "$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_login_server)/${HARNESS_REPOSITORY}@$(cat .task/harness-digest)"
 
   secret:
-    desc: CHANGES THE CLUSTER. Create the harness token Secret (random, never printed). Keeps an existing one unless ROTATE=1
+    desc: CHANGES THE CLUSTER. Create/update harness Secret. Keeps token unless ROTATE=1; updates optional diagnostics links when set
     cmds:
       - task: _require-kubectl
       - |
         set -eu
         NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        TMP_TOKEN=$(mktemp)
+        trap 'rm -f "$TMP_TOKEN"' EXIT
         if kubectl -n "$NS" get secret "$HARNESS_SECRET" >/dev/null 2>&1 && [ "${ROTATE:-}" != "1" ]; then
-          echo "secret $HARNESS_SECRET already exists in $NS; kept. Rotate with ROTATE=1 task chat-agent:secret"
-          exit 0
+          kubectl -n "$NS" get secret "$HARNESS_SECRET" -o jsonpath='{.data.HARNESS_UI_TOKEN}' | base64 -d > "$TMP_TOKEN"
+        else
+          # Token goes through a file, never argv.
+          openssl rand -hex 32 | tr -d '\n' > "$TMP_TOKEN"
         fi
-        # Token goes through a pipe into --from-file, never argv.
-        openssl rand -hex 32 | tr -d '\n' \
-          | kubectl -n "$NS" create secret generic "$HARNESS_SECRET" \
-              --from-file=HARNESS_UI_TOKEN=/dev/stdin \
-              --dry-run=client -o yaml \
-          | kubectl -n "$NS" apply -f - >/dev/null
-        echo "secret $HARNESS_SECRET written in $NS. Read it with: task chat-agent:token"
+        set -- kubectl -n "$NS" create secret generic "$HARNESS_SECRET" \
+          --from-file=HARNESS_UI_TOKEN="$TMP_TOKEN"
+        if [ -n "${HARNESS_WORKBOOK_URL:-}" ]; then
+          set -- "$@" --from-literal=HARNESS_WORKBOOK_URL="${HARNESS_WORKBOOK_URL}"
+        fi
+        if [ -n "${HARNESS_LOGS_URL:-}" ]; then
+          set -- "$@" --from-literal=HARNESS_LOGS_URL="${HARNESS_LOGS_URL}"
+        fi
+        if [ -n "${HARNESS_APPINSIGHTS_URL:-}" ]; then
+          set -- "$@" --from-literal=HARNESS_APPINSIGHTS_URL="${HARNESS_APPINSIGHTS_URL}"
+        fi
+        "$@" --dry-run=client -o yaml | kubectl -n "$NS" apply -f - >/dev/null
+        echo "secret $HARNESS_SECRET applied in $NS. Read token with: task chat-agent:token"
         if kubectl -n "$NS" get deployment harness >/dev/null 2>&1; then
           kubectl -n "$NS" rollout restart deployment/harness >/dev/null
-          echo "restarted harness to pick up the new token"
+          echo "restarted harness to pick up secret updates"
         fi
 
   token:
@@ -88,6 +99,228 @@ tasks:
         NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
         kubectl -n "$NS" get secret "$HARNESS_SECRET" -o jsonpath='{.data.HARNESS_UI_TOKEN}' | base64 -d
         echo
+
+  external-secret:
+    desc: CHANGES THE CLUSTER. Create/update OIDC secret for external harness ingress auth
+    requires:
+      vars: [HOSTNAME, TENANT_ID, CLIENT_ID, CLIENT_SECRET]
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        ISSUER="https://login.microsoftonline.com/{{.TENANT_ID}}/v2.0"
+        REDIRECT="https://{{.HOSTNAME}}/oauth2/callback"
+        COOKIE_SECRET="${COOKIE_SECRET:-}"
+        if [ -z "$COOKIE_SECRET" ]; then
+          COOKIE_SECRET=$(openssl rand -base64 32 | tr -d '\n')
+        fi
+        kubectl -n "$NS" create secret generic "$HARNESS_OIDC_SECRET" \
+          --from-literal=OAUTH2_PROXY_CLIENT_ID="{{.CLIENT_ID}}" \
+          --from-literal=OAUTH2_PROXY_CLIENT_SECRET="{{.CLIENT_SECRET}}" \
+          --from-literal=OAUTH2_PROXY_COOKIE_SECRET="$COOKIE_SECRET" \
+          --from-literal=OAUTH2_PROXY_OIDC_ISSUER_URL="$ISSUER" \
+          --from-literal=OAUTH2_PROXY_REDIRECT_URL="$REDIRECT" \
+          --dry-run=client -o yaml | kubectl -n "$NS" apply -f - >/dev/null
+        echo "secret $HARNESS_OIDC_SECRET written in $NS for host {{.HOSTNAME}}"
+
+  external-prereqs:
+    desc: CHANGES THE CLUSTER. Install/upgrade ingress-nginx and cert-manager (idempotent)
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        command -v helm >/dev/null 2>&1 || { echo "helm not found on PATH." >&2; exit 1; }
+        CLASS="${INGRESS_CLASS:-nginx}"
+        echo "[1/6] Updating Helm repositories"
+        helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx >/dev/null 2>&1 || true
+        helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1 || true
+        helm repo update
+
+        echo "[2/6] Ensuring ingress-nginx and cert-manager namespaces exist"
+        kubectl create namespace ingress-nginx --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+        kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+
+        echo "[3/6] Installing/upgrading ingress-nginx (class=${CLASS})"
+        helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+          --namespace ingress-nginx \
+          --set controller.ingressClass="${CLASS}" \
+          --set controller.ingressClassResource.name="${CLASS}" \
+          --set controller.ingressClassResource.default=false \
+          --set controller.service.externalTrafficPolicy=Local \
+          --set-string controller.service.annotations."service\\.beta\\.kubernetes\\.io/azure-load-balancer-health-probe-request-path"="/healthz" \
+          --wait --timeout 10m
+
+        echo "[4/6] Installing/upgrading cert-manager"
+        helm upgrade --install cert-manager jetstack/cert-manager \
+          --namespace cert-manager \
+          --set crds.enabled=true \
+          --wait --timeout 10m
+
+        echo "[5/6] Waiting for ingress-nginx rollout"
+        kubectl -n ingress-nginx rollout status deploy/ingress-nginx-controller --timeout=300s
+        echo "[6/6] Waiting for cert-manager rollouts"
+        kubectl -n cert-manager rollout status deploy/cert-manager --timeout=300s
+        kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=300s
+        kubectl -n cert-manager rollout status deploy/cert-manager-cainjector --timeout=300s
+
+  external-app:
+    desc: CHANGES ENTRA + CLUSTER. Create/update OIDC app registration, service principal and harness OIDC Secret
+    requires:
+      vars: [HOSTNAME]
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        command -v az >/dev/null 2>&1 || { echo "az not found on PATH." >&2; exit 1; }
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        TENANT="${TENANT_ID:-$(az account show --query tenantId -o tsv)}"
+        APP_NAME="${OIDC_APP_NAME:-agent-boundary-harness-oidc}"
+        REDIRECT="https://{{.HOSTNAME}}/oauth2/callback"
+        ISSUER="https://login.microsoftonline.com/${TENANT}/v2.0"
+
+        APP_ID=$(az ad app list --display-name "$APP_NAME" --query '[0].appId' -o tsv)
+        if [ -z "$APP_ID" ]; then
+          APP_ID=$(az ad app create \
+            --display-name "$APP_NAME" \
+            --sign-in-audience AzureADMyOrg \
+            --web-redirect-uris "$REDIRECT" \
+            --enable-id-token-issuance true \
+            --query appId -o tsv)
+        else
+          az ad app update \
+            --id "$APP_ID" \
+            --web-redirect-uris "$REDIRECT" \
+            --enable-id-token-issuance true >/dev/null
+        fi
+        az ad sp show --id "$APP_ID" >/dev/null 2>&1 || az ad sp create --id "$APP_ID" >/dev/null
+
+        ROTATE="${ROTATE_OIDC_SECRET:-0}"
+        CLIENT_SECRET=""
+        COOKIE_SECRET="${COOKIE_SECRET:-}"
+        if kubectl -n "$NS" get secret "$HARNESS_OIDC_SECRET" >/dev/null 2>&1 && [ "$ROTATE" != "1" ]; then
+          EXISTING_CLIENT_ID=$(kubectl -n "$NS" get secret "$HARNESS_OIDC_SECRET" -o jsonpath='{.data.OAUTH2_PROXY_CLIENT_ID}' | base64 -d)
+          CLIENT_SECRET=$(kubectl -n "$NS" get secret "$HARNESS_OIDC_SECRET" -o jsonpath='{.data.OAUTH2_PROXY_CLIENT_SECRET}' | base64 -d)
+          if [ -z "$COOKIE_SECRET" ]; then
+            COOKIE_SECRET=$(kubectl -n "$NS" get secret "$HARNESS_OIDC_SECRET" -o jsonpath='{.data.OAUTH2_PROXY_COOKIE_SECRET}' | base64 -d)
+          fi
+          if [ "$EXISTING_CLIENT_ID" != "$APP_ID" ]; then
+            ROTATE=1
+          fi
+        fi
+        if [ "$ROTATE" = "1" ] || [ -z "$CLIENT_SECRET" ]; then
+          CLIENT_SECRET=$(az ad app credential reset \
+            --id "$APP_ID" \
+            --append \
+            --display-name "harness-oidc-$(date -u +%Y%m%d%H%M%S)" \
+            --years 1 \
+            --query password -o tsv)
+        fi
+        if [ -z "$COOKIE_SECRET" ]; then
+          COOKIE_SECRET=$(openssl rand -base64 32 | tr -d '\n')
+        fi
+
+        kubectl -n "$NS" create secret generic "$HARNESS_OIDC_SECRET" \
+          --from-literal=OAUTH2_PROXY_CLIENT_ID="$APP_ID" \
+          --from-literal=OAUTH2_PROXY_CLIENT_SECRET="$CLIENT_SECRET" \
+          --from-literal=OAUTH2_PROXY_COOKIE_SECRET="$COOKIE_SECRET" \
+          --from-literal=OAUTH2_PROXY_OIDC_ISSUER_URL="$ISSUER" \
+          --from-literal=OAUTH2_PROXY_REDIRECT_URL="$REDIRECT" \
+          --dry-run=client -o yaml | kubectl -n "$NS" apply -f - >/dev/null
+        echo "OIDC app '$APP_NAME' and secret '$HARNESS_OIDC_SECRET' are configured for {{.HOSTNAME}}."
+
+  external-bootstrap:
+    desc: CHANGES ENTRA + CLUSTER. End-to-end external harness setup (prereqs, app registration, ingress, status)
+    requires:
+      vars: [HOSTNAME, LETSENCRYPT_EMAIL]
+    cmds:
+      - task: external-prereqs
+      - task: external-app
+        vars:
+          HOSTNAME: '{{.HOSTNAME}}'
+      - task: external-up
+        vars:
+          HOSTNAME: '{{.HOSTNAME}}'
+          LETSENCRYPT_EMAIL: '{{.LETSENCRYPT_EMAIL}}'
+      - task: external-status
+
+  external-render:
+    desc: Print external ingress + oauth2-proxy manifests to stdout (no client secret values)
+    requires:
+      vars: [HOSTNAME, LETSENCRYPT_EMAIL]
+    cmds:
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        ISSUER="${LETSENCRYPT_CLUSTER_ISSUER:-letsencrypt-production}"
+        CLASS="${INGRESS_CLASS:-nginx}"
+        RENDERED=$(kustomize build deploy/kustomize/harness-external \
+          | sed -e "s|REPLACE_WITH_NAMESPACE|${NS}|g" \
+                -e "s|REPLACE_WITH_EXTERNAL_HOSTNAME|{{.HOSTNAME}}|g" \
+                -e "s|REPLACE_WITH_LETSENCRYPT_EMAIL|{{.LETSENCRYPT_EMAIL}}|g" \
+                -e "s|REPLACE_WITH_CLUSTER_ISSUER|${ISSUER}|g" \
+                -e "s|REPLACE_WITH_INGRESS_CLASS|${CLASS}|g")
+        LEFTOVER=$(printf '%s\n' "$RENDERED" | grep -o 'REPLACE_WITH_[A-Z0-9_]*' | sort -u || true)
+        if [ -n "$LEFTOVER" ]; then
+          echo "Refusing: these placeholders were not substituted:" >&2
+          echo "$LEFTOVER" >&2
+          exit 1
+        fi
+        printf '%s\n' "$RENDERED"
+
+  external-plan:
+    desc: Server-side dry run for external harness ingress resources
+    requires:
+      vars: [HOSTNAME, LETSENCRYPT_EMAIL]
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        task chat-agent:external-render HOSTNAME="{{.HOSTNAME}}" LETSENCRYPT_EMAIL="{{.LETSENCRYPT_EMAIL}}" \
+          | kubectl apply --server-side --force-conflicts --dry-run=server -f -
+
+  external-up:
+    desc: CHANGES THE CLUSTER. Enable external HTTPS ingress + Entra OIDC for harness
+    requires:
+      vars: [HOSTNAME, LETSENCRYPT_EMAIL]
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        kubectl -n "$NS" get deployment harness >/dev/null 2>&1 || {
+          echo "Deployment harness missing. Run 'task deploy:chat-agent' first." >&2; exit 1; }
+        kubectl -n "$NS" get secret "$HARNESS_OIDC_SECRET" >/dev/null 2>&1 || {
+          echo "Secret $HARNESS_OIDC_SECRET missing. Run 'task chat-agent:external-secret ...' first." >&2; exit 1; }
+        task chat-agent:external-render HOSTNAME="{{.HOSTNAME}}" LETSENCRYPT_EMAIL="{{.LETSENCRYPT_EMAIL}}" \
+          | kubectl apply --server-side --force-conflicts -f -
+        kubectl -n "$NS" set env deployment/harness HARNESS_AUTH_MODE=ingress_oidc >/dev/null
+        kubectl -n "$NS" rollout status deployment/harness-oauth2-proxy --timeout=180s
+        kubectl -n "$NS" rollout status deployment/harness --timeout=180s
+
+  external-status:
+    desc: READ-ONLY. Show external ingress and certificate status for harness
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        kubectl -n "$NS" get deploy harness-oauth2-proxy
+        kubectl -n "$NS" get ingress harness-oauth2 harness-external
+        kubectl -n "$NS" get certificate harness-external-tls 2>/dev/null || true
+
+  external-down:
+    desc: CHANGES THE CLUSTER. Remove external ingress + oauth2-proxy and return harness to legacy auth mode
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        kubectl -n "$NS" delete ingress harness-oauth2 harness-external --ignore-not-found
+        kubectl -n "$NS" delete deploy harness-oauth2-proxy --ignore-not-found
+        kubectl -n "$NS" delete svc harness-oauth2-proxy --ignore-not-found
+        kubectl -n "$NS" set env deployment/harness HARNESS_AUTH_MODE=legacy >/dev/null 2>&1 || true
+        kubectl -n "$NS" rollout status deployment/harness --timeout=180s || true
 
   render:
     desc: Print the substituted harness manifests to stdout (no secrets in them; nothing written)
@@ -218,27 +451,33 @@ tasks:
       - |
         set -eu
         NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
-        PORT="${HARNESS_VERIFY_PORT:-18080}"
+        PORT="${HARNESS_VERIFY_PORT:-18084}"
         # Bounded by timeout rather than a PID: the task shell does not expose $!.
         timeout 40 kubectl -n "$NS" port-forward svc/harness "${PORT}:80" >/dev/null 2>&1 &
         for _ in 1 2 3 4 5 6 7 8 9 10; do
           curl -s -o /dev/null --max-time 2 "http://127.0.0.1:${PORT}/healthz" && break
           sleep 1
         done
+        MODE=$(kubectl -n "$NS" get deployment harness -o json | jq -r \
+          '[.spec.template.spec.containers[] | select(.name=="harness") | .env[]? | select(.name=="HARNESS_AUTH_MODE") | .value][0] // "legacy"')
         NOAUTH=$(curl -s -o /dev/null --max-time 5 -w '%{http_code}' "http://127.0.0.1:${PORT}/")
         # The header goes to curl on stdin so the token is not in argv.
         WITH=$(kubectl -n "$NS" get secret "$HARNESS_SECRET" -o jsonpath='{.data.HARNESS_UI_TOKEN}' | base64 -d \
           | { read -r T; printf 'header = "Authorization: Bearer %s"\n' "$T"; } \
           | curl -s -o /dev/null --max-time 5 -w '%{http_code}' -K - "http://127.0.0.1:${PORT}/")
+        WANT_WITH=200
+        if [ "$MODE" = "ingress_oidc" ]; then
+          WANT_WITH=401
+        fi
         echo "without token: $NOAUTH (want 401)"
-        echo "with token:    $WITH (want 200)"
-        [ "$NOAUTH" = "401" ] && [ "$WITH" = "200" ]
+        echo "with token:    $WITH (want $WANT_WITH)"
+        [ "$NOAUTH" = "401" ] && [ "$WITH" = "$WANT_WITH" ]
 
   _require-kubectl:
     internal: true
     cmds:
       - |
-        for TOOL in kubectl kustomize openssl; do
+        for TOOL in kubectl kustomize openssl jq; do
           command -v "$TOOL" >/dev/null 2>&1 || { echo "$TOOL not found on PATH." >&2; exit 1; }
         done
         kubectl config current-context >/dev/null 2>&1 || {

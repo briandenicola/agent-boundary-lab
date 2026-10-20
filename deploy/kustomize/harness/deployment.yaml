@@ -19,6 +19,9 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: harness
           # Own image (Dockerfile.harness): google-adk + litellm + a2a-sdk. NOT the agent image,
@@ -50,6 +53,9 @@ spec:
           envFrom:
             - secretRef:
                 name: harness-config
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           readinessProbe:
             httpGet:
               path: /healthz

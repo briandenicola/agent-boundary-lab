@@ -1,0 +1,70 @@
+version: '3'
+
+silent: true
+
+# Issue #4 (WP-6): the short, repeatable operator flow for the allowed-vs-denied demo
+# track. This file adds no new business logic -- every step below calls an existing
+# task elsewhere in the repo. It only orders them into a single sequence an operator
+# can run without re-deriving it from docs/demo-runbook.md each time.
+#
+# No Istio, no hidden fallbacks: every destructive step still carries its own
+# confirmation prompt (see cloud/identity Taskfiles); this file never bypasses one.
+
+tasks:
+  deploy:
+    desc: CHANGES AZURE + AKS. Provision cloud infra and deploy all application components
+    cmds:
+      - task: :cloud:up
+      - task: :deploy:app-components
+
+  deploy-external:
+    desc: FROM SCRATCH. Provision cloud infra, deploy app components, then enable external HTTPS harness ingress with Entra login
+    requires:
+      vars: [HOSTNAME, LETSENCRYPT_EMAIL]
+    cmds:
+      - task: :cloud:up
+      - task: :deploy:app-components
+      - task: :chat-agent:external-bootstrap
+        vars:
+          HOSTNAME: '{{.HOSTNAME}}'
+          LETSENCRYPT_EMAIL: '{{.LETSENCRYPT_EMAIL}}'
+
+  validate:
+    desc: READ-ONLY PREFLIGHT. Repo guards, Azure context, policies/endpoints, app health and identity journal; stops at the first failure
+    cmds:
+      - task: :lint:tasks
+      - task: :cloud:whoami
+      - task: :cloud:policies
+      - task: :cloud:endpoints
+      - task: :foundry-agent:status
+      - task: :test-ui:verify
+      - task: :agent-bridge:verify
+      - task: :chat-agent:verify
+      - task: :tool-apis:check
+      - task: :identity:validate
+
+  run-allowed:
+    desc: OFFLINE. Exercise the allowed-actor policy authorization scenario against the real policy API code path
+    cmds:
+      - '"{{.ROOT_DIR}}/.venv/bin/python" -m pytest "{{.ROOT_DIR}}/tests/unit/test_policy_actor_authorization.py" -q -k allowed_actor'
+      - echo "Live UI leg -- 'task test-ui:token' (off-screen), then 'task test-ui:open' and click Run audit."
+
+  run-denied:
+    desc: OFFLINE. Exercise the denied-actor policy authorization scenario against the real policy API code path
+    cmds:
+      - '"{{.ROOT_DIR}}/.venv/bin/python" -m pytest "{{.ROOT_DIR}}/tests/unit/test_policy_actor_authorization.py" -q -k denied_actor'
+      - echo "Live UI leg -- 'task test-ui:token' (off-screen), then 'task test-ui:open' and click Run enforced."
+
+  status:
+    desc: READ-ONLY REPORT. Foundry publish/digest status, controlled-tool API health, identity probe status
+    cmds:
+      - task: :foundry-agent:status
+      - task: :build:foundry-agent-digest
+      - task: :tool-apis:check
+      - task: :identity:status
+
+  reset:
+    desc: CLEANUP. Tears down the publishing helper/namespace (prompts first), then the identity probe (guarded by its own state/context checks, no prompt)
+    cmds:
+      - task: :foundry-agent:down
+      - task: :identity:destroy

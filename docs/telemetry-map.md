@@ -22,6 +22,29 @@ Paths/run markers are sanitized; no raw user/client IDs, bearer or claims are em
 These are application JSON properties, **not verified Azure table/column names**.
 Ingestion, actor-alias correlation and the hosted multi-hop identity chain remain unobserved.
 
+**Issue #4 allowed/denied actor track (2026-10-19, WP-1/WP-2, SOURCE/OFFLINE VERIFIED
+only — see [`issue-4-demo-readiness.md`](issue-4-demo-readiness.md)):** the WP-1 actor-context
+contract (`src/containment_demo/actor_context.py`) adds no new telemetry sink or table.
+It is an in-memory, per-process record keyed by the same `demo_run_id` marker, with the
+fields `actor_alias`, `authorization_intent` (`allowed`/`denied`, set by the caller that
+issues the context), `authorization_status` (`pending`/`authorized`/`denied`/`expired`),
+`issued_at`, `expires_at`. None of these fields are logged or exported; they only exist to
+let the policy API's auth middleware resolve "which actor is this run" before it raises the
+same `AuthError` the existing `delegated_auth` guard already raises. A denied or missing actor
+context therefore surfaces through the **existing**, already-documented
+`event=authorization_decision` JSON line above (`auth_error=actor_context_denied` /
+`actor_context_not_found` / `actor_context_expired` / `actor_context_run_id_missing`,
+`determination=identity_only`); it does not add a new event name. The policy route's HTTP
+response body on that path also carries a `determination: "identity_only"` field (source:
+`services/policy_api/main.py`), which is the same label used in the log line — this keeps the
+identity-authorization signal, the policy-API-authorization signal, and the containment
+signal in Layer 2/3 (§2, §3) explicitly distinct, never merged into one verdict.
+Per `tests/unit/test_policy_actor_authorization.py`, this path is exercised against the real
+FastAPI app offline (`TestClient`), not against a hosted/deployed instance: the deployed
+`services/policy_api/main.py` module-level `app = create_app()` does not pass an
+`actor_store`, so none of this is live in the hosted environment today. Hosted emission,
+ingestion and actor-alias correlation remain unobserved, exactly as already stated above.
+
 **Sweden Central rebuild (2026-10-19):** the live resources and numbered experiments below
 are historical unless explicitly marked otherwise. The current logging inventory and
 proposed routing repair are recorded in [section 0.15](#015-sweden-central-rebuild-runtime-failure-and-logging-gaps-2026-10-19).

@@ -19,10 +19,13 @@ def _env(*names: str) -> AliasChoices:
 class HarnessSettings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
 
-    auth_mode: Literal["legacy"] = Field(
+    auth_mode: Literal["legacy", "ingress_oidc"] = Field(
         default="legacy",
         validation_alias=_env("HARNESS_AUTH_MODE"),
-        description="Delegated mode is blocked pending I0 and the browser login contract.",
+        description=(
+            "legacy = shared token at app boundary; ingress_oidc = ingress-authenticated "
+            "identity headers from oauth2-proxy."
+        ),
     )
     local_model_base_url: str = Field(validation_alias=_env("LOCAL_MODEL_BASE_URL"))
     local_model_name: str = Field(
@@ -52,6 +55,13 @@ class HarnessSettings(BaseSettings):
     )
     ui_token: SecretStr = Field(validation_alias=_env("HARNESS_UI_TOKEN"))
     run_label: Literal["hosted", "local"] = Field(validation_alias=_env("DEMO_RUN_LABEL"))
+    diagnostics_workbook_url: str = Field(
+        default="", validation_alias=_env("HARNESS_WORKBOOK_URL")
+    )
+    diagnostics_logs_url: str = Field(default="", validation_alias=_env("HARNESS_LOGS_URL"))
+    diagnostics_app_insights_url: str = Field(
+        default="", validation_alias=_env("HARNESS_APPINSIGHTS_URL")
+    )
 
     @field_validator("local_model_base_url", "a2a_facade_url_audit", "a2a_facade_url_enforced")
     @classmethod

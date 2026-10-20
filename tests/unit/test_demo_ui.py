@@ -164,6 +164,88 @@ def test_denied_tool_is_a_classified_failure_not_a_block() -> None:
     assert "blocked" not in str(denied).lower()
 
 
+# --- actor alias / policy authorization (WP-3, issue #4) ---------------------------------
+
+
+def test_default_actor_alias_is_used_when_not_supplied() -> None:
+    c, _ = client()
+    assert c.post("/run/audit", headers=AUTH).json()["actor_alias"] == demo_ui.DEFAULT_ACTOR_ALIAS
+
+
+def test_actor_alias_is_echoed_back() -> None:
+    c, _ = client()
+    r = c.post(
+        "/run/audit",
+        headers={**AUTH, "Content-Type": "application/json"},
+        content=b'{"actor_alias": "allowed-tester"}',
+    )
+    assert r.json()["actor_alias"] == "allowed-tester"
+
+
+@pytest.mark.parametrize("bad_alias", ["", "has space", "x" * 65, "emoji🙂"])
+def test_invalid_actor_alias_rejected(bad_alias: str) -> None:
+    c, _ = client()
+    r = c.post(
+        "/run/audit",
+        headers={**AUTH, "Content-Type": "application/json"},
+        content=f'{{"actor_alias": {bad_alias!r}}}'.encode(),
+    )
+    assert r.status_code == 400
+
+
+def test_policy_authorization_status_reads_only_get_servicing_policy() -> None:
+    # The default record's get_servicing_policy outcome is HTTP 200.
+    c, _ = client()
+    body = c.post("/run/audit", headers=AUTH).json()
+    assert body["policy_authorization_status"] == "authorized"
+    # send_to_external_processor is HTTP 403 in the same record, and must not leak in.
+    assert body["determination"] == invoke.DETERMINATION
+
+
+def test_policy_denied_status_from_get_servicing_policy_403() -> None:
+    rec = record(
+        results=[
+            {
+                "tool_name": "get_servicing_policy",
+                "attempted": True,
+                "succeeded": False,
+                "error_category": "http",
+                "http_status": 403,
+                "destination_host": "ok.example",
+            }
+        ]
+    )
+    c, _ = client(Invoker(rec))
+    body = c.post("/run/audit", headers=AUTH).json()
+    assert body["policy_authorization_status"] == "denied"
+
+
+def test_policy_status_is_pending_when_not_attempted() -> None:
+    c, _ = client(Invoker(record(results=[])))
+    body = c.post("/run/audit", headers=AUTH).json()
+    assert body["policy_authorization_status"] == "pending"
+
+
+def test_containment_determination_never_derived_from_policy_denial() -> None:
+    denied_rec = record(
+        results=[
+            {
+                "tool_name": "get_servicing_policy",
+                "attempted": True,
+                "succeeded": False,
+                "error_category": "http",
+                "http_status": 403,
+                "destination_host": "ok.example",
+            }
+        ]
+    )
+    c, _ = client(Invoker(denied_rec))
+    body = c.post("/run/audit", headers=AUTH).json()
+    assert body["policy_authorization_status"] == "denied"
+    assert body["determination"] == invoke.DETERMINATION
+    assert "pass" not in body["determination"].lower()
+
+
 def test_transport_failure_is_labelled_as_our_call() -> None:
     inv = Invoker(
         record(transport_ok=False, transport_error_category="dns", transport_detail="x", results=[])

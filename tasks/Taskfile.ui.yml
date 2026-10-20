@@ -170,7 +170,7 @@ tasks:
       - |
         set -eu
         NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
-        PORT="${UI_VERIFY_PORT:-18080}"
+        PORT="${UI_VERIFY_PORT:-18081}"
         # Bounded by timeout rather than a PID: the task shell does not expose $!.
         timeout 40 kubectl -n "$NS" port-forward svc/demo-ui "${PORT}:80" >/dev/null 2>&1 &
         for _ in 1 2 3 4 5 6 7 8 9 10; do

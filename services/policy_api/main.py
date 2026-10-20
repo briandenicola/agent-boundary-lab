@@ -25,6 +25,13 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from containment_demo.actor_context import (
+    ActorContextError,
+    ActorContextStore,
+    AuthorizationIntent,
+    AuthorizationStatus,
+    with_status,
+)
 from containment_demo.delegated_auth import AccessGuard, AuthError, configured_guard
 
 SERVICE_NAME = "policy-api"
@@ -76,6 +83,44 @@ def _run_marker(request: Request) -> str:
     return _path_run_id(marker) if getattr(request.state, "identity_protected", False) else marker
 
 
+_POLICY_PATH_RUN_ID = re.compile(r"/policy/([A-Za-z0-9_-]{1,64})$")
+
+
+def _actor_run_id(request: Request) -> str:
+    """Actor-context lookup key for this request: path id preferred, falling back to
+    the same safe header/query run marker used elsewhere. Never raises on a bad value;
+    an empty result just fails the subsequent lookup, so nothing unsafe is echoed back.
+
+    This runs in middleware, ahead of routing, so the path id is parsed from the raw
+    URL path rather than ``request.path_params`` (which routing has not populated yet).
+    """
+    match = _POLICY_PATH_RUN_ID.fullmatch(request.url.path)
+    if match:
+        return match.group(1)
+    marker = request.headers.get("x-demo-run-id") or request.query_params.get("demo_run_id") or ""
+    return _path_run_id(marker)
+
+
+def _authorize_actor(store: ActorContextStore, request: Request) -> None:
+    """Authorize against the WP-1 actor-context contract (issued by the harness).
+
+    This is an identity-authorization decision, not a containment result -- see
+    docs/issue-4-demo-readiness.md. Missing/invalid/expired context is an explicit
+    401; a context whose ``authorization_intent`` is DENIED is an explicit 403.
+    """
+    run_id = _actor_run_id(request)
+    if not run_id:
+        raise AuthError("actor_context_run_id_missing")
+    try:
+        context = store.require(run_id)
+    except ActorContextError as error:
+        raise AuthError(error.args[0], 401) from None
+    if context.authorization_intent is AuthorizationIntent.DENIED:
+        store.put(with_status(context, AuthorizationStatus.DENIED))
+        raise AuthError("actor_context_denied", 403)
+    store.put(with_status(context, AuthorizationStatus.AUTHORIZED))
+
+
 def _receipt(request: Request, **extra: Any) -> dict[str, Any]:
     return {
         "service": SERVICE_NAME,
@@ -107,19 +152,26 @@ async def get_policy(request: Request) -> JSONResponse:
     )
 
 
-def create_app(*, guard: AccessGuard | None = None) -> FastAPI:
+def create_app(
+    *, guard: AccessGuard | None = None, actor_store: ActorContextStore | None = None
+) -> FastAPI:
     guard = guard if guard is not None else configured_guard("POLICY_API")
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         try:
-            if guard is not None:
+            if guard is not None or actor_store is not None:
+                auth_mode = "+".join(
+                    mode
+                    for mode, enabled in (("delegated", guard), ("actor_context", actor_store))
+                    if enabled is not None
+                )
                 logger.info(
                     json.dumps(
                         {
                             "service": SERVICE_NAME,
                             "event": "identity_configuration",
-                            "auth_mode": "delegated",
+                            "auth_mode": auth_mode,
                             "determination": "identity_only",
                         }
                     )
@@ -137,7 +189,7 @@ def create_app(*, guard: AccessGuard | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    if guard is not None:
+    if guard is not None or actor_store is not None:
         from collections.abc import Awaitable, Callable
 
         from starlette.responses import Response
@@ -150,8 +202,13 @@ def create_app(*, guard: AccessGuard | None = None) -> FastAPI:
                 return await call_next(request)
             request.state.identity_protected = True
             try:
-                context = await guard.authorize(request.headers.get("authorization"))
-                request.state.delegated_user = context.user
+                # Both checks are additive: when both are configured, each must pass on
+                # its own terms. Neither check loosens what the other already enforces.
+                if guard is not None:
+                    context = await guard.authorize(request.headers.get("authorization"))
+                    request.state.delegated_user = context.user
+                if actor_store is not None:
+                    _authorize_actor(actor_store, request)
             except AuthError as error:
                 logger.info(
                     json.dumps(

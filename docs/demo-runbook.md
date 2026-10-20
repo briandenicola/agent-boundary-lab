@@ -27,6 +27,58 @@ interactive directory checks and `task identity:test` are documented in
 demo until the policy-token transport and delegated Foundry gate are proven; otherwise
 the positive control stops working. No public identity rollout is authorized here.
 
+**Issue #4 scoped execution track (2026-10-19, see [`issue-4-squad-plan.md`](issue-4-squad-plan.md)
+and [`issue-4-demo-readiness.md`](issue-4-demo-readiness.md)):** the active delivery target for
+#4 is narrowed to a simple **allowed user vs denied user** demo on the same authorization-protected
+policy tool path, through the existing harness → Foundry path. The full delegated Foundry invocation
+matrix (I0: invalid token / wrong-audience token proven at the Foundry invocation layer) stays
+out of scope for this track unless it turns out to block the allowed/denied path itself. Expected
+result categories for this track are **three separate outcomes**, reported separately and never
+blended into one verdict or into each other:
+- **Identity authorization outcome** — which actor the actor-context contract (WP-1) resolved the
+  caller as: the allowed actor or the denied actor. This is a statement about who the request
+  claims to be.
+- **Policy API authorization outcome** — the protected route's own allowed/rejected (401/403)
+  decision for that actor, for the same protected route. This is a statement about what the policy
+  API did with that identity, not about platform egress.
+- **Containment evidence outcome** — platform egress decision plus receiver receipt/absence for
+  `send_to_external_processor`, collected exactly as in Sections B/C below, joined on the same
+  `demo_run_id`. If that join cannot be made (egress/receipt rows missing, delayed, or not carrying
+  the run id), the containment outcome is **inconclusive** — never a pass, and never inferred from
+  either authorization outcome above.
+
+A denied identity or policy-API result is never reported as a containment pass or fail, and a
+containment pass/fail is never used to explain or stand in for either authorization outcome.
+
+**#4 scoped sequence — what to actually run (2026-10-19):**
+```bash
+task app:validate      # read-only preflight: repo guards, Azure context, policies/endpoints,
+                        # app health, identity journal. Stops at the first failure.
+task app:run-allowed   # OFFLINE, TESTED: pytest -k allowed_actor against the real policy_api
+                        # code path (tests/unit/test_policy_actor_authorization.py). Asserts
+                        # the allowed actor's context authorizes the protected /policy route
+                        # (200) and records authorization_status=authorized on that context.
+task app:run-denied    # OFFLINE, TESTED: same file, -k denied_actor. Asserts the denied
+                        # actor's context is rejected at the route with 403
+                        # actor_context_denied, body determination=identity_only, and that
+                        # no policy payload is returned.
+task app:status        # read-only: Foundry publish/digest status, controlled-tool API
+                        # health, identity probe status.
+```
+Each `app:run-*` task also prints a reminder to open the existing UI (`task test-ui:token`,
+`task test-ui:open`) and click **Run audit** / **Run enforced**. Read that live leg as
+**PROPOSED, not yet a live allowed/denied demonstration**: the UI's actor-alias field is
+display-only text (never checked against anything — it is not sent to, or read from, any
+authorization decision), and the deployed policy API does not yet construct its app with an
+actor-context store (`services/policy_api/main.py`'s module-level `app = create_app()` passes
+no `actor_store`). So today, a live UI click's `policy_authorization_status` reflects the real,
+un-gated `get_servicing_policy` call (currently always **authorized**, regardless of the typed
+alias) — it does not yet reproduce the denied-actor path shown by `app:run-denied` above. Say
+this out loud if asked to click through an allowed vs. denied pair live: the **offline** pytest
+runs are the allowed/denied proof for this track today; wiring the same `actor_store` into the
+deployed app and into harness/UI issuance is the remaining work before the live click
+reproduces it.
+
 Labels: **TESTED** = we ran it and saw the result (2026-10-09); **PROPOSED** = designed, not
 yet shown. Everything in 1-4 is TESTED unless marked. The numbered sections below this page
 are the older audit procedure (**superseded where they conflict**: Sections B/C are implemented
@@ -123,6 +175,23 @@ Note the **UTC time you press send** before the turn. Ask for both tools in one 
 then send to the external processor, on both the audit and the enforced agent). **One turn takes about 2 minutes on the CPU model**
 (team observation, not a benchmark); the page shows elapsed time. Do not click again while it runs. Copy the `run-...` ids shown
 for each side. Do **not** trust the model's prose: it misreported an enforced 403 once. Read the structured tool table.
+
+### External run (HTTPS + Entra login at ingress)
+Use this when the presenter must access the harness from outside the cluster with real Entra sign-in.
+
+```bash
+task app:deploy-external HOSTNAME=<fqdn> LETSENCRYPT_EMAIL=<ops-email>
+```
+
+This single task creates/updates the OIDC app registration, configures ingress prerequisites
+(ingress-nginx + cert-manager), provisions the harness OIDC secret, and applies external ingress resources.
+Then open `https://<fqdn>`, complete Entra login, and run the same prompt flow as above.
+In this mode, the harness derives `actor_alias` from ingress identity headers and rejects manual alias overrides.
+`task chat-agent:verify` still checks local service behavior and therefore expects 401 with and without the legacy token while `HARNESS_AUTH_MODE=ingress_oidc`.
+
+Ingress prerequisite details (applied by `chat-agent:external-prereqs`): nginx uses
+`externalTrafficPolicy=Local` and sets Azure LB probe path `/healthz` so AKS programs
+the public load balancer/backend health correctly without manual node RG edits.
 
 ### Verify the run ids (same B/C verifier; wait at least 180 s after the tools ran)
 ```bash
@@ -784,8 +853,26 @@ agent, and nothing here should be run casually — `cloud:down` deletes the envi
 | Command | What it removes | Leaves behind |
 | --- | --- | --- |
 | `task foundry-agent:down` | The publishing helper **and its entire namespace**, including the chat agent, model server, bridges, UI and Secrets. Prompts first. Cluster workloads are manifests, so there is no Terraform state to clean up. | The cluster, and **any agent versions already published stay published**. |
-| `task cloud:down` | Everything `infra/cloud` created, and the local state. | Nothing from this module. |
+| `task identity:destroy` | Owned probe Job/Secret/ConfigMap/SA, journaled Graph identities/grants, then dedicated identity Terraform/RBAC. | One-time tfvars, redacted evidence, private cleaned-journal archives, local state/caches and global operator-client consent/installations. |
+| `task app:down` / `task cloud:down` | Identity cleanup above, then synchronous exact-state demo cloud Terraform destruction. | Terraform state/backups/provider caches/lockfiles, `.env`, evidence/archives, kubeconfig entries and installed tools/modules. No global consent/cache purge. |
 | `task spike:down` | Everything the region spike created, and its local state. | — |
+
+Normal workshop teardown uses `app:down` / `cloud:down`, not namespace deletion followed
+by manual Graph recovery. These commands have no extra Task/Terraform confirmations;
+actual Graph operator authentication/consent remains interactive. Unknown Graph creation
+outcomes require reconciliation before destruction. Kubernetes deletion is guarded and
+verified before Graph cleanup; Graph deletion is verified before identity RBAC removal.
+An active journal is archived only after empty identity state is verified, enabling reuse
+of the same up command for a fresh workshop. A failed step stops subsequent destruction.
+
+Cloud cleanup refuses missing/foreign state or resources outside the exact demo group,
+retains state on all outcomes, and blocks resource-group deletion if unmanaged resources
+remain. It does not scan tags or launch asynchronous deletes. Retained state may describe
+remaining resources after failure; never delete it to manufacture a clean result.
+Graph soft-deleted identities may remain recoverable; operator-client enterprise apps,
+tenant consent, CLI login state and optional SDK installations are intentionally retained.
+The new automation is offline-tested, not a freshly observed live teardown/rebuild.
+See `rebuild-runbook.md` for prerequisites and `identity-probe.md` for isolated cleanup.
 
 Standing cost notes:
 

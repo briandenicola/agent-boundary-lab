@@ -279,6 +279,75 @@ def test_secret_and_serviceaccount_ordering() -> None:
     assert chat.index(":chat-agent:secret") < chat.index(":chat-agent:up")
 
 
+def test_harness_external_ingress_tasks_are_wired() -> None:
+    external_prereqs = task_body("Taskfile.harness.yml", "external-prereqs")
+    assert "helm upgrade --install ingress-nginx" in external_prereqs
+    assert "--set controller.service.externalTrafficPolicy=Local" in external_prereqs
+    assert "azure-load-balancer-health-probe-request-path" in external_prereqs
+    assert "helm upgrade --install cert-manager" in external_prereqs
+
+    external_app = task_body("Taskfile.harness.yml", "external-app")
+    assert "az ad app create" in external_app
+    assert "az ad app update" in external_app
+    assert "az ad sp show" in external_app
+    assert "az ad app credential reset" in external_app
+
+    external_bootstrap = task_body("Taskfile.harness.yml", "external-bootstrap")
+    assert "task: external-prereqs" in external_bootstrap
+    assert "task: external-app" in external_bootstrap
+    assert "task: external-up" in external_bootstrap
+
+    external_secret = task_body("Taskfile.harness.yml", "external-secret")
+    assert 'COOKIE_SECRET="${COOKIE_SECRET:-}"' in external_secret
+
+    external_render = task_body("Taskfile.harness.yml", "external-render")
+    assert "kustomize build deploy/kustomize/harness-external" in external_render
+    assert "REPLACE_WITH_EXTERNAL_HOSTNAME" in external_render
+    assert "Refusing: these placeholders were not substituted" in external_render
+
+    external_up = task_body("Taskfile.harness.yml", "external-up")
+    assert "chat-agent:external-render" in external_up
+    assert "set env deployment/harness HARNESS_AUTH_MODE=ingress_oidc" in external_up
+    assert "rollout status deployment/harness-oauth2-proxy" in external_up
+    assert "rollout status deployment/harness" in external_up
+
+    external_down = task_body("Taskfile.harness.yml", "external-down")
+    assert "set env deployment/harness HARNESS_AUTH_MODE=legacy" in external_down
+
+    verify = task_body("Taskfile.harness.yml", "verify")
+    assert 'if [ "$MODE" = "ingress_oidc" ]; then' in verify
+    assert "WANT_WITH=401" in verify
+
+
+def test_chat_agent_secret_updates_optional_diagnostics_links() -> None:
+    secret = task_body("Taskfile.harness.yml", "secret")
+    assert "--from-literal=HARNESS_WORKBOOK_URL=" in secret
+    assert "--from-literal=HARNESS_LOGS_URL=" in secret
+    assert "--from-literal=HARNESS_APPINSIGHTS_URL=" in secret
+    assert "rollout restart deployment/harness" in secret
+
+
+def test_app_deploy_external_orchestrates_from_scratch_flow() -> None:
+    deploy = task_body("Taskfile.app.yml", "deploy")
+    assert "task: :cloud:up" in deploy
+    assert "task: :deploy:app-components" in deploy
+
+    deploy_external = task_body("Taskfile.app.yml", "deploy-external")
+    assert "task: :cloud:up" in deploy_external
+    assert "task: :deploy:app-components" in deploy_external
+    assert "task: :chat-agent:external-bootstrap" in deploy_external
+
+
+def test_deploy_app_components_excludes_tool_apis() -> None:
+    app_components = task_body("Taskfile.deploy.yml", "app-components")
+    assert "task: foundry-agent" in app_components
+    assert "task: model-server" in app_components
+    assert "task: test-ui" in app_components
+    assert "task: agent-bridge" in app_components
+    assert "task: chat-agent" in app_components
+    assert "task: tool-apis" not in app_components
+
+
 @pytest.mark.parametrize(
     ("file", "prefix"),
     [
