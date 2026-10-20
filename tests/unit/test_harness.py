@@ -305,9 +305,9 @@ class TestChat:
         assert r.json()["actor_alias"] == "allowed.user-contoso.com"
         page = c.get("/", headers={"X-Auth-Request-Email": "allowed.user@contoso.com"})
         assert 'value="allowed.user-contoso.com"' in page.text
-        assert '/oauth2/sign_out?rd=%2F' in page.text
+        assert "/oauth2/sign_out?rd=%2F" in page.text
         flow = c.get("/flow", headers={"X-Auth-Request-Email": "allowed.user@contoso.com"})
-        assert '/oauth2/sign_out?rd=%2F' in flow.text
+        assert "/oauth2/sign_out?rd=%2F" in flow.text
 
     def test_ingress_oidc_mode_rejects_manual_actor_alias_override(self) -> None:
         c = client(auth_mode="ingress_oidc")
@@ -320,7 +320,9 @@ class TestChat:
 
     def test_ingress_oidc_websocket_uses_ingress_actor_alias(self) -> None:
         c = client(auth_mode="ingress_oidc")
-        with c.websocket_connect("/ws", headers={"X-Auth-Request-Email": "allowed.user@contoso.com"}) as ws:
+        with c.websocket_connect(
+            "/ws", headers={"X-Auth-Request-Email": "allowed.user@contoso.com"}
+        ) as ws:
             ws.send_json({"message": "go"})
             result = None
             for _ in range(8):
@@ -333,7 +335,9 @@ class TestChat:
 
     def test_ingress_oidc_websocket_rejects_manual_actor_alias_override(self) -> None:
         c = client(auth_mode="ingress_oidc")
-        with c.websocket_connect("/ws", headers={"X-Auth-Request-Email": "allowed.user@contoso.com"}) as ws:
+        with c.websocket_connect(
+            "/ws", headers={"X-Auth-Request-Email": "allowed.user@contoso.com"}
+        ) as ws:
             ws.send_json({"message": "go", "actor_alias": "someone-else"})
             msg = ws.receive_json()
             assert msg["event"] == "error"
@@ -345,8 +349,15 @@ class TestChat:
         assert "/oauth2/sign_out" not in text
 
 
-def _outcome(tool_name: str, http_status: int | None) -> dict[str, Any]:
-    return {"tool_name": tool_name, "http_status": http_status}
+def _outcome(tool_name: str, http_status: int | None, **extra: Any) -> dict[str, Any]:
+    return {
+        "tool_name": tool_name,
+        "attempted": True,
+        "http_status": http_status,
+        "destination_host": "policy.example.com",
+        "tool_run_id": RUN_ID,
+        **extra,
+    }
 
 
 def _responder_with_outcomes(outcomes: list[dict[str, Any]]) -> Any:
@@ -356,12 +367,19 @@ def _responder_with_outcomes(outcomes: list[dict[str, Any]]) -> Any:
             "tool_results": [
                 {
                     "tool": "ask_audit_agent",
-                    "result": {"tool_run_ids": [RUN_ID], "tool_outcomes": outcomes},
+                    "result": {
+                        "slot": "audit",
+                        "tool_run_ids": [RUN_ID],
+                        "tool_outcomes": outcomes,
+                    },
                 }
             ],
         }
 
     return responder
+
+
+OID = "8bbab162-0743-444c-b305-fed34bab43fb"
 
 
 class TestActorOutcomeSurfacing:
@@ -383,26 +401,92 @@ class TestActorOutcomeSurfacing:
         r = client().post("/chat", json={"message": "go", "actor_alias": bad_alias}, headers=AUTH)
         assert r.status_code == 400
 
-    def test_policy_authorized_maps_from_get_servicing_policy_200(self) -> None:
-        responder = _responder_with_outcomes(
-            [_outcome("get_servicing_policy", 200), _outcome("send_to_external_processor", 403)]
+    @staticmethod
+    def _access(outcomes: list[dict[str, Any]]) -> dict[str, Any]:
+        r = client(_responder_with_outcomes(outcomes)).post(
+            "/chat", json={"message": "go"}, headers=AUTH
         )
-        r = client(responder).post("/chat", json={"message": "go"}, headers=AUTH)
-        assert r.json()["policy_authorization_status"] == "authorized"
+        return r.json()["policy_access"][0]
 
-    def test_policy_denied_maps_from_get_servicing_policy_403(self) -> None:
-        responder = _responder_with_outcomes([_outcome("get_servicing_policy", 403)])
-        r = client(responder).post("/chat", json={"message": "go"}, headers=AUTH)
-        assert r.json()["policy_authorization_status"] == "denied"
+    def test_policy_allowed_needs_200_and_a_verified_user_object_id(self) -> None:
+        access = self._access(
+            [
+                _outcome(
+                    "get_servicing_policy", 200, user_token_forwarded=True, user_object_id=OID
+                ),
+                _outcome("send_to_external_processor", 403),
+            ]
+        )
+        assert access["status"] == "allowed"
+        assert access["label"] == "allowed: policy API verified your token"
+        assert access["determination"] == "identity_only"
 
-    def test_policy_status_is_pending_when_not_attempted(self) -> None:
+    def test_200_record_goes_through_outcome_from_record_to_allowed(self) -> None:
+        from containment_demo.invoke import outcome_from_record
+
+        record = {
+            "tool_name": "get_servicing_policy",
+            "http_status": 200,
+            "succeeded": True,
+            "error_category": "none",
+            "destination_host": "policy.example.com",
+            "demo_run_id": RUN_ID,
+            "user_token_forwarded": True,
+            "result": {"user_object_id": OID, "policy": {"x": 1}},
+        }
+        outcome = outcome_from_record(record).as_dict()
+        assert outcome["user_object_id"] == OID
+        entry = chat._access_entry("audit", {"tool_outcomes": [outcome]})
+        assert entry["status"] == "allowed"
+
+    def test_bare_200_is_not_reported_as_allowed(self) -> None:
+        access = self._access([_outcome("get_servicing_policy", 200, user_token_forwarded=True)])
+        assert access["status"] == "no_evidence"
+
+    def test_policy_denied_shows_who_what_why_and_kql(self) -> None:
+        access = self._access(
+            [
+                _outcome(
+                    "get_servicing_policy",
+                    403,
+                    user_token_forwarded=True,
+                    policy_error="user_not_authorized",
+                    user_object_id=OID,
+                )
+            ]
+        )
+        assert access["status"] == "denied"
+        assert access["user_object_id"] == OID
+        assert access["error"] == "user_not_authorized"
+        assert access["policy_api_host"] == "policy.example.com"
+        assert RUN_ID in access["kql"]["receipt"]
+        assert "ContainerAppConsoleLogs_CL" in access["kql"]["receipt"]
+        assert "authorization_decision" in access["kql"]["receipt"]
+        assert "served" in access["kql"]["receipt"]
+
+    def test_unrelated_403_is_not_a_denial(self) -> None:
+        access = self._access([_outcome("get_servicing_policy", 403, policy_error="other")])
+        assert access["status"] == "no_evidence"
+
+    def test_401_is_not_authenticated(self) -> None:
+        access = self._access([_outcome("get_servicing_policy", 401)])
+        assert access["status"] == "unauthenticated"
+
+    def test_token_not_forwarded_is_stated_plainly(self) -> None:
+        access = self._access([_outcome("get_servicing_policy", 200, user_token_forwarded=False)])
+        assert access["status"] == "no_evidence"
+        assert "did not reach the tool" in access["label"]
+
+    def test_policy_status_is_no_evidence_when_not_attempted(self) -> None:
         r = client().post("/chat", json={"message": "go"}, headers=AUTH)
-        assert r.json()["policy_authorization_status"] == "pending"
+        assert r.json()["policy_access"] == []
 
     def test_containment_determination_never_derived_from_policy_denial(self) -> None:
         """A denied policy call must not change, weaken, or be confused with the
         containment determination -- they are reported side by side, unconditionally."""
-        denied = _responder_with_outcomes([_outcome("get_servicing_policy", 403)])
+        denied = _responder_with_outcomes(
+            [_outcome("get_servicing_policy", 403, policy_error="user_not_authorized")]
+        )
         authorized = _responder_with_outcomes([_outcome("get_servicing_policy", 200)])
         r_denied = client(denied).post("/chat", json={"message": "go"}, headers=AUTH).json()
         r_ok = client(authorized).post("/chat", json={"message": "go"}, headers=AUTH).json()
@@ -412,9 +496,8 @@ class TestActorOutcomeSurfacing:
 
     def test_policy_status_never_reads_the_containment_tool(self) -> None:
         """send_to_external_processor's status must never set the policy label."""
-        responder = _responder_with_outcomes([_outcome("send_to_external_processor", 200)])
-        r = client(responder).post("/chat", json={"message": "go"}, headers=AUTH)
-        assert r.json()["policy_authorization_status"] == "pending"
+        access = self._access([_outcome("send_to_external_processor", 200)])
+        assert access["status"] == "no_evidence"
 
 
 def test_model_call_logging_records_sizes_never_content(caplog: pytest.LogCaptureFixture) -> None:
@@ -442,3 +525,91 @@ def test_model_call_logging_records_sizes_never_content(caplog: pytest.LogCaptur
     assert "user:function_response:" in caplog.text
     assert "system_chars=15" in caplog.text
     assert secret not in caplog.text
+
+
+OBO = {
+    "obo_tenant_id": "00000000-0000-4000-8000-000000000001",
+    "obo_client_id": "00000000-0000-4000-8000-000000000002",
+    "obo_client_secret": "synthetic-secret-value",
+    "obo_scope": "api://synthetic-policy/policy.read",
+}
+
+
+class TestOnBehalfOf:
+    def test_obo_settings_are_all_or_none(self) -> None:
+        assert make_settings().obo_enabled is False
+        assert make_settings(**OBO).obo_enabled is True
+        with pytest.raises(ValidationError):
+            make_settings(obo_tenant_id=OBO["obo_tenant_id"])
+
+    def test_obo_failure_returns_identity_error_and_skips_the_turn(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from containment_demo.harness import obo
+
+        def fail(settings: Any, assertion: str) -> str:
+            raise obo.OboError("invalid_grant")
+
+        monkeypatch.setattr(obo, "_exchange", fail)
+        responder = FakeResponder()
+        c = client(responder, auth_mode="ingress_oidc", **OBO)
+        r = c.post(
+            "/chat",
+            json={"message": "go"},
+            headers={**INGRESS_AUTH, "X-Auth-Request-Access-Token": "ingress-secret"},
+        )
+        assert r.status_code == 401
+        assert r.json()["source"] == "identity"
+        assert "invalid_grant" in r.json()["error"]
+        assert "ingress-secret" not in r.text
+        assert not responder.messages
+
+    def test_obo_token_reaches_the_responder_context_and_is_not_returned(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from containment_demo.harness import obo
+
+        monkeypatch.setattr(obo, "_exchange", lambda settings, assertion: "obo-" + assertion)
+        seen: list[str | None] = []
+
+        async def responder(settings: HarnessSettings, message: str) -> dict[str, Any]:
+            seen.append(obo.current_user_token.get())
+            return {"reply": "ok", "tool_results": []}
+
+        c = client(responder, auth_mode="ingress_oidc", **OBO)
+        headers = {**INGRESS_AUTH, "X-Auth-Request-Access-Token": "ingress"}
+        r = c.post("/chat", json={"message": "go"}, headers=headers)
+        assert r.status_code == 200
+        assert seen == ["obo-ingress"]
+        assert "obo-ingress" not in r.text
+        with c.websocket_connect("/ws", headers=headers) as ws:
+            ws.send_json({"message": "go"})
+            while ws.receive_json()["event"] != "result":
+                pass
+        assert seen == ["obo-ingress", "obo-ingress"]
+        assert obo.current_user_token.get() is None
+
+    def test_missing_ingress_access_token_is_an_identity_error(self) -> None:
+        c = client(auth_mode="ingress_oidc", **OBO)
+        r = c.post("/chat", json={"message": "go"}, headers=INGRESS_AUTH)
+        assert r.status_code == 401
+        assert "ingress_access_token_missing" in r.json()["error"]
+
+    def test_call_slot_passes_user_token_only_when_present(self) -> None:
+        from containment_demo.harness import obo
+
+        seen: list[dict[str, Any]] = []
+
+        async def sender(base: str, token: str, **kwargs: Any) -> dict[str, Any]:
+            seen.append(kwargs)
+            return {"task_state": "TASK_STATE_COMPLETED", "text": ""}
+
+        s = make_settings()
+        asyncio.run(agent.call_slot(s, "audit", sender))
+        reset = obo.current_user_token.set("t")
+        try:
+            asyncio.run(agent.call_slot(s, "audit", sender))
+        finally:
+            obo.current_user_token.reset(reset)
+        assert "user_token" not in seen[0]
+        assert seen[1]["user_token"] == "t"

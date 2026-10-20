@@ -15,6 +15,9 @@ from typing import Any
 from containment_demo import invoke
 from containment_demo.a2a_facade.core import TargetError, TargetReply
 
+#: Foundry forwards x-client-* request headers to the hosted container.
+USER_TOKEN_HEADER = "x-client-policy-access-token"  # noqa: S105
+
 
 def _response_id(response: Any) -> str | None:
     raw = response.get("id") if isinstance(response, dict) else getattr(response, "id", None)
@@ -42,13 +45,14 @@ class ResponsesTarget:
             )
         return self._client
 
-    def _call(self, text: str) -> TargetReply:
+    def _call(self, text: str, user_token: str | None = None) -> TargetReply:
         try:
             response = self._get_client().responses.create(
                 model="",
                 input=text,
                 store=invoke.STORE_RESPONSE,
                 timeout=self._timeout,
+                **({"extra_headers": {USER_TOKEN_HEADER: user_token}} if user_token else {}),
             )
         except Exception as exc:  # classified, never masked as success
             raise TargetError(
@@ -62,5 +66,5 @@ class ResponsesTarget:
             tool_run_ids=run_ids,
         )
 
-    async def send(self, text: str) -> TargetReply:
-        return await asyncio.to_thread(self._call, text)
+    async def send(self, text: str, user_token: str | None = None) -> TargetReply:
+        return await asyncio.to_thread(self._call, text, user_token)

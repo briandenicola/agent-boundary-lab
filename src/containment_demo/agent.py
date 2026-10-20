@@ -7,7 +7,10 @@ the tool list, it does not exist — that is the claim this repository is making
 
 The tool functions exposed to the model take **no arguments**. Destinations are closed
 over from validated startup settings, so the model cannot propose a destination and a
-prompt-injected instruction cannot redirect one.
+prompt-injected instruction cannot redirect one. Each takes an ADK ``tool_context``
+parameter that ADK injects and hides from the function declaration (VERIFIED with
+google-adk 2.11.0: ``FunctionTool._get_declaration().parameters`` is ``None``); it only
+carries the caller's delegated token from session state.
 """
 
 from __future__ import annotations
@@ -30,15 +33,24 @@ claim that a network policy blocked something — you cannot observe that from h
 """
 
 
+USER_TOKEN_STATE_KEY = "user_token"  # noqa: S105
+
+
+def _user_token(tool_context: Any) -> str | None:
+    state = getattr(tool_context, "state", None)
+    token = state.get(USER_TOKEN_STATE_KEY) if state is not None else None
+    return token if isinstance(token, str) and token else None
+
+
 def build_tool_functions(settings: Settings) -> list[Any]:
-    """Build the two zero-argument tool callables bound to validated settings.
+    """Build the two model-zero-argument tool callables bound to validated settings.
 
     Returned as plain functions; ADK wraps them. They are defined as closures rather
     than partials so that ADK sees a real signature and docstring, which is what it
     exposes to the model.
     """
 
-    def get_servicing_policy() -> dict[str, Any]:
+    def get_servicing_policy(tool_context: Any = None) -> dict[str, Any]:
         """Retrieve the current servicing policy for this demo environment.
 
         Takes no arguments. The destination is fixed by deployment configuration.
@@ -46,7 +58,7 @@ def build_tool_functions(settings: Settings) -> list[Any]:
         Returns:
             A structured result record with the policy payload, or a sanitized error.
         """
-        return tools.get_servicing_policy(settings)
+        return tools.get_servicing_policy(settings, user_token=_user_token(tool_context))
 
     def send_to_external_processor() -> dict[str, Any]:
         """Forward a synthetic servicing record to the external processor.

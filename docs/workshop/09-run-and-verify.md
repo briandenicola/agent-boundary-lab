@@ -21,15 +21,15 @@ Three outcomes are reported **separately and never merged** (see [`../demo-runbo
 
 | Outcome | Question it answers | Not evidence of |
 | --- | --- | --- |
-| Identity authorization | Which actor did the request claim to be? | Anything the policy API or the platform did |
-| Policy API authorization | Did the protected route accept or reject that actor (200 / 401 / 403)? | Egress containment |
+| Identity authorization (display label) | Which actor label did the presenter use? (display only, never an input) | Authorization of any kind |
+| Policy API authorization | Did the protected route accept or reject the user's own on-behalf-of token (200 + `user_object_id` / 403 `user_not_authorized` / 401)? Issue #4 design, **not run live** | Egress containment |
 | Containment evidence | Did the platform deny the egress and did the destination see no receipt? | Who the user was |
 
 **Expected tool results**
 
 | Tool | Audit agent | Enforced agent |
 | --- | --- | --- |
-| `get_servicing_policy` | 200 | 200 |
+| `get_servicing_policy` | allowed user 200; denied user 403 `user_not_authorized` (issue #4 design, UNVERIFIED live) | same as Audit |
 | `send_to_external_processor` | 202 (receiver got it) | 403 `http_error` from the platform |
 | Platform decision row | `AuditWouldDeny` (`decision=Deny`, `enforcement=Audit`) | `Deny` / `DefaultDeny` / `Enforced` |
 | Receipt at `test-receiver` | present | **absent** (only meaningful after 180 s) |
@@ -40,7 +40,7 @@ An agent-reported 403, a DNS error, a timeout, or a model refusal is **not** pro
 
 ### What is honestly demonstrable today
 
-Per [`../demo-runbook.md`](../demo-runbook.md) (Issue #4 section), the **offline** allowed/denied tests are the authorization proof for the scoped track. In the live UI, the actor alias is display-only unless you use the external (Entra) mode, and the deployed policy API does not yet enforce an actor store, so a live click's policy outcome reflects the un-gated call. Say this out loud if you click through an allowed/denied pair live. Containment results (audit vs enforced) were TESTED in the earlier runs recorded in [`../telemetry-map.md`](../telemetry-map.md) §0.13 to §0.15.
+**VERIFIED:** only that the unit suite passes (953 passed / 5 skipped, mocks only). **SOURCE-VERIFIED:** the issue #4 code (OBO exchange, header hops, policy API guard) exists as described in [`../token-flow-documented.md`](../token-flow-documented.md). **UNVERIFIED:** every live step of it (Entra apps, deployment, token contents, Foundry header delivery). The actor alias is display-only; the policy API's verdict on the user's own token is the only identity result, and the policy API stays in legacy (ungated) mode until the second `cloud:up`. The offline tests are the only authorization proof today. Say this out loud if you click through an allowed/denied pair live. Containment results (audit vs enforced) were TESTED in the earlier runs recorded in [`../telemetry-map.md`](../telemetry-map.md) §0.13 to §0.15.
 
 ## Walkthrough
 
@@ -68,11 +68,11 @@ task app:run-allowed   # real policy API code path: allowed actor gets 200 on /p
 task app:run-denied    # same path: denied actor gets 403 actor_context_denied, identity_only, no payload
 ```
 
-These are offline tests (`tests/unit/test_policy_actor_authorization.py`). They prove authorization behavior of the code, not platform containment.
+These are offline tests (`tests/unit/test_policy_actor_authorization.py`) of the older actor-context path. They prove authorization behavior of the code, not platform containment, and not the OBO user-token path (covered by other mocked unit tests).
 
 ### 3. Open the harness
 
-**Primary: external mode** (HTTPS and Entra login, built in [Module 07](07-external-access.md)): browse to `https://<your-fqdn>`, sign in as the **allowed** test user first, then repeat in a private window as the **denied** user. In this mode the harness derives the actor alias from ingress identity headers.
+**Primary: external mode** (HTTPS and Entra login, built in [Module 07](07-external-access.md)): browse to `https://<your-fqdn>`, sign in as the **allowed** test user first, then repeat in a private window as the **denied** user. In this mode the harness derives a display label from ingress identity headers (not authorization) and exchanges the user's access token for a policy API token (issue #4; never run live). Read the "Policy API access (identity only)" card per agent: `allowed` needs HTTP 200 **and** an echoed user object id; a bare 200 shows "no evidence"; `user_token_forwarded=false` means the header did not reach the tool (UNVERIFIED whether Foundry delivers it). The "Egress / containment" card is separate and stays inconclusive without platform evidence. Expected design outcome: user `8bbab162-0743-444c-b305-fed34bab43fb` allowed, `10870cbe-74ab-4c46-b5a8-8fcded26e615` denied, in both Audit and Enforced. Also check the three known defects in [`../token-flow-documented.md`](../token-flow-documented.md) section 6 first.
 
 **Development fallback: local port-forward** (shared token, any user name, no Entra):
 
@@ -121,8 +121,10 @@ Fill in [`../evidence-template.md`](../evidence-template.md): run ids, UTC times
 | Failure classification (HTTP / TLS / DNS / timeout) | [`scripts/verify_demo.py` L76-L135](../../scripts/verify_demo.py#L76-L135) |
 | Audit and enforced judges | [`scripts/verify_demo.py` L1522-L1650](../../scripts/verify_demo.py#L1522-L1650) |
 | Exit code mapping | [`scripts/verify_demo.py` L1666-L1672](../../scripts/verify_demo.py#L1666-L1672) |
-| Harness chat routes (`/chat`, `/ws`, `/healthz`) | [`src/containment_demo/harness/chat.py` L178-L432](../../src/containment_demo/harness/chat.py#L178-L432) |
-| Ingress actor alias (display-safe, no raw claims) | [`src/containment_demo/harness/chat.py` L97-L123](../../src/containment_demo/harness/chat.py#L97-L123) |
+| Harness chat routes (`/chat`, `/ws`, `/healthz`) | [`src/containment_demo/harness/chat.py`](../../src/containment_demo/harness/chat.py) (`create_app`; line numbers moved with issue #4) |
+| Ingress display label (display-safe, no raw claims) | [`src/containment_demo/harness/chat.py` L178-L192](../../src/containment_demo/harness/chat.py#L178-L192) |
+| UI identity verdict (`allowed` / `denied` / no evidence) | `_access_entry` and `policy_access` in `chat.py` |
+| OBO exchange | [`src/containment_demo/harness/obo.py`](../../src/containment_demo/harness/obo.py) |
 | Verifier task wiring | [`tasks/Taskfile.verify.yml`](../../tasks/Taskfile.verify.yml) |
 | Allowed/denied offline tasks | [`tasks/Taskfile.app.yml` L46-L56](../../tasks/Taskfile.app.yml#L46-L56) |
 

@@ -44,6 +44,14 @@ locals {
     test_receiver = "${azurerm_container_registry.main.login_server}/containment-demo-test-receiver:${var.endpoint_image_tag}"
   }
 
+  policy_api_auth_env = {
+    POLICY_API_AUTH_MODE           = var.policy_api_auth_mode
+    POLICY_API_TENANT_ID           = var.policy_api_tenant_id
+    POLICY_API_AUDIENCE            = var.policy_api_audience
+    POLICY_API_SCOPE               = var.policy_api_scope
+    POLICY_API_CLIENT_IDS          = var.policy_api_client_ids
+    POLICY_API_AUTHORIZED_USER_IDS = var.policy_api_authorized_user_ids
+  }
   policy_api_image    = var.endpoint_image_tag == "" ? local.placeholder_image : local.endpoint_images.policy_api
   test_receiver_image = var.endpoint_image_tag == "" ? local.placeholder_image : local.endpoint_images.test_receiver
 }
@@ -108,6 +116,17 @@ resource "azurerm_container_app" "policy_api" {
       image  = local.policy_api_image
       cpu    = 0.25
       memory = "0.5Gi"
+
+      # Delegated (Entra token) auth. Names are exactly those read by
+      # containment_demo.delegated_auth.configured_guard("POLICY_API") (SOURCE-VERIFIED).
+      # Legacy mode must set none of them: the guard rejects partial configuration.
+      dynamic "env" {
+        for_each = var.policy_api_auth_mode == "delegated" ? local.policy_api_auth_env : {}
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
     }
   }
 

@@ -147,3 +147,36 @@ def test_ui_default_path_is_a2a_not_a_direct_foundry_call() -> None:
     src = (SRC / "demo_ui.py").read_text()
     assert "ui_a2a.invoke_via_a2a" in src
     assert "invoke.invoke_agent" not in src
+
+
+def test_user_token_is_passed_to_the_sender_only_when_present() -> None:
+    plain = Sender(completed(OK))
+    run(plain)
+    assert "user_token" not in plain.calls[0]
+    with_token = Sender(completed(OK))
+    ui_a2a.invoke_via_a2a(
+        base_url="http://f.svc",
+        token="t" * 20,
+        agent_name="a",
+        demo_run_id="ui-1",
+        timeout_seconds=5,
+        sender=with_token,
+        user_token="synthetic-user-token",
+    )
+    assert with_token.calls[0]["user_token"] == "synthetic-user-token"
+
+
+def test_delegated_identity_evidence_is_read_from_the_tool_record() -> None:
+    record = {
+        **OK,
+        "http_status": 403,
+        "succeeded": False,
+        "error_category": "http_error",
+        "user_token_forwarded": True,
+        "result": {"error": "user_not_authorized", "user_object_id": "oid-1"},
+    }
+    by = {r["tool_name"]: r for r in run(Sender(completed(record))).as_dict()["results"]}
+    got = by[record["tool_name"]]
+    assert got["policy_error"] == "user_not_authorized"
+    assert got["user_object_id"] == "oid-1"
+    assert got["user_token_forwarded"] is True

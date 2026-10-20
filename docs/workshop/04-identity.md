@@ -37,11 +37,20 @@ You know OAuth/OIDC from LLM-app work. Here is how those ideas are named in Azur
 | Browser ingress | "Is this person signed in to our tenant?" | oauth2-proxy (OIDC) at the ingress | [deploy/kustomize/harness-external/](../../deploy/kustomize/harness-external/) |
 | Delegated authorization | "Does this user's own token carry the right audience/scope and is the user on the allowlist?" | JWT validation in the service | [src/containment_demo/delegated_auth.py](../../src/containment_demo/delegated_auth.py) |
 
-The harness's *actor alias* is a third, purely cosmetic thing: a label on the page and in evidence so a presenter can say "this run was the allowed tester".
+The harness's *actor alias* is a third, purely cosmetic thing: a label on the page and in evidence so a presenter can say "this run was the allowed tester". It is **never** authorization. The only identity verdict the UI shows is the policy API's decision on the user's own on-behalf-of (OBO) token (see "The on-behalf-of chain" below).
 
 ### The OIDC identity flow
 
 ![](diagrams/04-oidc-identity-flow.svg)
+
+> **Diagram caveat (Ripley, 2026-10-20).** The picture above predates the issue #4 OBO code. It places the delegated `AccessGuard` at the facade and says "rejected before Foundry"; the code now enforces the user's token **at the policy API, when `get_servicing_policy` calls it**, after the hosted agent ran. It also says the facade token hand-off is "not verified here", which is still true. It has not been redrawn. The flow in text (SOURCE-VERIFIED; not run live):
+>
+> ```text
+> browser -> oauth2-proxy (app A) -> harness --OBO--> token for app B
+>   -> facade (X-Delegated-Policy-Token, plain in-cluster HTTP)
+>   -> Foundry (x-client-policy-access-token) -> hosted agent
+>   -> get_servicing_policy -> policy API (guard + AUTHORIZED_USER_IDS) -> 200 | 403 user_not_authorized
+> ```
 
 ## Walkthrough
 
@@ -98,9 +107,27 @@ The DNS record, certificate and ingress prerequisites for this step are covered 
 
 ### 4. Observe allowed vs denied in the browser
 
-Open `https://<your-fqdn>/`. You are redirected to Entra; after sign-in the page shows your alias (derived from the `x-auth-request-*` headers) and a **Logout** chip. An unauthenticated request to `/chat` or `/ws` is refused (401 / websocket close code 1008).
+Open `https://<your-fqdn>/`. You are redirected to Entra; after sign-in the page shows your display label (derived from the `x-auth-request-*` headers; not authorization) and a **Logout** chip. An unauthenticated request to `/chat` or `/ws` is refused (401 / websocket close code 1008).
+
+### 5. The on-behalf-of chain (issue #4): code written, **nothing run live**
+
+> **Status.** SOURCE-VERIFIED in code and unit-tested with mocks (953 passed / 5 skipped). **UNVERIFIED live:** no Entra app was created, nothing deployed, no token decoded, no Foundry header delivery observed. Full reference and caveats: [token-flow-documented.md](../token-flow-documented.md). Diagram: [04-oidc-identity-flow.svg](diagrams/04-oidc-identity-flow.svg) (outdated, see the caveat under it).
+
+Two Entra apps are involved: **app A** (`agent-boundary-harness-oidc`, the middle tier; scope `api://<A>/access_as_user`) and **app B** (`agent-boundary-policy-api`, scope `policy.read`). Three tokens/headers carry the same user:
+
+| Name | Is | Hop |
+|---|---|---|
+| `x-auth-request-access-token` | access token for app A | oauth2-proxy → harness |
+| `X-Delegated-Policy-Token` | OBO token for app B (harness calls MSAL `acquire_token_on_behalf_of`) | harness → A2A facade, **plain in-cluster HTTP** |
+| `x-client-policy-access-token` | the same OBO token as a Foundry `x-client-*` header | facade → Foundry → hosted agent container |
+
+The tool then sends it as `Authorization: Bearer` to the policy API, whose guard checks signature, audience, scope, client and `AUTHORIZED_USER_IDS`. Design outcome (not observed): user `8bbab162-0743-444c-b305-fed34bab43fb` → 200; `10870cbe-74ab-4c46-b5a8-8fcded26e615` → 403 `user_not_authorized`, in Audit and Enforced. `x-ms-user-identity` is **not** sent (Foundry doc says it needs a custom `UserIdentityImpersonation` data action; whether `x-client-*` forwarding needs it is UNVERIFIED). Foundry header delivery is UNVERIFIED; `user_token_forwarded=false` in the UI is how a failure would look. This is an **identity** result, not a network result.
 
 ## Code tour
+
+### OBO exchange — [src/containment_demo/harness/obo.py](../../src/containment_demo/harness/obo.py)
+
+`acquire_user_token` runs MSAL `acquire_token_on_behalf_of` with the access token from `x-auth-request-access-token`; on failure raises `OboError(code)` (Entra error code or a local label, never a token) and the turn is refused with 401, `source: identity`. The token travels in the `current_user_token` ContextVar to `harness/agent.py` `call_slot` (harness side only; the hosted agent uses ADK session state).
 
 ### Delegated authorization — [src/containment_demo/delegated_auth.py](../../src/containment_demo/delegated_auth.py)
 
@@ -123,7 +150,7 @@ The `require_user` middleware ([lines 197–240](../../services/policy_api/main.
 * `_ALIAS_RE` ([line 32](../../src/containment_demo/actor_context.py#L32)) and `MAX_LIFETIME` ([line 37](../../src/containment_demo/actor_context.py#L37)) bound the data.
 * `ActorContext` ([72–100](../../src/containment_demo/actor_context.py#L72-L100)), `issue` ([103](../../src/containment_demo/actor_context.py#L103)), `status_from_http` ([130](../../src/containment_demo/actor_context.py#L130)) and `ActorContextStore` ([149](../../src/containment_demo/actor_context.py#L149)).
 
-In the harness, [`_ingress_actor_alias`](../../src/containment_demo/harness/chat.py#L97-L111) sanitizes `x-auth-request-preferred-username` / `-email` / `-user` into that alias character set. The comment at [chat.py lines 42–45](../../src/containment_demo/harness/chat.py#L42-L45) says it plainly: display-only, never authorization input.
+The module docstring now says the alias is **not used for authorization**; it is a bounded, display-only record. In the harness, [`_ingress_actor_alias`](../../src/containment_demo/harness/chat.py#L178-L192) sanitizes `x-auth-request-preferred-username` / `-email` / `-user` into that alias character set. The comment at [chat.py lines 47–51](../../src/containment_demo/harness/chat.py#L47-L51) says it plainly: display-only, never authorization input. The UI verdict comes from `_access_entry` in the same file.
 
 ### Setup automation — [src/containment_demo/identity_setup.py](../../src/containment_demo/identity_setup.py)
 
@@ -137,8 +164,8 @@ Three user-assigned identities (`apps`, `workflow`, `agent_deployer`), two feder
 
 | File | Why it matters |
 |---|---|
-| [oauth2-proxy-deployment.yaml](../../deploy/kustomize/harness-external/oauth2-proxy-deployment.yaml) | `--provider=oidc`, `--cookie-secure=true`, `--set-xauthrequest=true`; secrets come from `harness-oidc-config`; read-only root FS, all capabilities dropped. |
-| [ingress-harness.yaml](../../deploy/kustomize/harness-external/ingress-harness.yaml) | `auth-url` / `auth-signin` annotations make ingress-nginx ask oauth2-proxy before every request; `auth-response-headers` forwards the identity headers. |
+| [oauth2-proxy-deployment.yaml](../../deploy/kustomize/harness-external/oauth2-proxy-deployment.yaml) | `--provider=oidc`, `--cookie-secure=true`, `--set-xauthrequest=true`, `--pass-access-token=true`, `--cookie-refresh=50m`; the scope comes from Secret key `OAUTH2_PROXY_SCOPE`; secrets come from `harness-oidc-config`; read-only root FS, all capabilities dropped. |
+| [ingress-harness.yaml](../../deploy/kustomize/harness-external/ingress-harness.yaml) | `auth-url` / `auth-signin` annotations make ingress-nginx ask oauth2-proxy before every request; `auth-response-headers` forwards the identity headers **and `x-auth-request-access-token`**; `proxy-buffer-size: 16k` is set for the larger header (sufficiency UNVERIFIED). |
 | [ingress-oauth2.yaml](../../deploy/kustomize/harness-external/ingress-oauth2.yaml) | Routes `/oauth2` straight to oauth2-proxy; `proxy-buffer-size: 16k` (see Module 06). |
 
 > **Limitation to be aware of.** `--email-domain=*` in the proxy means *any account that can sign in to the tenant app* passes the browser layer. Fine-grained "allowed vs denied" is decided by the delegated layer and Entra assignment, which is why both layers exist. Treat the browser layer as authentication, not per-user authorization.

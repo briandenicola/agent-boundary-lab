@@ -418,3 +418,14 @@ What actually happened:
   new PE connection auto-approved; Contributor-at-RG not needed. Model-call success still unobserved.
 - Demo UI identity applied (B9h): Foundry Agent Consumer = single dataAction interact/action, project scope; output demo_ui_identity_client_id.
 - A2A spike prereqs (B5b): deployer identity = Cognitive Services User @account, dataActions Microsoft.CognitiveServices/* covers update + interact; no change made.
+
+### 2026-10-20 — issue #4 OBO infra (UNVERIFIED: nothing run against Azure/cluster)
+- Terraform: policy_api_* variables; env on policy_api only when mode == delegated (dynamic env). Names SOURCE-VERIFIED against delegated_auth.configured_guard. Reach terraform as TF_VAR_* from .env (cloud tasks pass -var only for a few; env works).
+- Entra in external-app (az rest to Graph: scopes, requiredResourceAccess, oauth2PermissionGrants AllPrincipals); external-app-down undoes it. Owner explicitly requested az CLI here, an exception to the no-az rule.
+- Two-pass order: cluster must exist before external-app, so first cloud:up is legacy; second cloud:up after .env gets TF_VAR_* is delegated.
+- Do not `git stash` while Brett edits the tree (I did once; popped cleanly, but don't).
+- A bare `echo "x: y"` list item in a Taskfile is invalid YAML; quote the whole item.
+
+### 2026-10-20 — OBO secret wiring fix (UNVERIFIED live)
+- Harness pod read only harness-config; HARNESS_OBO_* sat in harness-oidc-config. Fix: four explicit env secretKeyRef entries, optional: true (not envFrom: would leak proxy client/cookie secrets). external-app and external-app-down now `rollout restart` harness since env is read at pod start (`set env` with an unchanged value does not roll).
+- Partial keys => HarnessSettings all-or-none validator raises => crash-loop (loud). optional semantics from k8s knowledge, not run.

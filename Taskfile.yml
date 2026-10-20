@@ -13,6 +13,8 @@ env:
   # Sweden Central is the owner-approved single-tenant rebuild target.
   # Regional eligibility checks and their limits are recorded in docs/rebuild-runbook.md.
   DEFAULT_REGION: swedencentral
+  # Absolute: included Taskfiles do not all run from the repo root.
+  IMAGE_TAG_DIR: '{{.ROOT_DIR}}/.task/image-tags'
 
 includes:
   app:

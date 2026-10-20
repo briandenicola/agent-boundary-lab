@@ -60,6 +60,10 @@ PROTOCOL_VERSION = "1.0"
 BINDING = "JSONRPC"
 HEALTH_PATH = "/healthz"
 BEARER_SCHEME = "bearer"
+#: Carries the OBO token from the harness. The harness->facade hop is in-cluster plain HTTP,
+#: so this header is not TLS-protected on that hop. Only its presence is ever logged.
+USER_TOKEN_HEADER = b"x-delegated-policy-token"
+USER_TOKEN_STATE_KEY = "user_token"  # noqa: S105
 
 
 def build_card(settings: FacadeSettings) -> AgentCard:
@@ -112,6 +116,13 @@ class FacadeUser(User):  # type: ignore[misc]
 class FacadeCallContextBuilder(DefaultServerCallContextBuilder):  # type: ignore[misc]
     """Carries the principal the auth middleware established into the A2A call context."""
 
+    def build(self, request: Request) -> Any:
+        context = super().build(request)
+        token = getattr(request.state, "user_token", None)
+        if token:
+            context.state[USER_TOKEN_STATE_KEY] = token
+        return context
+
     def build_user(self, request: Request) -> User:
         principal = getattr(request.state, "principal_id", None)
         return FacadeUser(principal) if principal else super().build_user(request)
@@ -141,8 +152,12 @@ class FacadeExecutor(AgentExecutor):  # type: ignore[misc]
         principal = context.call_context.user.user_name
         await updater.start_work()
 
+        user_token = context.call_context.state.get(USER_TOKEN_STATE_KEY)
         try:
-            reply = await self._target.send(text)
+            if user_token:
+                reply = await self._target.send(text, user_token=user_token)
+            else:
+                reply = await self._target.send(text)
         except TargetError as exc:
             logger.warning(
                 "a2a downstream failed principal=%s task_id=%s category=%s http_status=%s",
@@ -167,9 +182,11 @@ class FacadeExecutor(AgentExecutor):  # type: ignore[misc]
 
         self._contexts.remember(task.context_id, reply.response_id)
         logger.info(
-            "a2a task completed principal=%s task_id=%s downstream_response_id=%s tool_run_ids=%s",
+            "a2a task completed principal=%s task_id=%s user_token_present=%s "
+            "downstream_response_id=%s tool_run_ids=%s",
             principal,
             task.id,
+            bool(user_token),
             reply.response_id,
             ",".join(reply.tool_run_ids) or "-",
         )
@@ -197,10 +214,12 @@ class AuthMiddleware:
             await self._app(scope, receive, send)
             return
         header = ""
+        user_token = ""
         for key, value in scope.get("headers", []):
             if key == b"authorization":
                 header = value.decode("latin-1")
-                break
+            elif key == USER_TOKEN_HEADER:
+                user_token = value.decode("latin-1")
         principal = self._auth.authenticate(header)
         if principal is None:
             response = PlainTextResponse(
@@ -208,7 +227,10 @@ class AuthMiddleware:
             )
             await response(scope, receive, send)
             return
-        scope.setdefault("state", {})["principal_id"] = principal.id
+        state = scope.setdefault("state", {})
+        state["principal_id"] = principal.id
+        if user_token:
+            state["user_token"] = user_token
         await self._app(scope, receive, send)
 
 

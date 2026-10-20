@@ -174,6 +174,37 @@ union tools, results, decisions, receipts
 
 Status: PROPOSED. Built from the field names recorded in `telemetry-map.md`; not yet run as written.
 
+## 10. Policy API identity decisions for one tool run id (issue #4)
+
+These are the two queries the harness UI generates for a tool run id (`harness/chat.py` `_kql`), copied exactly.
+Replace `<TOOL_RUN_ID>` with the `tool run id` the UI shows. Tables are those already used above. **UNVERIFIED: neither
+query has been run as written; the policy API's JSON fields are application properties, not verified table columns.**
+
+```kusto
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(24h)
+| where Log_s has "<TOOL_RUN_ID>"
+| where Log_s has_any ("authorization_decision", "served")
+| project TimeGenerated, ContainerAppName_s, Log_s
+```
+
+```kusto
+union isfuzzy=true AppTraces, AppDependencies
+| where TimeGenerated > ago(24h)
+| where tostring(Properties) has "<TOOL_RUN_ID>"
+| project TimeGenerated, Type, Name, Message, Properties
+```
+
+Limits (SOURCE-VERIFIED in `services/policy_api/main.py`):
+
+- The policy API writes `event=authorization_decision` for **denied** or **unavailable** calls and `event=receipt`,
+  `outcome=served` (with `user_object_id`) for an allowed call. Both lines carry `demo_run_id`, so the first query
+  matches either kind. The `served` term is a plain substring match on the log line; an allowed user should get one
+  `served` row, a denied user one `authorization_decision` row. Neither shape has been seen live.
+- Under `Enforced` the agent may emit no app telemetry (App Insights egress is denied, §8), so the second query can be
+  empty. That is not a pass and not a fail; it is missing evidence (inconclusive).
+- A denial row is an **identity** result (`determination=identity_only`). It is not an egress result.
+
 ## What these queries do not show
 
 - The agent's HTTP 403, a DNS error, a timeout or the model's reply. Those are application-layer.

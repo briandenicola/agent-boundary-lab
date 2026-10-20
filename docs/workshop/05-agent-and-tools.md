@@ -34,6 +34,25 @@ This module opens the application at the centre of the experiment: a Google ADK 
 | `get_servicing_policy` | Allowlisted HTTPS host (policy API) | Success. If it fails, the setup is wrong; that is not a containment result. |
 | `send_to_external_processor` | Host deliberately **absent** from the allowlist (test receiver) | Platform denial, to be proven by platform evidence plus no receipt. |
 
+The two tools are controlled by different things, so a failure means something different for each:
+
+| | `get_servicing_policy` | `send_to_external_processor` |
+|---|---|---|
+| Purpose | Reads the servicing policy from the policy API | Sends a synthetic payload to the test receiver (the "external processor") |
+| Controlled by | The **user's identity**: the policy API verifies the delegated user token. Egress allows the host. | **Egress policy only.** No user token is sent. |
+| Allowed user, Audit and Enforced (expected) | HTTP 200 | Audit: goes through, the receiver logs a receipt. Enforced: platform denial. |
+| Denied user, Audit and Enforced (expected) | HTTP 403 `user_not_authorized` | Same as the allowed user; identity is irrelevant to this tool. |
+| What a failure means | An **identity** result. Not a network or containment result. | A **network/platform** result. It counts as containment only when the platform evidence rows and the missing receipt confirm it. |
+
+> **Status.** The user-token plumbing is **implemented in code (SOURCE-VERIFIED) and unit-tested with mocks (VERIFIED: 953 passed / 5 skipped)**. The "expected" rows are the design; **nothing has been run live**. Whether Foundry delivers the user token to the hosted agent is **UNVERIFIED** until the first live run.
+
+How the token reaches `get_servicing_policy` (SOURCE-VERIFIED; full path in [token-flow-documented.md](../token-flow-documented.md)):
+
+- The facade sends it to Foundry as the header `x-client-policy-access-token`. `protocol_adapter.py` reads it from `context.client_headers` (lowercase `x-client-*` keys only; checked in the installed `azure-ai-agentserver-responses` 2.2.0) and puts it in the **ADK session state** (`user_token`) when it creates the per-call session. This side uses session state, not a ContextVar. (The harness side, before the facade, carries it in a ContextVar.)
+- Both tool functions in `agent.py` accept an ADK `tool_context` that ADK injects. `get_servicing_policy` reads `tool_context.state["user_token"]` and sends `Authorization: Bearer ...` to the policy API. The code comment records that the model-visible declaration stays parameterless (checked against google-adk 2.11.0). `send_to_external_processor` does not use the token.
+- The tool result records only `user_token_forwarded` (a boolean) and, for HTTP >= 400, the policy API's `error` and `user_object_id`. The token is never logged or recorded.
+- That a live ADK run passes the session state to the tool is **UNVERIFIED** (mocks only).
+
 ### Why both tools are always registered
 
 If the Enforced agent simply *lacked* the second tool, or the code checked a hostname list, the demo would prove only that **our code** behaves. The claim is that the **platform** stops the call. So: the same image digest, the same two tools, the same prompt, and the only variable is the attached policy. `DEMO_POLICY_MODE` is an evidence label; nothing branches on it ([settings.py lines 99–102](../../src/containment_demo/settings.py#L99-L102)).
@@ -92,10 +111,10 @@ task app:run-denied
 | Lines | What |
 |---|---|
 | [20–30](../../src/containment_demo/agent.py#L20-L30) | `AGENT_INSTRUCTION`: report failures plainly; **do not claim a network policy blocked anything**, the agent cannot observe that. |
-| [33–62](../../src/containment_demo/agent.py#L33-L62) | `build_tool_functions`: two zero-argument closures so ADK exposes real signatures and docstrings to the model. No URL parameter exists to be abused. |
-| [65–91](../../src/containment_demo/agent.py#L65-L91) | `build_model`: LiteLLM → Azure OpenAI with a bearer-token *provider* (`DefaultAzureCredential`), no API key; tokens refresh during a long-running agent. |
-| [94–108](../../src/containment_demo/agent.py#L94-L108) | `build_agent`: `LlmAgent` with both tools, unconditionally. |
-| [113](../../src/containment_demo/agent.py#L113) | `REQUIRED_TOOL_NAMES`, asserted by unit tests so a refactor cannot quietly drop a tool. |
+| [45–74](../../src/containment_demo/agent.py#L45-L74) | `build_tool_functions`: two closures with no model-visible arguments so ADK exposes real signatures and docstrings to the model (each takes an ADK-injected `tool_context`, hidden from the declaration). No URL parameter exists to be abused. `_user_token` ([39](../../src/containment_demo/agent.py#L39)) reads the delegated token from session state. |
+| [77–103](../../src/containment_demo/agent.py#L77-L103) | `build_model`: LiteLLM → Azure OpenAI with a bearer-token *provider* (`DefaultAzureCredential`), no API key; tokens refresh during a long-running agent. |
+| [106–122](../../src/containment_demo/agent.py#L106-L122) | `build_agent`: `LlmAgent` with both tools, unconditionally. |
+| [125](../../src/containment_demo/agent.py#L125) | `REQUIRED_TOOL_NAMES`, asserted by unit tests so a refactor cannot quietly drop a tool. |
 
 ### The tools and HTTP hygiene — [src/containment_demo/tools.py](../../src/containment_demo/tools.py)
 
@@ -103,9 +122,9 @@ task app:run-denied
 |---|---|
 | [88–99](../../src/containment_demo/tools.py#L88-L99) | `_build_client`: `timeout=httpx.Timeout(settings.http_timeout_seconds)`, `follow_redirects=False`, `verify=` the injected proxy CA bundle or `True`; never `False`. |
 | [102–122](../../src/containment_demo/tools.py#L102-L122) | `_classify`: timeout, TLS, DNS, generic connection and unexpected are separate categories. |
-| [168–213](../../src/containment_demo/tools.py#L168-L213) | `get_servicing_policy`. |
-| [215–268](../../src/containment_demo/tools.py#L215-L268) | `send_to_external_processor`: fixed synthetic payload; docstring explains why a bare 403 cannot be attributed to the platform. |
-| [271](../../src/containment_demo/tools.py#L271) | `_bounded_json`: response bodies are size-bounded. |
+| [171–228](../../src/containment_demo/tools.py#L171-L228) | `get_servicing_policy`: sends `Authorization: Bearer` only when a user token was passed; records `user_token_forwarded` and, for HTTP >= 400, the error code and `user_object_id` (`_error_fields`, [301](../../src/containment_demo/tools.py#L301)). |
+| [230–283](../../src/containment_demo/tools.py#L230-L283) | `send_to_external_processor`: fixed synthetic payload; docstring explains why a bare 403 cannot be attributed to the platform. |
+| [286](../../src/containment_demo/tools.py#L286) | `_bounded_json`: response bodies are size-bounded. |
 
 Related: `ErrorCategory` in [settings.py (lines 36–51)](../../src/containment_demo/settings.py#L36-L51) intentionally has **no `POLICY_DENIED` member**. Attribution is the verifier's job, using platform evidence.
 
@@ -116,9 +135,9 @@ Validated startup config: `Settings` ([settings.py line 61](../../src/containmen
 | Lines | What |
 |---|---|
 | [28–36](../../src/containment_demo/protocol_adapter.py#L28-L36) | `PLATFORM_ROUTES`: routes owned by the server package; ours must not collide. |
-| [39–92](../../src/containment_demo/protocol_adapter.py#L39-L92) | `build_host`: construct `ResponsesAgentServerHost` **first**, then import ADK, so the host configures the global tracer provider before ADK does. |
-| [95–127](../../src/containment_demo/protocol_adapter.py#L95-L127) | `_run_agent_turn`: fresh ADK session per call, collects final text, honours cancellation. |
-| [130–150](../../src/containment_demo/protocol_adapter.py#L130-L150) | `main`: `disable_content_capture()` before anything else, validate settings, then serve. |
+| [43–101](../../src/containment_demo/protocol_adapter.py#L43-L101) | `build_host`: reads `x-client-policy-access-token` from `context.client_headers`. Construct `ResponsesAgentServerHost` **first**, then import ADK, so the host configures the global tracer provider before ADK does. |
+| [104–138](../../src/containment_demo/protocol_adapter.py#L104-L138) | `_run_agent_turn`: fresh ADK session per call (user token in its state), collects final text, honours cancellation. |
+| [141–161](../../src/containment_demo/protocol_adapter.py#L141-L161) | `main`: `disable_content_capture()` before anything else, validate settings, then serve. |
 
 ### The container — [Dockerfile](../../Dockerfile)
 

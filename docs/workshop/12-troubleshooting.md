@@ -42,6 +42,20 @@ Two rules before you debug:
 | `external-up` says secret `harness-oidc-config` missing | `external-app` did not run | Run `chat-agent:external-app` (or `external-bootstrap`) | [`tasks/Taskfile.harness.yml` L282-L299](../../tasks/Taskfile.harness.yml#L282-L299) |
 | Public LB backend unhealthy | nginx needs `externalTrafficPolicy=Local` and probe path `/healthz` | Applied by `task chat-agent:external-prereqs`; do not hand-edit the node resource group | [`tasks/Taskfile.harness.yml` L127-L165](../../tasks/Taskfile.harness.yml#L127-L165) |
 
+### Issue #4 identity flow (never run live; every row is UNVERIFIED)
+
+Codes below are general Entra knowledge, not observed in this repo. Full detail: [`../token-flow-documented.md`](../token-flow-documented.md).
+
+| Symptom | Likely cause | Check |
+| --- | --- | --- |
+| UI: `on-behalf-of exchange failed: <code>`, 401 `source: identity` | OBO exchange failed (harness refuses the turn) | `AADSTS65001` consent missing; `AADSTS50013` / `AADSTS70011` invalid assertion or scope; `AADSTS500133` expired token. Mapping is UNVERIFIED |
+| Local label `ingress_access_token_missing` | `x-auth-request-access-token` not forwarded | `--pass-access-token`, ingress `auth-response-headers`, header or cookie size (16k buffer set; behaviour UNVERIFIED) |
+| `user_token_forwarded=false` | Header did not reach the tool (Foundry delivery UNVERIFIED, or ContextVar/session state not reaching the tool) | Tool-record field; do not read as a policy decision |
+| 401 from the policy API | Token missing/invalid (`authentication_required`, `invalid_bearer`, `invalid_token`, `invalid_delegated_token`) | Authentication failed, not authorization |
+| 403 `user_not_authorized` | Valid token, user not in `AUTHORIZED_USER_IDS` | Expected for `10870cbe-74ab-4c46-b5a8-8fcded26e615` |
+| 403 `insufficient_scope` / `untrusted_oauth_client` | Scope or client app id not accepted | `policy.read`, `POLICY_API_CLIENT_IDS` |
+| Allowed user never shows `allowed` | Known code defects: `outcome_from_record` drops `user_object_id` on 200; `HARNESS_OBO_*` not mapped into the harness pod; receipt query only matches denials | token-flow section 6 |
+
 ### Harness and monitoring
 
 | Symptom | Cause | Fix | File |
@@ -60,7 +74,7 @@ Two rules before you debug:
 | --- | --- | --- | --- |
 | `cloud:up` refuses: managed network must be imported | Azure creates `managednetworks/default` with the account and AzAPI will not create it again | `task cloud:bootstrap` on a first environment, `task cloud:network-import` for a partial apply | [`../rebuild-runbook.md`](../rebuild-runbook.md) "Recover the reported partial apply" |
 | Agent versions fail with generic `ProvisioningError`, publisher times out in `creating` | The Foundry managed network had no ACR private endpoint or approval grants | Declared in `managed-network.tf`; for a manual repair run `task cloud:acr-network-import`, then restart the publisher pod | [`../rebuild-runbook.md`](../rebuild-runbook.md) "Recover the ACR managed-network gap"; [`managed-network.tf`](../../infra/cloud/managed-network.tf) |
-| `cloud:up` or `deploy:tool-apis` stops on endpoint image tag | Image not in ACR, or tag unreadable | `IMAGE_TAG=<tag> task build:tool-apis`; keep `ENDPOINT_IMAGE_TAG` equal. Empty means placeholder images | [`../rebuild-runbook.md`](../rebuild-runbook.md) |
+| `cloud:up` or `deploy:tool-apis` stops on endpoint image tag | Image not in ACR, or tag unreadable | `task build:tool-apis` (records the tag and writes `ENDPOINT_IMAGE_TAG`). Empty means placeholder images | [`../rebuild-runbook.md`](../rebuild-runbook.md) |
 | Namespace patch denied by AKS | kubectl identity differs from the Terraform caller; Azure Owner grants no Kubernetes data-plane access | Add the object id to `TF_VAR_aks_operator_object_ids` in `.env`, plan and apply, retry `deploy:all` | [`../rebuild-runbook.md`](../rebuild-runbook.md) section 3 |
 | `Unable to connect to the server: remote error: tls: unrecognized name` | kubeconfig points at a dead cluster | `task cloud:kubeconfig` and compare the context name with Terraform output | [`../demo-runbook.md`](../demo-runbook.md) P0a to P0c |
 | `chdir ./infra/cloud: no such file or directory` | Local path resolution in an old preflight | Update to a version that resolves `{{.ROOT_DIR}}/infra/cloud`; not evidence the environment needs bootstrapping | [`../rebuild-runbook.md`](../rebuild-runbook.md) |

@@ -45,8 +45,9 @@ class FakeResponseContext:
     signature ``(self, *, resolve_references: bool = True) -> str``.
     """
 
-    def __init__(self, text: str = USER_TEXT) -> None:
+    def __init__(self, text: str = USER_TEXT, client_headers: dict[str, str] | None = None) -> None:
         self._text = text
+        self.client_headers = client_headers or {}
         self.calls: list[dict[str, Any]] = []
 
     async def get_input_text(self, *, resolve_references: bool = True) -> str:
@@ -90,7 +91,11 @@ class FakeRunner:
 
 
 class FakeSessionService:
-    async def create_session(self, **_: Any) -> Any:
+    def __init__(self) -> None:
+        self.session_kwargs: dict[str, Any] = {}
+
+    async def create_session(self, **kwargs: Any) -> Any:
+        self.session_kwargs = kwargs
         return pytypes.SimpleNamespace(id="session-1")
 
 
@@ -229,6 +234,41 @@ class TestInputTextIsAwaited:
         asyncio.run(host.handler(object(), context, None))
 
         assert context.calls == [{"resolve_references": True}]
+
+    def test_user_token_header_reaches_the_turn(
+        self,
+        settings: Settings,
+        offline_sdk: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, Any] = {}
+
+        async def fake_turn(**kwargs: Any) -> str:
+            captured.update(kwargs)
+            return "done"
+
+        monkeypatch.setattr(protocol_adapter, "_run_agent_turn", fake_turn)
+        host = protocol_adapter.build_host(settings)
+        context = FakeResponseContext(client_headers={"x-client-policy-access-token": "tok"})
+        asyncio.run(host.handler(object(), context, None))
+        assert captured["user_token"] == "tok"
+
+    def test_user_token_goes_into_session_state_only_when_present(
+        self, settings: Settings, offline_sdk: dict[str, Any]
+    ) -> None:
+        for token, expected in (("tok", {"user_token": "tok"}), (None, None)):
+            runner = FakeRunner()
+            runner.events = [text_event("ok")]
+            asyncio.run(
+                protocol_adapter._run_agent_turn(
+                    runner=runner,
+                    settings=settings,
+                    user_text=USER_TEXT,
+                    cancellation_signal=None,
+                    user_token=token,
+                )
+            )
+            assert runner.session_service.session_kwargs["state"] == expected
 
     def test_the_fake_context_matches_the_real_sdk_shape(self) -> None:
         """If the stand-in were sync, the regression test above would prove nothing."""

@@ -71,6 +71,7 @@ def test_assigned_user_can_read_every_policy_route(
     response = protected.get(path, headers={"Authorization": "Bearer " + token(signing_key)})
     assert response.status_code == 200
     assert response.json()["policy"]["policy_id"] == "SVC-DEMO-0001"
+    assert response.json()["user_object_id"] == USER
     assert response.headers["cache-control"] == "no-store"
 
 
@@ -143,7 +144,10 @@ def test_denial_logs_are_not_success_receipts_and_contain_no_identity_or_bearer(
         assert record["determination"] == "identity_only"
         assert record["path"] == "/policy/{run_id}"
         assert record["demo_run_id"] == ""
-        for private in (denied, USER, OTHER, CLIENT, "Bearer"):
+        # The verified object id of the denied user is shown on purpose (owner decision).
+        assert record["user_object_id"] == OTHER
+        assert response.json()["user_object_id"] == OTHER
+        for private in (denied, USER, CLIENT, "Bearer"):
             assert private not in output.getvalue() + response.text
     finally:
         policy.logger.removeHandler(handler)

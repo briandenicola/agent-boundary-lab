@@ -66,6 +66,11 @@ a2a-facade = [
     "starlette>=0.40",
     "uvicorn[standard]>=0.32",
 ]
+# The harness image only (Dockerfile.harness): on-behalf-of token exchange. msal 1.39.0
+# requires requests, PyJWT[crypto] and cryptography (read from installed metadata).
+harness = [
+    "msal>=1.39,<2",
+]
 services = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
@@ -96,6 +101,7 @@ identity-probe = [
     "cryptography==50.0.2",
 ]
 dev = [
+    "msal>=1.39,<2",
     "PyJWT[crypto]==2.15.1",
     # Used by tests/unit/test_dependency_overrides.py to read declared constraints
     # rather than string-matching them. Transitively present, declared so the guard

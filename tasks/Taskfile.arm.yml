@@ -19,6 +19,10 @@ tasks:
       - |
         set -eu
         TAG="{{.TAG}}"
+        if [ "$TAG" = "latest" ]; then
+          echo "Endpoint tag 'latest' is mutable and not allowed. Run 'task build:tool-apis' and use its tag." >&2
+          exit 1
+        fi
         if [ -z "$TAG" ]; then
           echo "Endpoint tag is empty: Terraform will use bootstrap placeholders."
           exit 0
@@ -33,7 +37,7 @@ tasks:
             --query digest -o tsv --only-show-errors 2>&1); then
             printf '%s\n' "$RAW" >&2
             echo "Cannot resolve $REPOSITORY:$TAG in $ACR. No apply was started." >&2
-            echo "Build both images with IMAGE_TAG=$TAG task build:tool-apis, then retry." >&2
+            echo "Build both images with IMAGE_TAG=$TAG task build:tool-apis (or run it without IMAGE_TAG for a git-derived tag), then retry." >&2
             exit 1
           fi
           if ! printf '%s\n' "$RAW" | grep -qE '^sha256:[0-9a-f]{64}$'; then
@@ -88,7 +92,7 @@ tasks:
 
   _acr-digest:
     internal: true
-    # Resolves a TAG to the immutable digest ACR currently has for it. Writes it to OUT.
+    # Resolves the recorded (or overridden) immutable tag for REPOSITORY to the digest ACR currently has for it. Writes it to OUT.
     #
     # This is the experiment's control. Both agent versions must pin the same digest, so
     # a wrong answer here is worse than no answer: it would let the two versions run
@@ -96,7 +100,7 @@ tasks:
     # There is deliberately NO fallback digest -- a stale default would deploy code that
     # is not what was built, and nothing downstream would notice.
     requires:
-      vars: [ACR, REPOSITORY, TAG, OUT]
+      vars: [ACR, REPOSITORY, TAG_OVERRIDE, OUT]
     cmds:
       - |
         set -eu
@@ -112,16 +116,18 @@ tasks:
           printf '%s' "$EXPLICIT" > "{{.OUT}}"
           exit 0
         fi
+        . "{{.ROOT_DIR}}/scripts/image-tag.sh"
+        TAG=$(image_tag_read "{{.REPOSITORY}}" "{{.TAG_OVERRIDE}}" "{{.BUILD_HINT | default "the matching task build:<component>"}}")
         RAW=$(az acr repository show \
           --name "{{.ACR}}" \
-          --image "{{.REPOSITORY}}:{{.TAG}}" \
+          --image "{{.REPOSITORY}}:$TAG" \
           --query digest -o tsv --only-show-errors 2>&1 || true)
         # Same chatter problem as every other az read: the digest arrives with a line of
         # apt output in front of it, and `sha256:...` with a sentence prepended is still
         # a syntactically valid-looking string.
         DIGEST=$(printf '%s\n' "$RAW" | grep -m1 -oE '^sha256:[0-9a-f]{64}$' || true)
         if [ -z "$DIGEST" ]; then
-          echo "Could not resolve a digest for {{.REPOSITORY}}:{{.TAG}} in {{.ACR}}." >&2
+          echo "Could not resolve a digest for {{.REPOSITORY}}:$TAG in {{.ACR}}." >&2
           echo "Build {{.REPOSITORY}} with its matching 'task build:<component>' target, then retry." >&2
           echo "Refusing to continue: there is no safe default digest to fall back to." >&2
           echo "--- raw response ---" >&2

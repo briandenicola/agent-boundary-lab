@@ -36,7 +36,8 @@ Up to Module 06 the harness is reachable only from inside the cluster (`ClusterI
 | ingress-nginx (class `nginx`, `externalTrafficPolicy=Local`, probe path `/healthz`) | `chat-agent:external-prereqs` (Helm) | `ingress-nginx` |
 | cert-manager (CRDs enabled) | `chat-agent:external-prereqs` (Helm) | `cert-manager` |
 | Entra app registration `agent-boundary-harness-oidc` + service principal | `chat-agent:external-app` (`az ad app create`) | tenant |
-| Secret `harness-oidc-config` (client id/secret, cookie secret, issuer, redirect URL) | `chat-agent:external-app` | lab namespace |
+| Secret `harness-oidc-config` (client id/secret, cookie secret, issuer, redirect URL, `OAUTH2_PROXY_SCOPE`, and `HARNESS_OBO_*` keys for issue #4; the harness Deployment maps just the four `HARNESS_OBO_*` keys with optional `secretKeyRef`, and `external-app` restarts it; UNVERIFIED live) | `chat-agent:external-app` | lab namespace |
+| Issue #4: Entra app B `agent-boundary-policy-api` (scope `policy.read`), scope `access_as_user` on app A, `requiredResourceAccess`, tenant-wide consent (via `az ad` / `az rest` to Graph) | `chat-agent:external-app` | tenant |
 | `ClusterIssuer`, `harness-oauth2-proxy` Deployment/Service, two Ingresses | `chat-agent:external-up` (kustomize) | lab namespace |
 | Certificate `harness-external-tls` | cert-manager (automatic) | lab namespace |
 | DNS `A` record | **You** | your DNS provider |
@@ -129,8 +130,11 @@ task chat-agent:external-bootstrap HOSTNAME=$HOSTNAME LETSENCRYPT_EMAIL=$LETSENC
 
 1. `external-prereqs` (a no-op if step 3 already ran),
 2. `external-app`: creates or updates the Entra app registration with redirect URI `https://<fqdn>/oauth2/callback`, enables ID-token issuance, creates the service principal, creates a client secret and a cookie secret, and writes Secret `harness-oidc-config`. Re-runs **reuse** the existing secrets unless the app id changed or you set `ROTATE_OIDC_SECRET=1`,
+   Since issue #4 it **also** (SOURCE-VERIFIED in the task; **UNVERIFIED, never run**) creates app B and its `policy.read` scope, publishes `access_as_user` on app A, sets app A's `requiredResourceAccess`, grants tenant-wide consent for both scopes via Graph, sets `OAUTH2_PROXY_SCOPE` to `openid profile email offline_access api://<A>/access_as_user`, and writes the `TF_VAR_policy_api_*` lines into `.env` (see below),
 3. `external-up`: renders the kustomize overlay with your hostname and applies it, then sets `HARNESS_AUTH_MODE=ingress_oidc` on the harness Deployment and waits for both rollouts,
 4. `external-status`.
+
+`external-up` now refuses to run if the Secret has no `OAUTH2_PROXY_SCOPE` (run `external-app` first). oauth2-proxy runs with `--pass-access-token=true` and the ingress forwards `x-auth-request-access-token` with `proxy-buffer-size: 16k`; whether v7.7.1 and 16k behave as intended is **UNVERIFIED**.
 
 The all-in-one from-scratch form is:
 
@@ -138,7 +142,7 @@ The all-in-one from-scratch form is:
 task app:deploy-external HOSTNAME=$HOSTNAME LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL
 ```
 
-It runs `cloud:up`, `deploy:app-components`, then `chat-agent:external-bootstrap` ([Taskfile.app.yml lines 20–30](../../tasks/Taskfile.app.yml)). The IP does not exist until ingress-nginx is installed, so on a **first** build the DNS record cannot be created in advance. Two options: use the split sequence above (recommended: DNS exists before the certificate is requested), or run the all-in-one task, create the record as soon as the IP appears, and let cert-manager retry the challenge.
+It runs `cloud:up`, `deploy:app-components`, `chat-agent:external-bootstrap` ([Taskfile.app.yml lines 20–31](../../tasks/Taskfile.app.yml)), which itself runs `external-app`, and finally a second `cloud:up`. **Do not run `chat-agent:external-app` again as a separate step**; it is already inside. `external-app` writes the `TF_VAR_policy_api_*` lines into `.env`, and the final `cloud:up` applies them. The IP does not exist until ingress-nginx is installed, so on a **first** build the DNS record cannot be created in advance. Two options: use the split sequence above (recommended: DNS exists before the certificate is requested), or run the all-in-one task, create the record as soon as the IP appears, and let cert-manager retry the challenge.
 
 Preview first if you wish (nothing is applied):
 
@@ -148,6 +152,15 @@ task chat-agent:external-plan   HOSTNAME=$HOSTNAME LETSENCRYPT_EMAIL=$LETSENCRYP
 ```
 
 `external-render` refuses to print if any `REPLACE_WITH_*` placeholder is left unsubstituted ([lines 247–269](../../tasks/Taskfile.harness.yml)).
+
+#### Issue #4 follow-up: the policy API switch to delegated auth (UNVERIFIED, never run)
+
+Put `POLICY_API_AUTHORIZED_USER_IDS=8bbab162-0743-444c-b305-fed34bab43fb` in `.env` **only**; `10870cbe-74ab-4c46-b5a8-8fcded26e615` must be absent (that absence is what denies it). Both `app:deploy-external` and `external-app` refuse to start without it. `external-app` writes the six `TF_VAR_policy_api_*` lines into `.env`, and `app:deploy-external` runs the second `cloud:up` that applies them. Nothing is copied by hand. If you run the split sequence instead, run `task cloud:up` yourself after `external-app`.
+
+1. `uv lock` (msal was added to `pyproject.toml`; `uv.lock` is tracked and not regenerated).
+2. Build and roll out the new images so the code ships (see [token-flow-documented.md](../token-flow-documented.md) section 8). Images are built by `task build:*`; `deploy:app-components` does not build.
+
+Owner approval is required for every step. These tasks use the `az` CLI, an exception to the squad rule "no az in anything that ships" made at the owner's explicit request. Three code defects found in review that can stop this working are listed in token-flow section 6.
 
 ### 7. Wait for the certificate
 
@@ -178,6 +191,8 @@ task chat-agent:external-down
 
 This deletes the two Ingresses and the oauth2-proxy and returns the harness to the shared-token (legacy) mode. It leaves ingress-nginx, cert-manager, the Entra app registration and your **DNS record** in place. Delete the record yourself when you retire the hostname.
 
+To undo the issue #4 on-behalf-of setup (UNVERIFIED, never run) use `task chat-agent:external-app-down`: it deletes app B, removes app A's `access_as_user` scope and consent, resets `OAUTH2_PROXY_SCOPE` and removes the `HARNESS_OBO_*` keys (app A is kept). Then unset every `TF_VAR_policy_api_*` and run `task cloud:up` to put the policy API back in legacy mode.
+
 ## Code tour
 
 | File | What to look at |
@@ -186,22 +201,22 @@ This deletes the two Ingresses and the oauth2-proxy and returns the harness to t
 | [tasks/Taskfile.harness.yml L167–230](../../tasks/Taskfile.harness.yml) | `external-app`: idempotent app registration, redirect URI, secret reuse and rotation |
 | [tasks/Taskfile.harness.yml L282–299](../../tasks/Taskfile.harness.yml) | `external-up`: precondition checks, apply, switch `HARNESS_AUTH_MODE` |
 | [deploy/kustomize/harness-external/clusterissuer.yaml](../../deploy/kustomize/harness-external/clusterissuer.yaml) | Let's Encrypt production ACME server, `http01` solver on the `nginx` class |
-| [deploy/kustomize/harness-external/oauth2-proxy-deployment.yaml](../../deploy/kustomize/harness-external/oauth2-proxy-deployment.yaml) | `--provider=oidc`, `--cookie-secure=true`, `--set-xauthrequest=true`; env from `harness-oidc-config` |
-| [deploy/kustomize/harness-external/ingress-harness.yaml](../../deploy/kustomize/harness-external/ingress-harness.yaml) | `auth-url` / `auth-signin`, identity header forwarding, 300 s proxy timeouts, TLS secret `harness-external-tls` |
+| [deploy/kustomize/harness-external/oauth2-proxy-deployment.yaml](../../deploy/kustomize/harness-external/oauth2-proxy-deployment.yaml) | `--provider=oidc`, `--cookie-secure=true`, `--set-xauthrequest=true`, `--pass-access-token=true`, `--cookie-refresh=50m`; env (including `OAUTH2_PROXY_SCOPE`) from `harness-oidc-config` |
+| [deploy/kustomize/harness-external/ingress-harness.yaml](../../deploy/kustomize/harness-external/ingress-harness.yaml) | `auth-url` / `auth-signin`, identity header forwarding (now including `x-auth-request-access-token`), `proxy-buffer-size: 16k`, 300 s proxy timeouts, TLS secret `harness-external-tls` |
 | [deploy/kustomize/harness-external/ingress-oauth2.yaml](../../deploy/kustomize/harness-external/ingress-oauth2.yaml) | `/oauth2` routed straight to oauth2-proxy; `proxy-buffer-size: 16k` |
 | [tasks/Taskfile.app.yml L20–30](../../tasks/Taskfile.app.yml) | `deploy-external`, the from-scratch entry point |
 
 Two design points worth noticing:
 
 - **Why two Ingresses?** `/oauth2/*` must be reachable *without* a session (it is the login), while `/` must require one. They share the same host and TLS secret.
-- **What the proxy enforces.** `--email-domain=*` accepts any account that can sign in to **your tenant**, because the app registration is single-tenant (`--sign-in-audience AzureADMyOrg`). The allowed-vs-denied decision for the demo is made by the downstream actor and policy-API authorization (Module 04), not by this login. Do not describe the login as the per-user gate.
+- **What the proxy enforces.** `--email-domain=*` accepts any account that can sign in to **your tenant**, because the app registration is single-tenant (`--sign-in-audience AzureADMyOrg`). The allowed-vs-denied decision for the demo is made by the policy API on the user's own on-behalf-of token (Module 04), not by this login and not by the display alias. Do not describe the login as the per-user gate.
 
 ## Checkpoint
 
 1. Why must the `A` record exist and resolve before cert-manager requests the certificate?
 2. Which port must be open to the internet besides 443, and why?
 3. What changes in DNS each time you tear down and rebuild the cluster?
-4. What does `external-down` leave behind?
+4. What does `external-down` leave behind? (And which task undoes the issue #4 Entra changes?)
 5. Why is there an `/oauth2` Ingress separate from the `/` Ingress?
 
 <details><summary>Answers</summary>
@@ -209,7 +224,7 @@ Two design points worth noticing:
 1. Let's Encrypt's HTTP-01 challenge connects to your hostname; if it resolves elsewhere the challenge fails (and repeated failures can be rate-limited).
 2. TCP 80, for the HTTP-01 challenge.
 3. The load balancer's public IP, so the `A` record value.
-4. ingress-nginx, cert-manager, the Entra app registration and secret, and your DNS record.
+4. ingress-nginx, cert-manager, the Entra app registration and secret, and your DNS record. The issue #4 Entra changes are undone by `external-app-down`.
 5. The login endpoints must work without a session; everything else must be gated.
 
 </details>

@@ -30,13 +30,17 @@ tasks:
     cmds:
       - |
         set -eu
+        . "{{.ROOT_DIR}}/scripts/image-tag.sh"
+        TAG=$(image_tag_new "containment-demo-harness" "${HARNESS_IMAGE_TAG:-}")
         ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)
         echo "building harness chat service image in $ACR"
         az acr build \
           --registry "$ACR" \
-          --image "${HARNESS_REPOSITORY}:${HARNESS_IMAGE_TAG:-latest}" \
+          --image "${HARNESS_REPOSITORY}:$TAG" \
           --file Dockerfile.harness \
           .
+        image_tag_record "containment-demo-harness" "$TAG"
+        echo "built and recorded containment-demo-harness:$TAG"
       - task: digest
 
   digest:
@@ -50,7 +54,8 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: containment-demo-harness
-          TAG: '${HARNESS_IMAGE_TAG:-latest}'
+          TAG_OVERRIDE: '${HARNESS_IMAGE_TAG:-}'
+          BUILD_HINT: 'task build:chat-agent'
           EXPLICIT: '${HARNESS_IMAGE_DIGEST:-}'
           OUT: '{{.ROOT_DIR}}/.task/harness-digest'
       - |
@@ -167,7 +172,7 @@ tasks:
   external-app:
     desc: CHANGES ENTRA + CLUSTER. Create/update OIDC app registration, service principal and harness OIDC Secret
     requires:
-      vars: [HOSTNAME]
+      vars: [HOSTNAME, POLICY_API_AUTHORIZED_USER_IDS]
     cmds:
       - task: _require-kubectl
       - |
@@ -194,6 +199,49 @@ tasks:
             --enable-id-token-issuance true >/dev/null
         fi
         az ad sp show --id "$APP_ID" >/dev/null 2>&1 || az ad sp create --id "$APP_ID" >/dev/null
+
+        # Issue #4 on-behalf-of chain: app A (this app) is the middle tier. It exposes
+        # access_as_user to the browser login and is allowed to ask for policy.read on app B,
+        # the policy API. All of it is idempotent; scope ids are reused when they already exist.
+        GRAPH=https://graph.microsoft.com/v1.0
+        # ensure_scope APP_ID SCOPE_VALUE DESCRIPTION: publish a v2 API with one delegated scope; prints the scope id.
+        ensure_scope() {
+          OBJ=$(az ad app show --id "$1" --query id -o tsv)
+          SID=$(az ad app show --id "$1" --query "api.oauth2PermissionScopes[?value=='$2'].id | [0]" -o tsv)
+          if [ -z "$SID" ] || [ "$SID" = "None" ]; then SID=$(python3 -c 'import uuid; print(uuid.uuid4())'); fi
+          az rest --method PATCH --url "$GRAPH/applications/$OBJ" --headers Content-Type=application/json \
+            --body "{\"identifierUris\":[\"api://$1\"],\"api\":{\"requestedAccessTokenVersion\":2,\"oauth2PermissionScopes\":[{\"id\":\"$SID\",\"value\":\"$2\",\"type\":\"Admin\",\"isEnabled\":true,\"adminConsentDisplayName\":\"$3\",\"adminConsentDescription\":\"$3\"}]}}" >/dev/null
+          echo "$SID"
+        }
+        # grant_consent CLIENT_APP_ID RESOURCE_APP_ID SCOPE: tenant-wide delegated consent (AllPrincipals).
+        grant_consent() {
+          C=$(az ad sp show --id "$1" --query id -o tsv)
+          R=$(az ad sp show --id "$2" --query id -o tsv)
+          GRANT_ID=$(az rest --method GET --url "$GRAPH/oauth2PermissionGrants" \
+            --url-parameters "\$filter=clientId eq '$C' and resourceId eq '$R'" --query "value[0].id" -o tsv)
+          if [ -n "$GRANT_ID" ] && [ "$GRANT_ID" != "None" ]; then
+            az rest --method PATCH --url "$GRAPH/oauth2PermissionGrants/$GRANT_ID" --headers Content-Type=application/json \
+              --body "{\"scope\":\"$3\"}" >/dev/null
+          else
+            az rest --method POST --url "$GRAPH/oauth2PermissionGrants" --headers Content-Type=application/json \
+              --body "{\"clientId\":\"$C\",\"consentType\":\"AllPrincipals\",\"resourceId\":\"$R\",\"scope\":\"$3\"}" >/dev/null
+          fi
+        }
+
+        POLICY_APP_NAME="${POLICY_API_APP_NAME:-agent-boundary-policy-api}"
+        POLICY_APP_ID=$(az ad app list --display-name "$POLICY_APP_NAME" --query '[0].appId' -o tsv)
+        if [ -z "$POLICY_APP_ID" ]; then
+          POLICY_APP_ID=$(az ad app create --display-name "$POLICY_APP_NAME" --sign-in-audience AzureADMyOrg --query appId -o tsv)
+        fi
+        az ad sp show --id "$POLICY_APP_ID" >/dev/null 2>&1 || az ad sp create --id "$POLICY_APP_ID" >/dev/null
+
+        POLICY_SCOPE_ID=$(ensure_scope "$POLICY_APP_ID" policy.read "Read the servicing policy as the signed-in user")
+        USER_SCOPE_ID=$(ensure_scope "$APP_ID" access_as_user "Access the harness as the signed-in user")
+        APP_OBJ=$(az ad app show --id "$APP_ID" --query id -o tsv)
+        az rest --method PATCH --url "$GRAPH/applications/$APP_OBJ" --headers Content-Type=application/json \
+          --body "{\"requiredResourceAccess\":[{\"resourceAppId\":\"$POLICY_APP_ID\",\"resourceAccess\":[{\"id\":\"$POLICY_SCOPE_ID\",\"type\":\"Scope\"}]},{\"resourceAppId\":\"$APP_ID\",\"resourceAccess\":[{\"id\":\"$USER_SCOPE_ID\",\"type\":\"Scope\"}]}]}" >/dev/null
+        grant_consent "$APP_ID" "$POLICY_APP_ID" policy.read
+        grant_consent "$APP_ID" "$APP_ID" access_as_user
 
         ROTATE="${ROTATE_OIDC_SECRET:-0}"
         CLIENT_SECRET=""
@@ -226,8 +274,33 @@ tasks:
           --from-literal=OAUTH2_PROXY_COOKIE_SECRET="$COOKIE_SECRET" \
           --from-literal=OAUTH2_PROXY_OIDC_ISSUER_URL="$ISSUER" \
           --from-literal=OAUTH2_PROXY_REDIRECT_URL="$REDIRECT" \
+          --from-literal=OAUTH2_PROXY_SCOPE="openid profile email offline_access api://$APP_ID/access_as_user" \
+          --from-literal=HARNESS_OBO_TENANT_ID="$TENANT" \
+          --from-literal=HARNESS_OBO_CLIENT_ID="$APP_ID" \
+          --from-literal=HARNESS_OBO_CLIENT_SECRET="$CLIENT_SECRET" \
+          --from-literal=HARNESS_OBO_SCOPE="api://$POLICY_APP_ID/policy.read" \
           --dry-run=client -o yaml | kubectl -n "$NS" apply -f - >/dev/null
+        # HARNESS_OBO_* are env vars read at pod start, so an existing harness pod must be restarted.
+        if kubectl -n "$NS" get deployment harness >/dev/null 2>&1; then
+          kubectl -n "$NS" rollout restart deployment/harness >/dev/null
+          echo "restarted harness to pick up HARNESS_OBO_*"
+        fi
         echo "OIDC app '$APP_NAME' and secret '$HARNESS_OIDC_SECRET' are configured for {{.HOSTNAME}}."
+        echo
+        # Upsert the policy API settings into .env (the root Taskfile loads it, so every later
+        # `task cloud:up` keeps the policy API in delegated mode). Audience is UNVERIFIED until a token is decoded.
+        touch .env
+        grep -v '^TF_VAR_policy_api_' .env > .env.tmp || true
+        {
+          echo "TF_VAR_policy_api_auth_mode=delegated"
+          echo "TF_VAR_policy_api_tenant_id=$TENANT"
+          echo "TF_VAR_policy_api_audience=$POLICY_APP_ID"
+          echo "TF_VAR_policy_api_scope=policy.read"
+          echo "TF_VAR_policy_api_client_ids=$APP_ID"
+          echo "TF_VAR_policy_api_authorized_user_ids=$POLICY_API_AUTHORIZED_USER_IDS"
+        } >> .env.tmp
+        mv .env.tmp .env
+        echo "Updated .env with TF_VAR_policy_api_* (allowed user ids: $POLICY_API_AUTHORIZED_USER_IDS)."
 
   external-bootstrap:
     desc: CHANGES ENTRA + CLUSTER. End-to-end external harness setup (prereqs, app registration, ingress, status)
@@ -292,6 +365,8 @@ tasks:
           echo "Deployment harness missing. Run 'task deploy:chat-agent' first." >&2; exit 1; }
         kubectl -n "$NS" get secret "$HARNESS_OIDC_SECRET" >/dev/null 2>&1 || {
           echo "Secret $HARNESS_OIDC_SECRET missing. Run 'task chat-agent:external-secret ...' first." >&2; exit 1; }
+        kubectl -n "$NS" get secret "$HARNESS_OIDC_SECRET" -o jsonpath='{.data.OAUTH2_PROXY_SCOPE}' | grep -q . || {
+          echo "Secret $HARNESS_OIDC_SECRET has no OAUTH2_PROXY_SCOPE. Run 'task chat-agent:external-app' (external-secret does not set it)." >&2; exit 1; }
         task chat-agent:external-render HOSTNAME="{{.HOSTNAME}}" LETSENCRYPT_EMAIL="{{.LETSENCRYPT_EMAIL}}" \
           | kubectl apply --server-side --force-conflicts -f -
         kubectl -n "$NS" set env deployment/harness HARNESS_AUTH_MODE=ingress_oidc >/dev/null
@@ -322,6 +397,54 @@ tasks:
         kubectl -n "$NS" set env deployment/harness HARNESS_AUTH_MODE=legacy >/dev/null 2>&1 || true
         kubectl -n "$NS" rollout status deployment/harness --timeout=180s || true
 
+  external-app-down:
+    desc: CHANGES ENTRA + CLUSTER. Undo the issue #4 on-behalf-of setup - delete the policy API app, drop app A's added scope and consent, reset the OIDC Secret scope and remove its HARNESS_OBO_* keys. App A itself is kept (as external-down keeps it)
+    cmds:
+      - task: _require-kubectl
+      - |
+        set -eu
+        command -v az >/dev/null 2>&1 || { echo "az not found on PATH." >&2; exit 1; }
+        NS=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw kubernetes_namespace)
+        GRAPH=https://graph.microsoft.com/v1.0
+        APP_NAME="${OIDC_APP_NAME:-agent-boundary-harness-oidc}"
+        POLICY_APP_NAME="${POLICY_API_APP_NAME:-agent-boundary-policy-api}"
+        APP_ID=$(az ad app list --display-name "$APP_NAME" --query '[0].appId' -o tsv)
+        POLICY_APP_ID=$(az ad app list --display-name "$POLICY_APP_NAME" --query '[0].appId' -o tsv)
+        if [ -n "$APP_ID" ]; then
+          APP_SP=$(az ad sp show --id "$APP_ID" --query id -o tsv 2>/dev/null || true)
+          if [ -n "$APP_SP" ]; then
+            for GRANT_ID in $(az rest --method GET --url "$GRAPH/oauth2PermissionGrants" \
+                --url-parameters "\$filter=clientId eq '$APP_SP'" --query "value[].id" -o tsv); do
+              az rest --method DELETE --url "$GRAPH/oauth2PermissionGrants/$GRANT_ID" >/dev/null
+            done
+          fi
+          APP_OBJ=$(az ad app show --id "$APP_ID" --query id -o tsv)
+          # Graph refuses to remove an enabled scope: disable it, then clear the list.
+          SID=$(az ad app show --id "$APP_ID" --query "api.oauth2PermissionScopes[?value=='access_as_user'].id | [0]" -o tsv)
+          if [ -n "$SID" ] && [ "$SID" != "None" ]; then
+            az rest --method PATCH --url "$GRAPH/applications/$APP_OBJ" --headers Content-Type=application/json \
+              --body "{\"api\":{\"oauth2PermissionScopes\":[{\"id\":\"$SID\",\"value\":\"access_as_user\",\"type\":\"Admin\",\"isEnabled\":false,\"adminConsentDisplayName\":\"Access the harness as the signed-in user\",\"adminConsentDescription\":\"Access the harness as the signed-in user\"}]}}" >/dev/null
+          fi
+          az rest --method PATCH --url "$GRAPH/applications/$APP_OBJ" --headers Content-Type=application/json \
+            --body '{"requiredResourceAccess":[],"identifierUris":[],"api":{"oauth2PermissionScopes":[]}}' >/dev/null
+        fi
+        if [ -n "$POLICY_APP_ID" ]; then az ad app delete --id "$POLICY_APP_ID"; fi
+        if kubectl -n "$NS" get secret "$HARNESS_OIDC_SECRET" >/dev/null 2>&1; then
+          kubectl -n "$NS" patch secret "$HARNESS_OIDC_SECRET" --type=json -p '[
+            {"op":"remove","path":"/data/HARNESS_OBO_TENANT_ID"},
+            {"op":"remove","path":"/data/HARNESS_OBO_CLIENT_ID"},
+            {"op":"remove","path":"/data/HARNESS_OBO_CLIENT_SECRET"},
+            {"op":"remove","path":"/data/HARNESS_OBO_SCOPE"}]' >/dev/null 2>&1 || true
+          kubectl -n "$NS" patch secret "$HARNESS_OIDC_SECRET" --type=merge \
+            -p "{\"stringData\":{\"OAUTH2_PROXY_SCOPE\":\"openid profile email\"}}" >/dev/null
+        fi
+        if kubectl -n "$NS" get deployment harness >/dev/null 2>&1; then
+          kubectl -n "$NS" rollout restart deployment/harness >/dev/null
+        fi
+        grep -v '^TF_VAR_policy_api_' .env > .env.tmp || true
+        mv .env.tmp .env
+        echo "OBO setup removed and TF_VAR_policy_api_* deleted from .env. Run 'task cloud:up' to return the policy API to legacy mode."
+
   render:
     desc: Print the substituted harness manifests to stdout (no secrets in them; nothing written)
     vars:
@@ -334,7 +457,8 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: containment-demo-harness
-          TAG: '${HARNESS_IMAGE_TAG:-latest}'
+          TAG_OVERRIDE: '${HARNESS_IMAGE_TAG:-}'
+          BUILD_HINT: 'task build:chat-agent'
           EXPLICIT: '${HARNESS_IMAGE_DIGEST:-}'
           OUT: '{{.ROOT_DIR}}/.task/harness-digest'
       - |

@@ -50,6 +50,33 @@ spec:
               value: REPLACE_WITH_AGENT_NAME_AUDIT
             - name: DEMO_AGENT_NAME_ENFORCED
               value: REPLACE_WITH_AGENT_NAME_ENFORCED
+            # Issue #4 on-behalf-of keys, written by chat-agent:external-app into the OIDC Secret.
+            # Listed one by one (NOT envFrom) so OAUTH2_PROXY_CLIENT_SECRET and the cookie secret stay out
+            # of this pod. optional: legacy deployments without the Secret/keys still start.
+            - name: HARNESS_OBO_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: harness-oidc-config
+                  key: HARNESS_OBO_TENANT_ID
+                  optional: true
+            - name: HARNESS_OBO_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: harness-oidc-config
+                  key: HARNESS_OBO_CLIENT_ID
+                  optional: true
+            - name: HARNESS_OBO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: harness-oidc-config
+                  key: HARNESS_OBO_CLIENT_SECRET
+                  optional: true
+            - name: HARNESS_OBO_SCOPE
+              valueFrom:
+                secretKeyRef:
+                  name: harness-oidc-config
+                  key: HARNESS_OBO_SCOPE
+                  optional: true
           envFrom:
             - secretRef:
                 name: harness-config

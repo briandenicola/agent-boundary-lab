@@ -126,9 +126,22 @@ class ToolOutcome:
     #: egress rows join on). Read only from the tool's own result record, validated, and
     #: None when absent. Never copied from the id this invoker generated.
     tool_run_id: str | None = None
+    #: Delegated-identity evidence from the tool's own record (presence flag, the policy
+    #: API's error code and the verified user object id). None when the record has none.
+    user_token_forwarded: bool | None = None
+    policy_error: str | None = None
+    user_object_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
+        extra: dict[str, Any] = {}
+        if self.user_token_forwarded is not None:
+            extra["user_token_forwarded"] = self.user_token_forwarded
+        if self.policy_error is not None:
+            extra["policy_error"] = self.policy_error
+        if self.user_object_id is not None:
+            extra["user_object_id"] = self.user_object_id
         return {
+            **extra,
             "tool_run_id": self.tool_run_id,
             "tool_name": self.tool_name,
             "attempted": self.attempted,
@@ -416,8 +429,15 @@ def outcome_from_record(record: dict[str, Any]) -> ToolOutcome:
     tool_run_id = (
         raw_run_id if isinstance(raw_run_id, str) and _SAFE_RUN_ID.fullmatch(raw_run_id) else None
     )
+    forwarded = record.get("user_token_forwarded")
+    payload = record.get("result") if isinstance(record.get("result"), dict) else {}
+    error = payload.get("error")
+    object_id = payload.get("user_object_id")
     return ToolOutcome(
         tool_run_id=tool_run_id,
+        user_token_forwarded=forwarded if isinstance(forwarded, bool) else None,
+        policy_error=error[:128] if isinstance(error, str) and status and status >= 400 else None,
+        user_object_id=object_id[:64] if isinstance(object_id, str) else None,
         tool_name=name,
         attempted=True,
         succeeded=succeeded,

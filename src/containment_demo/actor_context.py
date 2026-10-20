@@ -1,5 +1,10 @@
 """Actor-context contract for the allowed/denied demo path (WP-1, issue #4).
 
+NOT used for authorization. The harness no longer presents any alias or issued context as
+an authorization decision; the only identity decision shown to users is the policy API's
+verdict on the user's own on-behalf-of token (``delegated_auth.py``). This module is kept
+only as a bounded, display-only record.
+
 This is deliberately small and does **not** perform authorization. It only gives the
 harness and the policy API a shared, safe way to describe "which actor is this
 ``demo_run_id`` run for, and what should happen to it" so that WP-2 can wire real

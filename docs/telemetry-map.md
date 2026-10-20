@@ -12,15 +12,33 @@ Every row below is exactly one of:
 There is no third state. A plausible-looking KQL column that returns nothing is worse than
 no query at all, because the audience concludes the platform did nothing.
 
-**Issue #4 application schema (2026-10-16): SOURCE/OFFLINE VERIFIED, HOSTED NOT VERIFIED.**
-In opt-in policy identity mode, startup emits JSON `event=identity_configuration`,
-`auth_mode=delegated`, `determination=identity_only`. Authentication/authorization failures
-emit `event=authorization_decision`, `outcome=denied` or `unavailable`, `auth_error`,
-`determination=identity_only`, and the existing `service`, `received_at`, `demo_run_id`,
-`method`, `path` metadata. They are not `event=receipt, outcome=served`.
-Paths/run markers are sanitized; no raw user/client IDs, bearer or claims are emitted.
-These are application JSON properties, **not verified Azure table/column names**.
-Ingestion, actor-alias correlation and the hosted multi-hop identity chain remain unobserved.
+**Issue #4 application schema (2026-10-16, updated 2026-10-20): SOURCE/OFFLINE VERIFIED, HOSTED NOT VERIFIED.**
+
+In opt-in policy identity mode (policy API `services/policy_api/main.py`, stdout JSON lines):
+
+- **Startup:** `event=identity_configuration`, `auth_mode=delegated`, `determination=identity_only`.
+- **Served (allowed user):** `event=receipt`, `outcome=served`, `user_object_id` (verified `oid` claim), plus the usual
+  `service`, `received_at`, `demo_run_id`, `method`, `path`. It is **not** an `authorization_decision` event.
+- **Denied / unavailable:** `event=authorization_decision`, `outcome=denied|unavailable`, `auth_error`,
+  `determination=identity_only`, the usual metadata, and `user_object_id` only when the token verified but the user is not
+  on the allowlist (`auth_error=user_not_authorized`, HTTP 403). The 403 response body carries the same
+  `error`/`user_object_id`/`determination` fields.
+- The policy API's receipts carry **no** `http_status` and **no** `user_token_forwarded`; it does not know them. An
+  earlier revision of this section listed both on the receipt; that was wrong.
+
+New tool-side fields (SOURCE-VERIFIED in `tools.py`, `invoke.py`, `telemetry.py`; not observed live):
+
+- Tool result record: `user_token_forwarded` (bool: a user token was passed to the tool; the token is never recorded);
+  on HTTP >= 400 `result.error` (policy API error code) and `result.user_object_id`.
+- App telemetry: `demo.user_token_forwarded` on the `demo.tool_result` event. `user_object_id` and `error` are **not**
+  emitted to app telemetry (the exporter allow-list does not include them).
+- `invoke.outcome_from_record` surfaces `user_token_forwarded`, `policy_error`, `user_object_id` to the harness, but copies
+  the last two only for HTTP >= 400 (so none on a 200). See [token-flow-documented.md](token-flow-documented.md) section 6.
+
+These are **application JSON properties, not verified Azure table/column names**. They reach `ContainerAppConsoleLogs_CL`
+only if the existing console-log ingestion works for them (the pre-existing receipts did; these fields are unobserved).
+No raw claims or bearer tokens are emitted. Ingestion, actor-alias correlation and the hosted multi-hop identity chain
+remain unobserved in live runs. Flow and caveats: [token-flow-documented.md](token-flow-documented.md).
 
 **Issue #4 allowed/denied actor track (2026-10-19, WP-1/WP-2, SOURCE/OFFLINE VERIFIED
 only — see [`issue-4-demo-readiness.md`](issue-4-demo-readiness.md)):** the WP-1 actor-context

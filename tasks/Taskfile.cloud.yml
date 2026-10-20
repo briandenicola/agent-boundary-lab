@@ -830,7 +830,8 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: '{{.AGENT_IMAGE_REPOSITORY | default "containment-demo-agent"}}'
-          TAG: '${IMAGE_TAG:-latest}'
+          TAG_OVERRIDE: '${IMAGE_TAG:-}'
+          BUILD_HINT: 'task build:foundry-agent'
           EXPLICIT: '{{.EXPLICIT_DIGEST}}'
           OUT: '{{.DIGEST_FILE}}'
       - |

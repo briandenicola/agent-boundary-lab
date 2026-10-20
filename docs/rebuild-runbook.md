@@ -134,14 +134,14 @@ Keep the existing state and resources. Run from the repo root, one command at a 
 ```bash
 task lint:cloud
 task cloud:network-import
-IMAGE_TAG=5f24f8e task build:tool-apis
+task build:tool-apis
 task cloud:plan
 task cloud:up
 ```
 
 The build publishes both missing endpoint images into the ACR recorded by this state.
-Keep `ENDPOINT_IMAGE_TAG=5f24f8e` for the plan and apply; if choosing another tag, build that
-tag and set `ENDPOINT_IMAGE_TAG` to match. Do not clear the tag on an already functioning
+`task build:tool-apis` tags the images with the git-derived tag and upserts
+`ENDPOINT_IMAGE_TAG=<tag>` into `.env`, so the plan and apply use it. Do not clear the tag on an already functioning
 environment: that explicitly selects placeholder images.
 
 `cloud:up` and `deploy:tool-apis` check both requested image tags before starting
@@ -259,10 +259,13 @@ This builds **seven images**, deploying nothing. All builds run in ACR and incur
 cost. The model-server build retains its confirmation prompt for the large image.
 If all images were already built with the old commands, **skip this step**.
 
-Image tag behaviour is unchanged. `IMAGE_TAG` selects the foundry-agent and tool-apis tag;
-`A2A_IMAGE_TAG` selects agent-bridge, `HARNESS_IMAGE_TAG` selects chat-agent,
-`LOCAL_MODEL_IMAGE_TAG` selects model-server and `UI_IMAGE_TAG` selects test-ui. Each defaults
-independently to `latest`. Keep the same values for build and deploy. An explicit
+Image tags are immutable; `latest` is never used or accepted. Each build tags its image
+`<sha7>` (`git rev-parse --short=7 HEAD`), or `<sha7>-dirty-<UTC YYYYMMDDHHMMSS>` when the
+working tree has changes, and records the tag in `.task/image-tags/<repository>`
+(gitignored). Deploy tasks read that record and fail, naming the `task build:...` to run,
+if none exists. `IMAGE_TAG` (foundry-agent and tool-apis), `A2A_IMAGE_TAG`,
+`HARNESS_IMAGE_TAG`, `LOCAL_MODEL_IMAGE_TAG` and `UI_IMAGE_TAG` remain optional explicit
+overrides of the recorded tag. An explicit
 `*_IMAGE_DIGEST` deployment pin takes precedence over tag lookup. Both Foundry versions
 always receive one identical digest. Command changes do not rename images or resources.
 
@@ -303,7 +306,7 @@ underlying Kubernetes name of the actual chat service. These resources are not r
 `task foundry-agent:status` shows the publisher logs. A successful init means versions were
 accepted, **not** that containment was proven.
 
-Keep `ENDPOINT_IMAGE_TAG` in `.env` equal to the tool API `IMAGE_TAG` after deployment, so a
+`task build:tool-apis` keeps `ENDPOINT_IMAGE_TAG` in `.env` equal to the built tag, so a
 later `cloud:up` does not roll them back. If `deploy:tool-apis` detects infrastructure drift,
 it stops **without applying**. Review `task cloud:plan` and reconcile that separately.
 

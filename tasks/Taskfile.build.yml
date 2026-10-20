@@ -22,9 +22,12 @@ includes:
 # result proves nothing. Tags are mutable and must never be used to publish a version -
 # use `task build:foundry-agent-digest` and pin what it prints.
 #
-# Rebuilding `latest` moves the tag but NOT any digest a
-# version already pins. If you rebuild mid-experiment, re-read the digest and confirm
-# both versions still pin the same one before trusting a run.
+# IMAGE TAGS ARE IMMUTABLE AND GIT-DERIVED; there is no `latest`. See scripts/image-tag.sh:
+# `<sha7>`, or `<sha7>-dirty-<UTC timestamp>` for a dirty tree. Each build records its tag
+# under .task/image-tags/<repository>, and deploy tasks read that record (an explicit
+# IMAGE_TAG, or the per-component *_IMAGE_TAG, still wins). A deploy with no record fails
+# and names the build task to run. A rebuild produces a new tag and so never moves a tag
+# a version already pins; re-read the digest and confirm both versions pin the same one.
 
 env:
   CLOUD_DIR: infra/cloud
@@ -51,13 +54,17 @@ tasks:
     cmds:
       - |
         set -eu
+        . "{{.ROOT_DIR}}/scripts/image-tag.sh"
+        TAG=$(image_tag_new containment-demo-agent "${IMAGE_TAG:-}")
         ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)
         echo "building agent image in $ACR"
         az acr build \
           --registry "$ACR" \
-          --image "containment-demo-agent:${IMAGE_TAG:-latest}" \
+          --image "containment-demo-agent:$TAG" \
           --file Dockerfile \
           .
+        image_tag_record containment-demo-agent "$TAG"
+        echo "built and recorded containment-demo-agent:$TAG"
       - task: foundry-agent-digest
 
   tool-apis:
@@ -71,17 +78,29 @@ tasks:
       # denial is not a successful policy control for a containment run.
       - |
         set -eu
+        . "{{.ROOT_DIR}}/scripts/image-tag.sh"
+        # One tag for both images, computed once so a dirty-tree timestamp cannot differ.
+        TAG=$(image_tag_new containment-demo-policy-api "${IMAGE_TAG:-}")
         ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)
         for SVC in policy_api test_receiver; do
           IMG=$(echo "$SVC" | tr '_' '-')
           echo "building $SVC in $ACR"
           az acr build \
             --registry "$ACR" \
-            --image "containment-demo-${IMG}:${IMAGE_TAG:-latest}" \
+            --image "containment-demo-${IMG}:$TAG" \
             --build-arg "SERVICE=${SVC}" \
             --file services/Dockerfile \
             .
         done
+        image_tag_record containment-demo-policy-api "$TAG"
+        image_tag_record containment-demo-test-receiver "$TAG"
+        # Upsert into .env so `task cloud:up` keeps the endpoints on this image instead of
+        # rolling the policy API back to the placeholder.
+        touch .env
+        grep -v '^ENDPOINT_IMAGE_TAG=' .env > .env.tmp || true
+        echo "ENDPOINT_IMAGE_TAG=$TAG" >> .env.tmp
+        mv .env.tmp .env
+        echo "built and recorded policy-api and test-receiver at tag $TAG; ENDPOINT_IMAGE_TAG=$TAG written to .env"
 
   all:
     desc: BUILDS IN AZURE. Build all six components (seven images); deploy nothing
@@ -130,7 +149,8 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: containment-demo-agent
-          TAG: '${IMAGE_TAG:-latest}'
+          TAG_OVERRIDE: '${IMAGE_TAG:-}'
+          BUILD_HINT: 'task build:foundry-agent'
           EXPLICIT: '${AGENT_IMAGE_DIGEST:-}'
           OUT: '{{.DIGEST_FILE}}'
       - |

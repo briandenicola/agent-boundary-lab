@@ -30,7 +30,7 @@ RUN if [ "${SERVICE}" = "policy_api" ]; then \
     fi
 
 COPY services ./services
-COPY src/containment_demo/__init__.py src/containment_demo/delegated_auth.py ./containment_demo/
+COPY src/containment_demo/__init__.py src/containment_demo/delegated_auth.py src/containment_demo/actor_context.py ./containment_demo/
 
 RUN useradd --create-home --uid 10001 svc
 USER 10001

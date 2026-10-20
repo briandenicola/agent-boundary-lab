@@ -35,13 +35,17 @@ tasks:
     cmds:
       - |
         set -eu
+        . "{{.ROOT_DIR}}/scripts/image-tag.sh"
+        TAG=$(image_tag_new "containment-demo-a2a-facade" "${A2A_IMAGE_TAG:-}")
         ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)
         echo "building A2A facade image in $ACR"
         az acr build \
           --registry "$ACR" \
-          --image "${A2A_REPOSITORY}:${A2A_IMAGE_TAG:-latest}" \
+          --image "${A2A_REPOSITORY}:$TAG" \
           --file Dockerfile.a2a-facade \
           .
+        image_tag_record "containment-demo-a2a-facade" "$TAG"
+        echo "built and recorded containment-demo-a2a-facade:$TAG"
       - task: digest
 
   digest:
@@ -55,7 +59,8 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: containment-demo-a2a-facade
-          TAG: '${A2A_IMAGE_TAG:-latest}'
+          TAG_OVERRIDE: '${A2A_IMAGE_TAG:-}'
+          BUILD_HINT: 'task build:agent-bridge'
           EXPLICIT: '${A2A_IMAGE_DIGEST:-}'
           OUT: '{{.ROOT_DIR}}/.task/a2a-facade-digest'
       - |
@@ -109,7 +114,8 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: containment-demo-a2a-facade
-          TAG: '${A2A_IMAGE_TAG:-latest}'
+          TAG_OVERRIDE: '${A2A_IMAGE_TAG:-}'
+          BUILD_HINT: 'task build:agent-bridge'
           EXPLICIT: '${A2A_IMAGE_DIGEST:-}'
           OUT: '{{.ROOT_DIR}}/.task/a2a-facade-digest'
       - |

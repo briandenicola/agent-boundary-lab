@@ -78,7 +78,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:.82rem;margin-top:.6
 <main>
 __DIAGNOSTICS_CARD__
 <section class="card" id="compose"><h2>Prompt</h2>
-<label for="actor">Actor alias (optional). In ingress sign-in mode this is your signed-in user.</label>
+<label for="actor">Display label (optional; not authorization). In ingress sign-in mode this is your signed-in user name.</label>
 <input id="actor" type="text" maxlength="64" value="__ACTOR_ALIAS__">
 <textarea id="msg">Run both tools in order (ask_audit_agent, then ask_enforced_agent). Report each tool's task state, per-tool outcomes, and all run IDs exactly as returned.</textarea>
 <div class="row"><button id="go">Send</button><span class="spin"></span><span id="status"></span></div>
@@ -124,23 +124,49 @@ function wsUrl(){
   const proto=window.location.protocol==='https:'?'wss':'ws';
   return `${proto}://${window.location.host}/ws`;
 }
+function accessCard(parent, a){
+  const c=el(parent,'div',null,'tool');
+  const h=el(c,'h3',null); el(h,'span',a.slot+' agent');
+  badge(h,a.label,a.status==='allowed'?'ok':(a.status==='denied'||a.status==='unauthenticated')?'bad':'neutral');
+  if(a.user_token_forwarded===false)
+    el(c,'p','The user token did not reach the tool, so this result says nothing about the user.','err');
+  if(a.status==='denied'){
+    el(c,'h4','Denied at the tool');
+    kv(c,[
+      ['who (user object id)',a.user_object_id],
+      ['what',a.tool+' -> policy API host '+(a.policy_api_host||'-')],
+      ['why','HTTP '+a.http_status+', error code '+a.error+'. Identity only: this is not a network/egress result.'],
+      ['tool run id',a.tool_run_id],['harness run id',a.harness_run_id]]);
+  }else{
+    kv(c,[['tool',a.tool],['host',a.policy_api_host],['HTTP status',a.http_status],
+      ['error code',a.error],['user object id',a.user_object_id],
+      ['token forwarded to tool',a.user_token_forwarded],['tool run id',a.tool_run_id]]);
+  }
+  if(a.kql){
+    [['Receipt log query (ContainerAppConsoleLogs_CL)',a.kql.receipt],
+     ['Tool result query (AppTraces / AppDependencies)',a.kql.tool_result]].forEach(([label,q])=>{
+      const d=el(c,'details'); el(d,'summary',label); el(d,'pre',q); copyBtn(d,q);});
+    el(c,'p','Enforced agents may emit no app telemetry (App Insights egress is denied under Enforced); '+
+      'the receipt query is the primary evidence. These queries have not been run as written.','mono');
+  }
+}
 function renderTurn(d,out){
   const s=el(out,'section',null,'card'); el(s,'h2','Turn');
-  kv(s,[['actor alias',d.actor_alias],['turn id',d.turn_id],['model',d.model],['label',d.run_label]]);
-  const polKind=d.policy_authorization_status==='authorized'?'ok':
-    d.policy_authorization_status==='denied'?'bad':'neutral';
-  const pb=el(s,'div',null,'badges');
-  badge(pb,'policy authorization: '+d.policy_authorization_status,polKind);
-  el(s,'p','Identity authorization outcome for get_servicing_policy only '+
-    '(WP-2). Not a containment result.','mono');
-  const b=el(s,'div',null,'badges');
-  badge(b,'containment determination: '+d.determination,'neutral');
-  el(s,'p','Kept separate from policy authorization above; never inferred from a '+
-    'policy denial.','mono');
+  kv(s,[['display label (not authorization)',d.actor_alias],['turn id',d.turn_id],['model',d.model],['label',d.run_label]]);
   const ids=el(s,'div',null,'row'); el(ids,'span','Tool run ids');
   if(d.tool_run_ids.length) d.tool_run_ids.forEach(id=>{
     el(ids,'code',id,'mono'); copyBtn(ids,id);});
   else el(ids,'span','none');
+  const p=el(out,'section',null,'card'); el(p,'h2','Policy API access (identity only)');
+  el(p,'p','The policy API verified (or rejected) your on-behalf-of token for get_servicing_policy. '+
+    'This is not a containment result.','mono');
+  const pg=el(p,'div',null,'grid');
+  if(!(d.policy_access||[]).length) el(p,'p','No get_servicing_policy evidence this turn.');
+  (d.policy_access||[]).forEach(a=>accessCard(pg,a));
+  const e=el(out,'section',null,'card'); el(e,'h2','Egress / containment (separate from the above)');
+  const b=el(e,'div',null,'badges');
+  badge(b,'containment determination: '+d.determination,'neutral');
+  el(e,'p','Never inferred from a policy API denial; platform egress evidence is required.','mono');
   const m=el(out,'section',null,'card'); el(m,'h2','Model reply');
   el(m,'pre',d.reply||'(empty)');
   const t=el(out,'section',null,'card'); el(t,'h2','Per-tool results');

@@ -1,5 +1,7 @@
 # Issue #4: delegated Foundry authentication probe
 
+> **Pointer (2026-10-20, Ripley).** The on-behalf-of user-token flow (oauth2-proxy → harness OBO → facade → Foundry `x-client-*` → policy API guard) is documented in [`token-flow-documented.md`](token-flow-documented.md): SOURCE-VERIFIED against code, **never run live**. This probe page covers the earlier directory/Foundry-invocation checks only.
+
 **2026-10-19: owner reports directory lifecycle passed and integrated setup configured.**
 The owner completed isolated Graph sign-in and reported `directory_lifecycle: pass`
 after creation, read/update verification and cleanup. The owner subsequently reported

@@ -20,6 +20,7 @@ from typing import Any
 
 from containment_demo import invoke, ui_a2a
 from containment_demo.a2a_facade import client as a2a_client
+from containment_demo.harness.obo import current_user_token
 from containment_demo.harness.settings import HarnessSettings
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,9 @@ async def call_slot(
     if slot not in TOOL_NAMES:
         raise KeyError(slot)
     demo_run_id = f"harness-{uuid.uuid4().hex[:12]}"
+    # Only passed when this turn has an OBO token (set by the chat handler).
+    user_token = current_user_token.get()
+    extra = {"user_token": user_token} if user_token else {}
     try:
         result = await asyncio.to_thread(
             ui_a2a.invoke_via_a2a,
@@ -55,6 +59,7 @@ async def call_slot(
             demo_run_id=demo_run_id,
             timeout_seconds=settings.tool_timeout_seconds,
             sender=sender,
+            **extra,
         )
     except Exception as exc:
         return {

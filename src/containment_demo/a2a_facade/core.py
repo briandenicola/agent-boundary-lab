@@ -94,7 +94,7 @@ class TargetError(Exception):
 class AgentTarget(Protocol):
     """The only thing the A2A side knows about the agent behind it."""
 
-    async def send(self, text: str) -> TargetReply: ...
+    async def send(self, text: str, user_token: str | None = None) -> TargetReply: ...
 
 
 # --- caller auth seam (Entra validation is issue #4) ------------------------------

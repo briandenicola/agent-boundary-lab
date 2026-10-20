@@ -18,9 +18,11 @@ from pydantic import SecretStr
 
 
 class AuthError(ValueError):
-    def __init__(self, code: str, status: int = 401) -> None:
+    def __init__(self, code: str, status: int = 401, user_object_id: str | None = None) -> None:
         self.code = code
         self.status = status
+        # Only ever set from a signature-verified token's oid claim (never a secret).
+        self.user_object_id = user_object_id
         super().__init__(code)
 
 
@@ -231,7 +233,7 @@ class AccessGuard:
         token = bearer_token(authorization)
         user = await self.verifier.verify(token)
         if user.object_id not in self.allowed_user_ids:
-            raise AuthError("user_not_authorized", 403)
+            raise AuthError("user_not_authorized", 403, user_object_id=user.object_id)
         return DelegatedRequest(user, SecretStr(token))
 
 

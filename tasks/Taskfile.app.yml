@@ -20,7 +20,7 @@ tasks:
   deploy-external:
     desc: FROM SCRATCH. Provision cloud infra, deploy app components, then enable external HTTPS harness ingress with Entra login
     requires:
-      vars: [HOSTNAME, LETSENCRYPT_EMAIL]
+      vars: [HOSTNAME, LETSENCRYPT_EMAIL, POLICY_API_AUTHORIZED_USER_IDS]
     cmds:
       - task: :cloud:up
       - task: :deploy:app-components
@@ -28,6 +28,8 @@ tasks:
         vars:
           HOSTNAME: '{{.HOSTNAME}}'
           LETSENCRYPT_EMAIL: '{{.LETSENCRYPT_EMAIL}}'
+      # A fresh `task` process, so it loads the TF_VAR_policy_api_* that external-app just wrote to .env.
+      - task cloud:up
 
   validate:
     desc: READ-ONLY PREFLIGHT. Repo guards, Azure context, policies/endpoints, app health and identity journal; stops at the first failure

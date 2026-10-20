@@ -56,6 +56,7 @@ Open the workspace Logs blade and use the queries in [`../kql-queries.md`](../kq
 | 5 | Receipts for one run id |
 | 6 | **Proof for one run**: decisions and receipts side by side |
 | 8 | The agent's own telemetry being denied |
+| 10 | Issue #4 identity decisions (`authorization_decision` receipts and the tool-result record) for one tool run id; the same two queries the harness UI copies. **UNVERIFIED live.** The receipt query matches a denied/unavailable `authorization_decision` line or a served `event=receipt outcome=served user_object_id` line for the run id. See [token-flow-documented.md](../token-flow-documented.md) section 6. |
 
 Set `let run = "run-...";` to your id. Read query 6 like this: a `Deny / DefaultDeny / Enforced` row for the external host with no `test-receiver` receipt after it is the platform block. An `Allow` row then a `policy-api` receipt is the positive control. Wait at least 180 s after the call before counting an absence. The queries' own status note applies: they were written from verified columns but not all run as written, so report any error.
 

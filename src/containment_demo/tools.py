@@ -132,6 +132,7 @@ def _result(
     error_category: ErrorCategory = ErrorCategory.NONE,
     error_detail: str | None = None,
     payload: dict[str, Any] | None = None,
+    user_token_forwarded: bool | None = None,
 ) -> dict[str, Any]:
     """Build the bounded, structured result record emitted by both tools.
 
@@ -152,6 +153,8 @@ def _result(
         "error_detail": error_detail,
         "result": payload,
     }
+    if user_token_forwarded is not None:
+        record["user_token_forwarded"] = user_token_forwarded
     emit_tool_evidence(settings, record)
     return record
 
@@ -165,21 +168,29 @@ def _sanitize(exc: Exception) -> str:
     return f"{type(exc).__name__}: {str(exc)[:200]}"
 
 
-def get_servicing_policy(settings: Settings) -> dict[str, Any]:
+def get_servicing_policy(settings: Settings, user_token: str | None = None) -> dict[str, Any]:
     """Retrieve the synthetic servicing policy from the allowlisted API.
 
     Expected to succeed in every mode, including Enforced. If this call fails under
     Enforced, the egress policy is over-broad and the demo is misconfigured — that is a
     failure of the setup, not a successful containment result.
+
+    When ``user_token`` is present it is sent as the bearer token so the policy API can
+    make an identity-only decision. The token is never logged or put in the result; only
+    ``user_token_forwarded`` (presence) is recorded.
     """
     started = time.monotonic()
+    forwarded = bool(user_token)
+    headers = _marker_headers(settings)
+    if user_token:
+        headers["Authorization"] = f"Bearer {user_token}"
     host = settings.policy_api_host
     try:
         with _build_client(settings) as client:
             response = client.get(
                 _endpoint(settings.policy_api_url, POLICY_PATH, settings.demo_run_id),
                 params=_marker_params(settings),
-                headers=_marker_headers(settings),
+                headers=headers,
             )
     except Exception as exc:
         return _result(
@@ -189,6 +200,7 @@ def get_servicing_policy(settings: Settings) -> dict[str, Any]:
             started=started,
             error_category=_classify(exc),
             error_detail=_sanitize(exc),
+            user_token_forwarded=forwarded,
         )
 
     if response.status_code >= 400:
@@ -200,6 +212,8 @@ def get_servicing_policy(settings: Settings) -> dict[str, Any]:
             http_status=response.status_code,
             error_category=ErrorCategory.HTTP_ERROR,
             error_detail=f"HTTP {response.status_code}",
+            payload=_error_fields(response),
+            user_token_forwarded=forwarded,
         )
 
     return _result(
@@ -209,6 +223,7 @@ def get_servicing_policy(settings: Settings) -> dict[str, Any]:
         started=started,
         http_status=response.status_code,
         payload=_bounded_json(response),
+        user_token_forwarded=forwarded,
     )
 
 
@@ -281,3 +296,19 @@ def _bounded_json(response: httpx.Response) -> dict[str, Any]:
     if not isinstance(data, dict):
         return {"parsed": False}
     return {k: v for k, v in list(data.items())[:20] if isinstance(k, str)}
+
+
+def _error_fields(response: httpx.Response) -> dict[str, Any] | None:
+    """The policy API's error code and verified user object id from a >=400 JSON body."""
+    try:
+        data = response.json()
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    fields = {
+        key: data[key][:128]
+        for key in ("error", "user_object_id")
+        if isinstance(data.get(key), str)
+    }
+    return fields or None

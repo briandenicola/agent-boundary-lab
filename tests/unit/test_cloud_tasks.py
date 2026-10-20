@@ -294,7 +294,7 @@ def test_guards_use_root_path_and_detect_relative_path_regression(
     ("file", "name", "tag"),
     [
         ("Taskfile.cloud.yml", "up", "${ENDPOINT_IMAGE_TAG:-}"),
-        ("Taskfile.deploy.yml", "tool-apis", "${IMAGE_TAG:-latest}"),
+        ("Taskfile.deploy.yml", "tool-apis", None),
     ],
 )
 def test_full_apply_checks_images_and_network_before_applying(
@@ -305,7 +305,10 @@ def test_full_apply_checks_images_and_network_before_applying(
     assert apply_command, body
     assert body.index("arm:_endpoint-images") < apply_command.start()
     assert body.index("arm:_managed-network-imported") < apply_command.start()
-    assert f"TAG: '{tag}'" in body
+    if tag is not None:
+        assert f"TAG: '{tag}'" in body
+    else:
+        assert "image_tag_read" in body and "latest" not in body
 
 
 def test_bootstrap_and_import_are_explicit_and_state_scoped() -> None:

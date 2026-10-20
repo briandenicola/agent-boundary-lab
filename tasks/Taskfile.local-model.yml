@@ -30,15 +30,19 @@ tasks:
         MODEL_URL="${MODEL_URL:-$MODEL_URL_PIN}"
         MODEL_SHA256="${MODEL_SHA256:-$MODEL_SHA256_PIN}"
         case "$LLAMA_CPP_IMAGE" in *@sha256:*) ;; *) echo "LLAMA_CPP_IMAGE must be digest-pinned" >&2; exit 1 ;; esac
+        . "{{.ROOT_DIR}}/scripts/image-tag.sh"
+        TAG=$(image_tag_new "containment-demo-local-model" "${LOCAL_MODEL_IMAGE_TAG:-}")
         ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)
         az acr build \
           --registry "$ACR" \
-          --image "${LOCAL_MODEL_REPOSITORY}:${LOCAL_MODEL_IMAGE_TAG:-latest}" \
+          --image "${LOCAL_MODEL_REPOSITORY}:$TAG" \
           --file Dockerfile.local-model \
           --build-arg "LLAMA_CPP_IMAGE=${LLAMA_CPP_IMAGE}" \
           --build-arg "MODEL_URL=${MODEL_URL}" \
           --build-arg "MODEL_SHA256=${MODEL_SHA256}" \
           .
+        image_tag_record "containment-demo-local-model" "$TAG"
+        echo "built and recorded containment-demo-local-model:$TAG"
       - task: digest
 
   digest:
@@ -52,7 +56,8 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: containment-demo-local-model
-          TAG: '${LOCAL_MODEL_IMAGE_TAG:-latest}'
+          TAG_OVERRIDE: '${LOCAL_MODEL_IMAGE_TAG:-}'
+          BUILD_HINT: 'task build:model-server'
           EXPLICIT: '${LOCAL_MODEL_IMAGE_DIGEST:-}'
           OUT: '{{.ROOT_DIR}}/.task/local-model-digest'
       - |
@@ -70,7 +75,8 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: containment-demo-local-model
-          TAG: '${LOCAL_MODEL_IMAGE_TAG:-latest}'
+          TAG_OVERRIDE: '${LOCAL_MODEL_IMAGE_TAG:-}'
+          BUILD_HINT: 'task build:model-server'
           EXPLICIT: '${LOCAL_MODEL_IMAGE_DIGEST:-}'
           OUT: '{{.ROOT_DIR}}/.task/local-model-digest'
       - |

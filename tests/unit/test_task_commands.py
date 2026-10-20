@@ -359,11 +359,13 @@ def test_deploy_app_components_excludes_tool_apis() -> None:
 )
 def test_component_build_and_render_preserve_the_same_tag_defaults(file: str, prefix: str) -> None:
     build = task_body(file, "build")
-    assert f"${{{prefix}_IMAGE_TAG:-latest}}" in build
-    tag = "${" + prefix + "_IMAGE_TAG:-latest}"
+    assert f'"${{{prefix}_IMAGE_TAG:-}}"' in build
+    assert "latest" not in build
+    assert "image_tag_record" in build
     for name in ("digest", "render"):
         body = task_body(file, name)
-        assert f"TAG: '{tag}'" in body
+        assert f"TAG_OVERRIDE: '${{{prefix}_IMAGE_TAG:-}}'" in body
+        assert "latest" not in body
         assert f"EXPLICIT: '${{{prefix}_IMAGE_DIGEST:-}}'" in body
 
 
@@ -383,6 +385,11 @@ def run_endpoint_plan(tmp_path: Path, plan: str, *, tamper: bool = False):
         "esac\n"
     )
     terraform.chmod(0o755)
+    (tmp_path / "scripts").mkdir(exist_ok=True)
+    shutil.copy(
+        Path(__file__).resolve().parents[2] / "scripts" / "image-tag.sh",
+        tmp_path / "scripts" / "image-tag.sh",
+    )
     script = shell_body("tool-apis").replace("{{.ROOT_DIR}}", str(tmp_path))
     script = script.replace("{{.REGION}}", "canadacentral")
     if tamper:

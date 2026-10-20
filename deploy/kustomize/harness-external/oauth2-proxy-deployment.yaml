@@ -30,7 +30,9 @@ spec:
             - --set-xauthrequest=true
             - --cookie-secure=true
             - --cookie-samesite=lax
-            - --scope=openid profile email
+            - --pass-access-token=true
+            - --skip-claims-from-profile-url=true
+            - --cookie-refresh=50m
             - --email-domain=*
           env:
             - name: OAUTH2_PROXY_CLIENT_ID
@@ -58,6 +60,11 @@ spec:
                 secretKeyRef:
                   name: harness-oidc-config
                   key: OAUTH2_PROXY_REDIRECT_URL
+            - name: OAUTH2_PROXY_SCOPE
+              valueFrom:
+                secretKeyRef:
+                  name: harness-oidc-config
+                  key: OAUTH2_PROXY_SCOPE
           ports:
             - name: http
               containerPort: 4180

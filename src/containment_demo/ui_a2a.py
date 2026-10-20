@@ -94,13 +94,16 @@ def invoke_via_a2a(
     demo_run_id: str,
     timeout_seconds: float,
     sender: Sender = a2a_client.send,
+    user_token: str | None = None,
 ) -> A2AInvocation:
     """One A2A SendMessage to one façade. Blocking; call it from a worker thread."""
     text = invoke.DEFAULT_PROMPT.format(demo_run_id=demo_run_id)
+    # Only passed when present so senders written before delegation keep working.
+    extra = {"user_token": user_token} if user_token else {}
     try:
         out = asyncio.run(
             asyncio.wait_for(
-                sender(base_url, token, text=text, timeout=timeout_seconds),
+                sender(base_url, token, text=text, timeout=timeout_seconds, **extra),
                 timeout=timeout_seconds + 5,
             )
         )

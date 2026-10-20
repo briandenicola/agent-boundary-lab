@@ -1,149 +1,58 @@
 # Issue #4 demo readiness checklist
 
-Date: 2026-10-19
-Scope: what must be complete before demonstrating the **narrowed** issue #4 execution
-track locked in [`issue-4-squad-plan.md`](issue-4-squad-plan.md) (WP-0): a simple
-**allowed user vs denied user** demo through harness -> Foundry -> the
-authorization-protected policy tool path, with the two-tool containment story kept
-intact and reported separately.
+**Last updated:** 2026-10-20 (Ripley revision)
+**Status:** code written and unit-tested with mocks; **nothing run live**. Every box below is unchecked on purpose.
+**Goal:** one signed-in user is **allowed** (policy API 200) and one is **denied** (403 `user_not_authorized`) for the
+same tool, in Audit and Enforced, using each user's own token. Flow and caveats: [token-flow-documented.md](token-flow-documented.md).
 
-## Primary acceptance (this execution track)
+Labels: **VERIFIED** = ran/observed; **SOURCE-VERIFIED** = read in code or primary docs; **UNVERIFIED** = unknown.
+The only VERIFIED fact: the unit suite passed (953 passed, 5 skipped, mocks only, run by the coordinator).
 
-- [ ] An **allowed** actor can drive the existing harness/UI path, reach the hosted
-      Foundry agent, and have the authorization-protected policy tool path succeed
-      (`get_servicing_policy` / policy API route authorized).
-- [ ] A **denied** actor drives the same path and is rejected at the policy
-      authorization boundary, for the **same protected tool path** — not a different
-      route, not a different tool.
-- [ ] Three outcome categories are reported **separately** and never merged into one
-      verdict:
-  - [ ] **Identity authorization outcome** — whether the actor context (WP-1) resolved
-        the caller as the allowed actor or the denied actor. This is a statement about
-        who the request claims to be, not about what happened next.
-  - [ ] **Policy API authorization outcome** — the protected route's own 200/401/403/503
-        decision for that actor (WP-2). A denied policy call is evidence about the
-        policy API's authorization boundary, not about egress containment.
-  - [ ] **Containment evidence outcome** — platform egress decision plus receiver
-        receipt/absence for `send_to_external_processor`, collected exactly as in
-        `demo-runbook.md` Sections B/C. A denied identity or policy outcome does not
-        stand in for a containment pass or fail, and a containment pass/fail does not
-        stand in for either authorization outcome.
-- [ ] If the three outcomes above cannot be joined on the same `demo_run_id` (for
-      example the containment egress/receipt rows are missing, delayed, or do not carry
-      the run id), the containment evidence outcome is **inconclusive** — never
-      reported as a pass and never inferred from the identity or policy outcomes.
-- [ ] Presenter runbook and evidence docs match exactly what is deployed and describe
-      all three outcome categories (identity authorization, policy API authorization,
-      containment evidence) without conflating any pair of them.
+## Three outcomes, never merged
 
-## Out of scope for this execution track
+1. **Identity result** (policy API verdict on the user's OBO token: 200 with `user_object_id` / 403 / 401). Not a network
+   result. The actor alias is a display label, never an input.
+2. **Network/containment result** (`send_to_external_processor`): platform egress decision + receipt absence/presence,
+   per [demo-runbook.md](demo-runbook.md) sections B/C. Without platform evidence it is **inconclusive**.
+3. A denied identity result is not a containment pass or fail, and the reverse.
 
-The following items from the full issue #4 design (`docs/PLAN.md`, I0) are **not**
-required to close this narrowed track. They stay documented as open/blocked and are
-only pulled back in scope if they turn out to be a hard dependency of running the
-allowed/denied demo path itself:
+## Known code defects to fix before the live run (SOURCE-VERIFIED by reading; details in token-flow section 6)
 
-- Delegated Foundry invocation contract and its full I0 matrix (allowed / denied /
-  invalid token / wrong-audience token proven **at the Foundry invocation layer**).
-- Proving sidecar OBO or a user-delegated bearer accepted by the hosted agent's own
-  Responses endpoint.
-- Delegated harness-to-Foundry token exchange (I2), beyond the actor-context and policy
-  authorization behavior required for this issue #4 execution track.
+- [x] (code fixed, UNVERIFIED live) `invoke.outcome_from_record` now keeps `user_object_id` on HTTP 200, so the UI `allowed` verdict is reachable.
+- [x] (code fixed, UNVERIFIED live) `HARNESS_OBO_*` is written to Secret `harness-oidc-config`; the harness Deployment now
+      maps the four keys via `secretKeyRef` (`optional: true`) and `external-app` restarts the harness. Confirm in the pod:
+      `HARNESS_OBO_*` present and the harness starts.
+- [x] (code fixed, UNVERIFIED live) The UI receipt KQL matches `authorization_decision` or `served` receipts for the run id.
 
-If, while implementing WP-1/WP-2, the team finds the demo path cannot run at all
-without one of these items, escalate to Brian before expanding scope; do not silently
-re-absorb the full I0 matrix into this track.
+## Pre-run (owner approval for every Azure/Entra/cluster change)
 
-## Current status snapshot
+- [ ] `uv lock` (msal added to `pyproject.toml`; `uv.lock` is tracked and not regenerated).
+- [ ] Images rebuilt so the new code ships: hosted agent, policy API, facade, harness (`task build:all`).
+- [ ] `POLICY_API_AUTHORIZED_USER_IDS=8bbab162-0743-444c-b305-fed34bab43fb` in `.env` (only that user; `10870cbe-74ab-4c46-b5a8-8fcded26e615` absent).
+- [ ] `task app:deploy-external HOSTNAME=… LETSENCRYPT_EMAIL=…` (includes `external-app`, which writes `TF_VAR_policy_api_*` into `.env`, and a final `cloud:up` that makes the policy API delegated).
+- [ ] New images rolled out (agent versions, policy API, facade, harness).
 
-- ✅ Probe sidecar image pull blocker fixed by pinning:
-  `mcr.microsoft.com/entra-sdk/auth-sidecar:1.1.2-azurelinux3.0-distroless@sha256:73a8763100c93c3da1a3ed1ba3af2c6122c0517687354dceded30537a1aee97f`
-- ✅ Existing UI already exists; no new UI is needed.
-- ✅ `identity:up` is rerunnable default path; strict checks moved to `identity:validate`.
-- ⚠️ Full I0 delegated Foundry invocation matrix remains unverified/inconclusive — tracked
-  as out-of-scope above unless it blocks the narrowed demo path.
-- ❌ Allowed-vs-denied demo path (this track) is not yet closed.
+## Live checks (each UNVERIFIED until run)
 
-## Remaining work (must complete, this track)
+- [ ] Allowed user (`8bbab162…`): UI shows `allowed`, `user_token_forwarded=true`, in Audit and Enforced.
+- [ ] Denied user (`10870cbe…`): UI shows `denied`, error `user_not_authorized`, the user's object id, in Audit and Enforced.
+- [ ] `user_token_forwarded=false` never appears. If it does, Foundry did not deliver the header (or defect 2): the result
+      is "no evidence", not a pass.
+- [ ] `send_to_external_processor` outcome identical for both users, judged only by platform evidence + receipts.
+- [ ] Receipt query (kql-queries.md section 10) returns the denial row for the denied run; served receipt via query 5 for
+      the allowed run.
+- [ ] Egress panel still reads `inconclusive` unless platform evidence is joined on the same run id.
 
-## 1) Deliver actor context and policy authorization (WP-1, WP-2)
+## Teardown
 
-- [ ] Implement the minimal shared actor context contract (WP-1): actor alias, bounded
-      lifetime, safe status only — no raw tokens, no claim dumps.
-- [ ] Wire policy API authorization by actor (WP-2): allowed actor authorized; denied
-      actor rejected; explicit 401/403/503 semantics; `/healthz` stays the only
-      unauthenticated route.
-- [ ] Persist a redacted evidence artifact for the allowed/denied pass/fail pair on the
-      policy tool path.
+- [ ] `task chat-agent:external-app-down` (also removes the `TF_VAR_policy_api_*` lines from `.env`), then `task cloud:up`.
 
-## 2) Use existing UI/harness for the allowed/denied demo path (no new UI)
+## Notes
 
-- [ ] Keep current UI as the entrypoint.
-- [ ] Ensure UI → harness → A2A facade → Foundry path is the one used in the demo.
-- [ ] Add redacted claim summary visibility only (no raw token strings, no auth headers).
-- [ ] Show actor-level outcomes in UI/reporting as three distinct fields, never merged:
-  - [ ] actor alias and **identity authorization outcome** (which actor was resolved)
-  - [ ] **policy API authorization outcome** (the route's own allowed/denied result)
-  - [ ] **containment evidence outcome** — pass / fail / **inconclusive** when the
-        platform egress/receipt join is missing, never inferred from the two outcomes
-        above
-
-## 3) Policy API authorization proof (separate from identity and containment)
-
-- [ ] Demonstrate allowed actor can access the protected policy route.
-- [ ] Demonstrate denied actor is rejected at the policy auth boundary for the same route.
-- [ ] Ensure denied policy authorization is never reported as containment pass, and is
-      labelled as a policy API authorization outcome, not an identity authorization
-      outcome or a containment result.
-- [ ] Keep receiver route unauthenticated and behaviorally unchanged for containment signal.
-
-## 4) Harden operator workflow for demo day (WP-6)
-
-- [ ] `task app:deploy-external HOSTNAME=... LETSENCRYPT_EMAIL=...` verified live as the from-scratch, no-manual deploy path.
-- [ ] OIDC app registration creation is automated by task flow (no portal/manual step required).
-- [ ] `task app:deploy` + `task identity:up` sequence verified live in the current environment.
-- [ ] `task identity:validate` verified as strict preflight/reconciliation without sign-ins.
-- [ ] `task identity:destroy` + teardown sequence verified and repeatable.
-- [ ] Failure handling validated:
-  - [ ] partial/unknown journal state stops safely
-  - [ ] no destructive cleanup on unresolved state
-  - [ ] retry path documented
-
-## 5) Demo artifacts and handoff (WP-7)
-
-- [ ] Update `docs/demo-runbook.md` with the allowed/denied demo steps and expected
-      outcome categories (identity authorization, policy API authorization, and
-      containment evidence — kept explicitly separate).
-- [ ] Update `docs/telemetry-map.md` with the actor-context field names used in the
-      allowed/denied join.
-- [ ] Update `docs/evidence-template.md` for allowed/denied + identity/policy auth
-      split (drop the invalid-token/wrong-audience rows unless they are reintroduced
-      in scope).
-- [ ] Keep one "demo-day checklist" section with operator command order and pass/fail
-      criteria for allowed/denied plus audit/enforced tool behavior.
-
-## Operator command sequence for this track
-
-```bash
-# strict consistency/reconciliation, no sign-ins
-task identity:validate
-
-# rerunnable identity flow + probe
-task identity:up
-
-# inspect latest redacted result
-task identity:status
-
-# then run the existing UI/harness demo flow with an allowed actor, then a denied actor
-```
-
-## Explicit non-goals (to avoid side quests)
-
-- Do not create a second UI.
-- Do not log or display raw tokens/auth headers.
-- Do not replace delegated Foundry invocation requirement with app-only fallback for
-  any item kept in scope.
-- Do not conflate identity authorization, policy API authorization, or containment
-  enforcement with one another — each is reported as its own outcome.
-- Do not expand scope back to the full I0 delegated Foundry invocation matrix without
-  Brian's explicit sign-off.
+- `az` CLI is used by these tasks, departing from the squad rule "no az in anything that ships", at the owner's explicit
+  request.
+- `demo_ui.py` (two-button UI) still shows the old `status_from_http` badge; out of scope.
+- Delegated Foundry invocation matrix from I0 (invalid/wrong-audience at the Foundry layer) is not part of this flow and
+  remains unproven ([identity-probe.md](identity-probe.md)).
+- The earlier WP-1/WP-2 actor-context checklist in this file was superseded: the actor alias is display only now
+  (`actor_context.py` docstring).

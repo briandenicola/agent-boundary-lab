@@ -19,6 +19,8 @@ test of these new wrappers. For standup, see [`rebuild-runbook.md`](rebuild-runb
 
 ## Presenter one-pager (A2A path), written 2026-10-09
 
+**Issue #4 OBO status (2026-10-20, Ripley; read with [`token-flow-documented.md`](token-flow-documented.md)).** Code for a per-user flow exists (harness MSAL on-behalf-of → `X-Delegated-Policy-Token` over plain in-cluster HTTP to the facade → `x-client-policy-access-token` to Foundry → policy API verifies the user's own token and `AUTHORIZED_USER_IDS`). SOURCE-VERIFIED, mocks-tested only (unit suite 953 passed / 5 skipped); **nothing has run live**: no Entra app, deploy, token decode, or Foundry header delivery (UNVERIFIED; `user_token_forwarded=false` in the UI is the signature of non-delivery). Expected design outcome: `8bbab162-0743-444c-b305-fed34bab43fb` allowed (200), `10870cbe-74ab-4c46-b5a8-8fcded26e615` denied (403 `user_not_authorized`), in Audit and Enforced; the alias is a display label, not authorization; the egress panel is separate. Owner command order: `task build:all` → `uv lock` → `task app:deploy-external HOSTNAME=… LETSENCRYPT_EMAIL=…` (includes `external-app`; do not run it separately) → copy the printed `TF_VAR_policy_api_*` into `.env` (authorized ids = the allowed id only) → second `task cloud:up` → roll out images (`deploy:foundry-agent`, `deploy:tool-apis`, `agent-bridge:up`, `chat-agent:up`). Teardown: `task chat-agent:external-app-down`, unset `TF_VAR_policy_api_*`, `task cloud:up`. Three code defects that may block `allowed` are listed in token-flow section 6. Where this conflicts with the older text below (for example "identity code is not deployed", "do not enable policy authentication"), the older text predates the code and is not updated claim by claim.
+
 **Issue #4 update (2026-10-16):** identity code is not deployed. The existing presenter
 path below remains shared-token/port-forwarded, not Entra-authenticated. Owner-run
 interactive directory checks and `task identity:test` are documented in
@@ -186,7 +188,7 @@ task app:deploy-external HOSTNAME=<fqdn> LETSENCRYPT_EMAIL=<ops-email>
 This single task creates/updates the OIDC app registration, configures ingress prerequisites
 (ingress-nginx + cert-manager), provisions the harness OIDC secret, and applies external ingress resources.
 Then open `https://<fqdn>`, complete Entra login, and run the same prompt flow as above.
-In this mode, the harness derives `actor_alias` from ingress identity headers and rejects manual alias overrides.
+In this mode, the harness derives `actor_alias` (a display label, not authorization) from ingress identity headers and rejects manual alias overrides. `app:deploy-external` already runs `chat-agent:external-app`, which since issue #4 also creates the Entra apps via the `az` CLI (UNVERIFIED, never run) and prints `TF_VAR_policy_api_*` lines for `.env`; a second `task cloud:up` is then required. See [`token-flow-documented.md`](token-flow-documented.md).
 `task chat-agent:verify` still checks local service behavior and therefore expects 401 with and without the legacy token while `HARNESS_AUTH_MODE=ingress_oidc`.
 
 Ingress prerequisite details (applied by `chat-agent:external-prereqs`): nginx uses

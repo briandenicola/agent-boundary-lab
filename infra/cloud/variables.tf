@@ -197,7 +197,8 @@ variable "endpoint_image_tag" {
     Container App pointed at an absent image fails to provision a revision. Empty means
     "run the placeholder image"; `task build:deploy-endpoints` then applies the real tag.
 
-    Once you have deployed real images, put ENDPOINT_IMAGE_TAG=latest in your .env.
+    Tags are immutable and git-derived (`<sha7>` or `<sha7>-dirty-<UTC timestamp>`); `latest`
+    is never used. `task build:tool-apis` writes ENDPOINT_IMAGE_TAG=<tag> into your .env.
     The root Taskfile loads it, so `task cloud:up` will keep the endpoints on their real
     images instead of rolling them back to the placeholder.
 
@@ -314,4 +315,51 @@ variable "managed_network_extra_fqdns" {
   EOT
   type        = list(string)
   default     = []
+}
+
+#############################################
+# Policy API delegated (Entra token) auth — issue #4
+#############################################
+# Supplied as TF_VAR_* from .env (the root Taskfile loads it). Nothing here has a real
+# identifier as a default; authorized users in particular come only from the environment.
+
+variable "policy_api_auth_mode" {
+  description = "`legacy` (no auth, current behaviour) or `delegated`. The five variables below are only used when this is `delegated`."
+  type        = string
+  default     = "legacy"
+
+  validation {
+    condition     = contains(["legacy", "delegated"], var.policy_api_auth_mode)
+    error_message = "policy_api_auth_mode must be \"legacy\" or \"delegated\"."
+  }
+}
+
+variable "policy_api_tenant_id" {
+  description = "Entra tenant id that issues the delegated tokens."
+  type        = string
+  default     = ""
+}
+
+variable "policy_api_audience" {
+  description = "Expected `aud` claim of the policy API access token."
+  type        = string
+  default     = ""
+}
+
+variable "policy_api_scope" {
+  description = "Delegated scope that must appear in the token `scp` claim (e.g. policy.read)."
+  type        = string
+  default     = ""
+}
+
+variable "policy_api_client_ids" {
+  description = "Comma-separated client (app) ids trusted in the token `azp`/`appid` claim."
+  type        = string
+  default     = ""
+}
+
+variable "policy_api_authorized_user_ids" {
+  description = "Comma-separated Entra user object ids allowed by the policy API. Others get 403 user_not_authorized."
+  type        = string
+  default     = ""
 }

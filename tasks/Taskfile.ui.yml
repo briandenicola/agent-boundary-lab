@@ -29,13 +29,17 @@ tasks:
     cmds:
       - |
         set -eu
+        . "{{.ROOT_DIR}}/scripts/image-tag.sh"
+        TAG=$(image_tag_new "containment-demo-ui" "${UI_IMAGE_TAG:-}")
         ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)
         echo "building demo UI image in $ACR"
         az acr build \
           --registry "$ACR" \
-          --image "${UI_REPOSITORY}:${UI_IMAGE_TAG:-latest}" \
+          --image "${UI_REPOSITORY}:$TAG" \
           --file Dockerfile.demo-ui \
           .
+        image_tag_record "containment-demo-ui" "$TAG"
+        echo "built and recorded containment-demo-ui:$TAG"
       - task: digest
 
   digest:
@@ -49,7 +53,8 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: containment-demo-ui
-          TAG: '${UI_IMAGE_TAG:-latest}'
+          TAG_OVERRIDE: '${UI_IMAGE_TAG:-}'
+          BUILD_HINT: 'task build:test-ui'
           EXPLICIT: '${UI_IMAGE_DIGEST:-}'
           OUT: '{{.ROOT_DIR}}/.task/ui-digest'
       - |
@@ -101,7 +106,8 @@ tasks:
         vars:
           ACR: '{{.ACR_NAME}}'
           REPOSITORY: containment-demo-ui
-          TAG: '${UI_IMAGE_TAG:-latest}'
+          TAG_OVERRIDE: '${UI_IMAGE_TAG:-}'
+          BUILD_HINT: 'task build:test-ui'
           EXPLICIT: '${UI_IMAGE_DIGEST:-}'
           OUT: '{{.ROOT_DIR}}/.task/ui-digest'
       - |

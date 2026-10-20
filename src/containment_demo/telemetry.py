@@ -83,6 +83,7 @@ def emit_tool_evidence(settings: Settings, result: dict[str, Any]) -> None:
         "error_detail",
         "duration_ms",
         "destination_host",
+        "user_token_forwarded",
     ):
         if key in result and result[key] is not None:
             attributes[f"demo.{key}"] = result[key]

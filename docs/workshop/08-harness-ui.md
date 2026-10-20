@@ -102,7 +102,26 @@ Expected shape (abridged; synthetic data only):
 
 Open `/` to chat and `/flow` for a diagram of the hop-by-hop flow. In `ingress_oidc` mode both pages show a **Logout** chip pointing at `/oauth2/sign_out?rd=%2F`.
 
+### 6. Read the identity panel (issue #4; code written, **never run live**)
+
+In `ingress_oidc` mode with OBO configured, each turn first exchanges the user's access token for a token for the policy API (MSAL on-behalf-of). If that fails the turn is **not run** and the UI shows `on-behalf-of exchange failed: <code>` (HTTP 401, `source: identity`). The result page then has two separate cards:
+
+- **Policy API access (identity only)**, one entry per agent slot, derived only from the `get_servicing_policy` outcome:
+
+| Shown | Condition |
+|---|---|
+| allowed | HTTP 200 **and** the policy API echoed a `user_object_id` |
+| no evidence | HTTP 200 without `user_object_id` (a bare 200 never shows allowed), `user_token_forwarded=false`, or the tool gave no usable result |
+| denied | HTTP 403 with error `user_not_authorized` (shows the user object id, the tool, the policy API host, the code) |
+| not authenticated | HTTP 401 |
+
+- **Egress / containment**, separate: stays `inconclusive` without platform evidence. An identity denial never changes it.
+
+The "display label" is the ingress user name, shown for the presenter; it is not authorization. `user_token_forwarded=false` is the expected signature if Foundry does not deliver the header (UNVERIFIED until the first live run). Each entry also offers copyable KQL (receipt and tool-result queries; text in [kql-queries.md](../kql-queries.md) section 10; **not run as written**). The receipt query matches either an `authorization_decision` (denied) or a `served` (allowed) policy API line for the run id. Two earlier defects (`invoke.outcome_from_record` dropping `user_object_id` on a 200, and a denial-only receipt query) are fixed in code but UNVERIFIED live; `HARNESS_OBO_*` reaching the harness pod is also UNVERIFIED live (see [token-flow-documented.md](../token-flow-documented.md) section 6). The two-button `demo_ui.py` still shows the old `status_from_http` badge (out of scope).
+
 ## Code tour
+
+> **Line numbers in this table predate the issue #4 changes** (`chat.py` grew by about 170 lines). Navigate by function name: `_kql`, `_access_entry`, `policy_access`, `_obo_token`, `build_view`.
 
 ### The service — [src/containment_demo/harness/chat.py](../../src/containment_demo/harness/chat.py)
 
@@ -143,6 +162,7 @@ The browser side is in [page.py](../../src/containment_demo/harness/page.py): `w
 | [38–47](../../src/containment_demo/harness/settings.py#L38-L47) | Bounded timeouts: model 180 s, tool 150 s, turn 600 s, all capped; no retries. |
 | [49–55](../../src/containment_demo/harness/settings.py#L49-L55) | Facade URLs, token and agent names for the `audit` and `enforced` slots. |
 | [56–57](../../src/containment_demo/harness/settings.py#L56-L57) | `HARNESS_UI_TOKEN` and `DEMO_RUN_LABEL` (`hosted` or `local`: how runs are labelled honestly). |
+| (new) | `HARNESS_OBO_TENANT_ID`, `HARNESS_OBO_CLIENT_ID`, `HARNESS_OBO_CLIENT_SECRET`, `HARNESS_OBO_SCOPE`: all set or all unset (validator); `obo_enabled` is true when the tenant id is set. Set by `chat-agent:external-app` into Secret `harness-oidc-config`; whether they reach the harness pod is the defect above. |
 | [58–64](../../src/containment_demo/harness/settings.py#L58-L64) | `HARNESS_WORKBOOK_URL`, `HARNESS_LOGS_URL`, `HARNESS_APPINSIGHTS_URL`. |
 | [71–76](../../src/containment_demo/harness/settings.py#L71-L76) | Tokens must be at least 16 characters. |
 

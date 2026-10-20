@@ -115,6 +115,36 @@ class TestSuccessPaths:
         assert route.calls.last.request.headers["X-Demo-Run-Id"] == settings.demo_run_id
 
     @respx.mock
+    def test_policy_tool_forwards_user_token_and_reports_presence_only(
+        self, settings: Settings
+    ) -> None:
+        route = respx.get(POLICY_URL).mock(return_value=httpx.Response(200, json={}))
+        result = tools.get_servicing_policy(settings, user_token="synthetic-user-token")
+        assert route.calls.last.request.headers["Authorization"] == "Bearer synthetic-user-token"
+        assert result["user_token_forwarded"] is True
+        assert "synthetic-user-token" not in str(result)
+
+    @respx.mock
+    def test_policy_tool_without_token_sends_no_authorization(self, settings: Settings) -> None:
+        route = respx.get(POLICY_URL).mock(return_value=httpx.Response(200, json={}))
+        result = tools.get_servicing_policy(settings)
+        assert "Authorization" not in route.calls.last.request.headers
+        assert result["user_token_forwarded"] is False
+
+    @respx.mock
+    def test_policy_403_body_error_and_user_object_id_are_surfaced(
+        self, settings: Settings
+    ) -> None:
+        respx.get(POLICY_URL).mock(
+            return_value=httpx.Response(
+                403, json={"error": "user_not_authorized", "user_object_id": "oid-1", "x": 1}
+            )
+        )
+        result = tools.get_servicing_policy(settings, user_token="t")
+        assert result["http_status"] == 403
+        assert result["result"] == {"error": "user_not_authorized", "user_object_id": "oid-1"}
+
+    @respx.mock
     def test_receiver_tool_posts_synthetic_record_only(self, settings: Settings) -> None:
         route = respx.post(RECEIVER_URL).mock(
             return_value=httpx.Response(202, json={"received": True})
@@ -275,9 +305,13 @@ class TestNoEmbeddedPolicy:
     """The absence tests. These are the point of the repository."""
 
     def test_tools_take_no_destination_argument(self) -> None:
+        expected = {
+            "get_servicing_policy": ["settings", "user_token"],  # caller's token, not a URL
+            "send_to_external_processor": ["settings"],
+        }
         for fn in (tools.get_servicing_policy, tools.send_to_external_processor):
             params = list(inspect.signature(fn).parameters)
-            assert params == ["settings"], (
+            assert params == expected[fn.__name__], (
                 f"{fn.__name__} must take only validated settings; an arbitrary "
                 f"destination argument would defeat the experiment. Got {params}."
             )

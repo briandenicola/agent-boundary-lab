@@ -91,7 +91,7 @@ Then `task lint:cloud`, `task cloud:plan`, `task cloud:up`.
 task build:all           # seven images; builds in Azure and costs money
 ```
 
-Keep `IMAGE_TAG` and `ENDPOINT_IMAGE_TAG` consistent between build and deploy. After the tool APIs are built and deployed, keep `ENDPOINT_IMAGE_TAG` equal to that tag so a later `cloud:up` does not roll them back.
+Image tags are git-derived and immutable (never `latest`); each build records its tag and the deploy tasks read it. `task build:tool-apis` also writes `ENDPOINT_IMAGE_TAG` into `.env` so a later `cloud:up` does not roll the endpoints back.
 
 ### 5. Deploy applications (app:deploy from scratch)
 

@@ -44,10 +44,12 @@ def make_settings(**over: Any) -> FacadeSettings:
 class FakeTarget:
     def __init__(self, reply: TargetReply | Exception | None = None) -> None:
         self.seen: list[str] = []
+        self.tokens: list[str | None] = []
         self.reply = reply or TargetReply(ANSWER_TEXT, "resp_1", ("run-abc",))
 
-    async def send(self, text: str) -> TargetReply:
+    async def send(self, text: str, user_token: str | None = None) -> TargetReply:
         self.seen.append(text)
+        self.tokens.append(user_token)
         if isinstance(self.reply, Exception):
             raise self.reply
         return self.reply
@@ -122,6 +124,21 @@ class TestAuth:
         t = FakeTarget()
         client_for(t).post("/", json=send_message("x"))
         assert t.seen == []
+
+    def test_delegated_token_header_reaches_the_target_and_is_not_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        t = FakeTarget()
+        c = client_for(t)
+        c.post(
+            "/",
+            json=send_message("x"),
+            headers={**AUTH, "X-Delegated-Policy-Token": "synthetic-user-token"},
+        )
+        c.post("/", json=send_message("y"), headers=AUTH)
+        assert t.tokens == ["synthetic-user-token", None]
+        assert "synthetic-user-token" not in "\n".join(r.getMessage() for r in caplog.records)
 
     def test_comparison_is_constant_time(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[tuple[str, str]] = []
@@ -312,6 +329,13 @@ class TestResponsesTarget:
         assert call["store"] is False
         assert call["input"] == "question" and call["timeout"] == 5
         assert (reply.text, reply.response_id) == ("hello", "resp_9")
+
+    async def test_user_token_becomes_the_x_client_header_only_when_present(self) -> None:
+        fake = FakeResponses({"id": "r", "output_text": "x"})
+        await target_with(fake).send("q", user_token="synthetic-token")
+        await target_with(fake).send("q")
+        assert fake.calls[0]["extra_headers"] == {"x-client-policy-access-token": "synthetic-token"}
+        assert "extra_headers" not in fake.calls[1]
 
     async def test_tool_run_id_comes_only_from_the_agents_own_record(self) -> None:
         record = json.dumps(

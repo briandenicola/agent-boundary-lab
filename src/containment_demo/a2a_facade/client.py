@@ -66,6 +66,7 @@ async def send(
     token: str,
     text: str = SYNTHETIC_TEXT,
     timeout: float = TIMEOUT_SECONDS,
+    user_token: str | None = None,
 ) -> dict[str, Any]:
     import httpx
     from a2a.client import A2ACardResolver, ClientConfig, create_client
@@ -74,6 +75,8 @@ async def send(
     from google.protobuf.json_format import MessageToDict  # type: ignore[import-untyped]
 
     headers = {"Authorization": f"Bearer {token}", "A2A-Version": A2A_VERSION}
+    if user_token:
+        headers["X-Delegated-Policy-Token"] = user_token
     async with httpx.AsyncClient(
         headers=headers, timeout=httpx.Timeout(timeout), follow_redirects=False
     ) as http:

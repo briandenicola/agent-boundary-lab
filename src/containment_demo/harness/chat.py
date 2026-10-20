@@ -13,8 +13,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
-import html
 import hmac
+import html
 import logging
 import re
 import uuid
@@ -28,9 +28,14 @@ from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from containment_demo import invoke
-from containment_demo.actor_context import status_from_http
 from containment_demo.demo_ui import CSRF_HEADER, _authorised, _unauthorised
 from containment_demo.harness import agent as harness_agent
+from containment_demo.harness.obo import (
+    INGRESS_TOKEN_HEADER,
+    OboError,
+    acquire_user_token,
+    current_user_token,
+)
 from containment_demo.harness.page import FLOW_PAGE, PAGE
 from containment_demo.harness.settings import HarnessSettings
 
@@ -39,9 +44,10 @@ logger = logging.getLogger(__name__)
 MAX_MESSAGE_CHARS = 1000
 Responder = Callable[[HarnessSettings, str], Awaitable[dict[str, Any]]]
 
-#: Display-only label for which actor drove this turn (WP-3, issue #4). Not a
-#: credential and not authorization input: the presenter types this to say who they
-#: are demonstrating, it is never checked against anything.
+#: Display-only label for which actor drove this turn. It comes from ingress headers (or
+#: is typed in legacy mode) and is NOT authorization: the only authorization decision
+#: shown by this UI is the policy API's verdict on the user's OBO token (see
+#: ``policy_access``).
 _ACTOR_ALIAS_RE = re.compile(r"[A-Za-z0-9._-]{1,64}")
 DEFAULT_ACTOR_ALIAS = "unspecified-actor"
 
@@ -72,26 +78,102 @@ async def run_turn(settings: HarnessSettings, message: str) -> dict[str, Any]:
     return {"reply": reply, "tool_results": tool_results}
 
 
-def _flattened_tool_outcomes(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Every per-tool outcome record across all of this turn's agent calls, regardless
-    of which call produced it. A call that transported-failed contributes none, which
-    is correct: there is nothing to classify from a call that never reached a tool."""
-    outcomes: list[dict[str, Any]] = []
+_SAFE_RUN_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def _kql(run_id: str) -> dict[str, str]:
+    """Copyable Log Analytics queries for one tool run id (``run_id`` is pre-validated).
+
+    Tables and columns are those recorded as VERIFIED in docs/telemetry-map.md
+    (ContainerAppConsoleLogs_CL receipts, AppTraces ``demo.tool_result``). The queries
+    themselves have not been run as written.
+    """
+    return {
+        "receipt": (
+            "ContainerAppConsoleLogs_CL\n"
+            "| where TimeGenerated > ago(24h)\n"
+            f'| where Log_s has "{run_id}"\n'
+            '| where Log_s has_any ("authorization_decision", "served")\n'
+            "| project TimeGenerated, ContainerAppName_s, Log_s"
+        ),
+        "tool_result": (
+            "union isfuzzy=true AppTraces, AppDependencies\n"
+            "| where TimeGenerated > ago(24h)\n"
+            f'| where tostring(Properties) has "{run_id}"\n'
+            "| project TimeGenerated, Type, Name, Message, Properties"
+        ),
+    }
+
+
+def _access_entry(slot: str, result: dict[str, Any]) -> dict[str, Any]:
+    """The policy API's verdict on the user's token for one agent slot.
+
+    Derived only from the ``get_servicing_policy`` outcome. Never from the actor alias,
+    and never from ``send_to_external_processor`` (the egress-policy tool). This is an
+    identity-only result, not a network/egress result.
+    """
+    outcome = next(
+        (
+            o
+            for o in result.get("tool_outcomes") or []
+            if isinstance(o, dict) and o.get("tool_name") == "get_servicing_policy"
+        ),
+        None,
+    )
+    entry: dict[str, Any] = {
+        "slot": slot,
+        "status": "no_evidence",
+        "label": "no evidence: get_servicing_policy gave no usable result",
+        "tool": "get_servicing_policy",
+        "policy_api_host": None,
+        "http_status": None,
+        "error": None,
+        "user_object_id": None,
+        "user_token_forwarded": None,
+        "tool_run_id": None,
+        "harness_run_id": result.get("harness_run_id"),
+        "determination": "identity_only",
+    }
+    if not outcome or not outcome.get("attempted"):
+        return entry
+    status = outcome.get("http_status")
+    forwarded = outcome.get("user_token_forwarded")
+    run_id = outcome.get("tool_run_id")
+    entry.update(
+        policy_api_host=outcome.get("destination_host"),
+        http_status=status,
+        error=outcome.get("policy_error"),
+        user_object_id=outcome.get("user_object_id"),
+        user_token_forwarded=forwarded,
+        tool_run_id=run_id,
+    )
+    if isinstance(run_id, str) and _SAFE_RUN_ID.fullmatch(run_id):
+        entry["kql"] = _kql(run_id)
+    if forwarded is False:
+        entry["label"] = "no evidence: the user token did not reach the tool"
+    elif status == 200 and entry["user_object_id"]:
+        entry["status"] = "allowed"
+        entry["label"] = "allowed: policy API verified your token"
+    elif status == 200:
+        entry["label"] = (
+            "no evidence: HTTP 200 without a verified user object id from the policy API"
+        )
+    elif status == 403 and entry["error"] == "user_not_authorized":
+        entry["status"] = "denied"
+        entry["label"] = "denied: policy API verified your token and you are not authorized"
+    elif status == 401:
+        entry["status"] = "unauthenticated"
+        entry["label"] = "not authenticated (token missing or invalid)"
+    return entry
+
+
+def policy_access(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    entries = []
     for r in results:
         result = r.get("result")
-        if isinstance(result, dict):
-            outcomes.extend(o for o in result.get("tool_outcomes") or [] if isinstance(o, dict))
-    return outcomes
-
-
-def _policy_http_status(outcomes: list[dict[str, Any]]) -> int | None:
-    """The HTTP status ``get_servicing_policy`` reported, or ``None`` if it was never
-    attempted this turn. This is the only signal used for the policy authorization
-    label below -- never ``send_to_external_processor``, which is the containment tool."""
-    for outcome in outcomes:
-        if outcome.get("tool_name") == "get_servicing_policy":
-            return outcome.get("http_status")
-    return None
+        if isinstance(result, dict) and result.get("slot"):
+            entries.append(_access_entry(str(result["slot"]), result))
+    return entries
 
 
 def _ingress_actor_alias(request: Request) -> str | None:
@@ -154,13 +236,12 @@ def build_view(
             if isinstance(r["result"], dict)
         }
     )
-    # Two separate outcome categories, surfaced side by side and never merged:
-    # - policy_authorization_status: WP-2's identity-authorization decision for this
-    #   actor, read only from get_servicing_policy's reported HTTP status.
+    # Two separate outcome categories, surfaced separately and never merged:
+    # - policy_access: the policy API's identity verdict on the user's OBO token, per
+    #   slot, read only from get_servicing_policy's outcome.
     # - determination: the containment determination (always inconclusive without
-    #   platform evidence). It is a constant precisely so a policy denial above can
-    #   never be mistaken for, or silently promoted into, a containment result.
-    policy_status = status_from_http(_policy_http_status(_flattened_tool_outcomes(results)))
+    #   platform evidence). It is a constant precisely so a policy denial can never be
+    #   mistaken for, or silently promoted into, a containment result.
     return {
         "turn_id": turn_id,
         "run_label": settings.run_label,
@@ -169,7 +250,7 @@ def build_view(
         "tool_results": results,
         "tool_run_ids": run_ids,
         "actor_alias": actor_alias,
-        "policy_authorization_status": str(policy_status),
+        "policy_access": policy_access(results),
         "determination": invoke.DETERMINATION,
         "governed_by_foundry_policy": False,
     }
@@ -195,6 +276,12 @@ def create_app(settings: HarnessSettings, *, responder: Responder = run_turn) ->
         if diagnostics_items
         else ""
     )
+
+    async def _obo_token(headers: Any) -> str | None:
+        """OBO token for this turn, or None when OBO is off (legacy auth or not configured)."""
+        if settings.auth_mode != "ingress_oidc":
+            return None
+        return await acquire_user_token(settings, headers.get(INGRESS_TOKEN_HEADER))
 
     async def page(request: Request) -> Response:
         actor_alias = ""
@@ -266,6 +353,18 @@ def create_app(settings: HarnessSettings, *, responder: Responder = run_turn) ->
         async with lock:
             logger.info("harness turn starting turn_id=%s", turn_id)
             try:
+                user_token = await _obo_token(request.headers)
+            except OboError as exc:
+                return JSONResponse(
+                    {
+                        "error": f"on-behalf-of exchange failed: {exc.code}",
+                        "turn_id": turn_id,
+                        "source": "identity",
+                    },
+                    status_code=401,
+                )
+            reset = current_user_token.set(user_token)
+            try:
                 turn = await asyncio.wait_for(
                     responder(settings, message), timeout=settings.turn_timeout_seconds
                 )
@@ -280,6 +379,8 @@ def create_app(settings: HarnessSettings, *, responder: Responder = run_turn) ->
                     {"error": invoke.sanitize(exc), "turn_id": turn_id, "source": "harness/model"},
                     status_code=502,
                 )
+            finally:
+                current_user_token.reset(reset)
         return JSONResponse(build_view(settings, turn, turn_id=turn_id, actor_alias=actor_alias))
 
     async def ws(websocket: WebSocket) -> None:
@@ -360,7 +461,25 @@ def create_app(settings: HarnessSettings, *, responder: Responder = run_turn) ->
             await websocket.send_json({"event": "accepted", "turn_id": turn_id})
             async with lock:
                 logger.info("harness turn starting turn_id=%s", turn_id)
-                turn_task = asyncio.create_task(responder(settings, message))
+                try:
+                    user_token = await _obo_token(websocket.headers)
+                except OboError as exc:
+                    await websocket.send_json(
+                        {
+                            "event": "error",
+                            "status": 401,
+                            "source": "identity",
+                            "turn_id": turn_id,
+                            "error": f"on-behalf-of exchange failed: {exc.code}",
+                        }
+                    )
+                    continue
+                # The task copies the context here, so the token reaches the tools.
+                reset = current_user_token.set(user_token)
+                try:
+                    turn_task = asyncio.create_task(responder(settings, message))
+                finally:
+                    current_user_token.reset(reset)
                 started = asyncio.get_running_loop().time()
                 next_progress_at = 5.0
                 try:
@@ -373,7 +492,9 @@ def create_app(settings: HarnessSettings, *, responder: Responder = run_turn) ->
                                 await turn_task
                             raise TimeoutError
                         try:
-                            await asyncio.wait_for(asyncio.shield(turn_task), timeout=min(1.0, remaining))
+                            await asyncio.wait_for(
+                                asyncio.shield(turn_task), timeout=min(1.0, remaining)
+                            )
                         except TimeoutError:
                             pass
                         elapsed = asyncio.get_running_loop().time() - started

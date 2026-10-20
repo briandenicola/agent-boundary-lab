@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import AliasChoices, Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from containment_demo import ui_a2a
@@ -55,13 +55,34 @@ class HarnessSettings(BaseSettings):
     )
     ui_token: SecretStr = Field(validation_alias=_env("HARNESS_UI_TOKEN"))
     run_label: Literal["hosted", "local"] = Field(validation_alias=_env("DEMO_RUN_LABEL"))
-    diagnostics_workbook_url: str = Field(
-        default="", validation_alias=_env("HARNESS_WORKBOOK_URL")
-    )
+    diagnostics_workbook_url: str = Field(default="", validation_alias=_env("HARNESS_WORKBOOK_URL"))
     diagnostics_logs_url: str = Field(default="", validation_alias=_env("HARNESS_LOGS_URL"))
     diagnostics_app_insights_url: str = Field(
         default="", validation_alias=_env("HARNESS_APPINSIGHTS_URL")
     )
+    # On-behalf-of exchange (issue #4). All four set = enabled; none set = legacy behaviour.
+    obo_tenant_id: str = Field(default="", validation_alias=_env("HARNESS_OBO_TENANT_ID"))
+    obo_client_id: str = Field(default="", validation_alias=_env("HARNESS_OBO_CLIENT_ID"))
+    obo_client_secret: SecretStr = Field(
+        default=SecretStr(""), validation_alias=_env("HARNESS_OBO_CLIENT_SECRET")
+    )
+    obo_scope: str = Field(default="", validation_alias=_env("HARNESS_OBO_SCOPE"))
+
+    @model_validator(mode="after")
+    def _obo_all_or_none(self) -> HarnessSettings:
+        values = (
+            self.obo_tenant_id,
+            self.obo_client_id,
+            self.obo_client_secret.get_secret_value(),
+            self.obo_scope,
+        )
+        if any(values) and not all(values):
+            raise ValueError("HARNESS_OBO_* must be all set or all unset")
+        return self
+
+    @property
+    def obo_enabled(self) -> bool:
+        return bool(self.obo_tenant_id)
 
     @field_validator("local_model_base_url", "a2a_facade_url_audit", "a2a_facade_url_enforced")
     @classmethod

@@ -201,3 +201,8 @@ is then denied too is now a Phase 6 item. **A risk without a test is a sentence.
 - **Scope finalized:** Future phases (8–10) use kustomize overlays exclusively. No new Terraform root modules for Dapr or on-premises harness.
 - **All acceptance criteria and GATE 0 remain intact.** The cutovers were organizational, not technical.
 
+
+## Learnings (2026-10-20 — revision of rejected issue #4 docs pass)
+- Trust code, not a prior agent's report. Reading it found three real defects docs must flag: `invoke.outcome_from_record` drops `user_object_id` on HTTP 200; `HARNESS_OBO_*` are written to Secret `harness-oidc-config` that only oauth2-proxy consumes; the UI receipt KQL matches only `authorization_decision` (denials), while served calls log `event=receipt outcome=served`.
+- Teardown is `chat-agent:external-app-down` (not `external-down`); `app:deploy-external` already runs `external-app`.
+- Only VERIFIED fact: unit suite 953 passed / 5 skipped (mocks). Everything else SOURCE-VERIFIED or UNVERIFIED.

@@ -35,16 +35,18 @@ tasks:
       - task: _infrastructure
       - task: arm:_endpoint-images
         vars:
-          TAG: '${IMAGE_TAG:-latest}'
+          TAG: '$(. "{{.ROOT_DIR}}/scripts/image-tag.sh" && image_tag_read containment-demo-policy-api "${IMAGE_TAG:-}" "task build:tool-apis")'
       - task: arm:_managed-network-imported
       - |
         set -eu
+        . "{{.ROOT_DIR}}/scripts/image-tag.sh"
+        ENDPOINT_TAG=$(image_tag_read containment-demo-policy-api "${IMAGE_TAG:-}" "task build:tool-apis")
         PLAN_DIR=$(mktemp -d)
         trap 'rm -f "$PLAN_DIR/endpoints.tfplan"; rmdir "$PLAN_DIR"' EXIT
         terraform -chdir="{{.ROOT_DIR}}/infra/cloud" plan -input=false -compact-warnings \
           -var "region={{.REGION}}" \
           -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" \
-          -var "endpoint_image_tag=${IMAGE_TAG:-latest}" \
+          -var "endpoint_image_tag=$ENDPOINT_TAG" \
           -out="$PLAN_DIR/endpoints.tfplan"
         PLAN_JSON=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" show -json "$PLAN_DIR/endpoints.tfplan")
         if ! printf '%s\n' "$PLAN_JSON" | jq -e '
@@ -66,7 +68,7 @@ tasks:
         fi
         terraform -chdir="{{.ROOT_DIR}}/infra/cloud" apply -input=false -compact-warnings \
           "$PLAN_DIR/endpoints.tfplan"
-        echo "Keep ENDPOINT_IMAGE_TAG=${IMAGE_TAG:-latest} in .env for future cloud:up runs."
+        echo "Keep ENDPOINT_IMAGE_TAG=$ENDPOINT_TAG in .env (task build:tool-apis already wrote it) for future cloud:up runs."
       - task: :tool-apis:check
 
   foundry-agent:

@@ -142,12 +142,15 @@ async def healthz() -> dict[str, str]:
 
 async def get_policy(request: Request) -> JSONResponse:
     """Return the fixed synthetic policy and record that the call arrived."""
-    logger.info(json.dumps(_receipt(request, outcome="served")))
+    user = getattr(request.state, "delegated_user", None)
+    extra = {"user_object_id": user.object_id} if user is not None else {}
+    logger.info(json.dumps(_receipt(request, outcome="served", **extra)))
     return JSONResponse(
         {
             "demo_run_id": _run_marker(request),
             "served_at": datetime.now(UTC).isoformat(),
             "policy": SERVICING_POLICY,
+            **extra,
         }
     )
 
@@ -210,6 +213,9 @@ def create_app(
                 if actor_store is not None:
                     _authorize_actor(actor_store, request)
             except AuthError as error:
+                denied_user = (
+                    {"user_object_id": error.user_object_id} if error.user_object_id else {}
+                )
                 logger.info(
                     json.dumps(
                         _receipt(
@@ -218,6 +224,7 @@ def create_app(
                             outcome="unavailable" if error.status == 503 else "denied",
                             auth_error=error.code,
                             determination="identity_only",
+                            **denied_user,
                         )
                     )
                 )
@@ -225,7 +232,7 @@ def create_app(
                 if error.status == 401:
                     headers["WWW-Authenticate"] = "Bearer"
                 return JSONResponse(
-                    {"error": error.code, "determination": "identity_only"},
+                    {"error": error.code, "determination": "identity_only", **denied_user},
                     status_code=error.status,
                     headers=headers,
                 )

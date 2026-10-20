@@ -56,10 +56,12 @@ A guided, eleven-module lab for engineers new to Azure and Foundry: [docs/worksh
 | [docs/compatibility.md](docs/compatibility.md) | Pinned versions and platform findings |
 | [docs/telemetry-map.md](docs/telemetry-map.md) | Real field names and tables found during validation |
 | [docs/egress-control.md](docs/egress-control.md) | How the network policy works |
+| [docs/token-flow-documented.md](docs/token-flow-documented.md) | Issue #4: OBO token exchange and delegated authorization (SOURCE-VERIFIED code, UNVERIFIED live) |
 | [docs/identity-probe.md](docs/identity-probe.md) | Entra identity checks for allowed and denied users |
 | [docs/demo-runbook.md](docs/demo-runbook.md) | Presenter and operator procedure |
 | [docs/rebuild-runbook.md](docs/rebuild-runbook.md) | End-to-end rebuild and recoveries |
 | [docs/kql-queries.md](docs/kql-queries.md) | Evidence queries |
+| [docs/issue-4-demo-readiness.md](docs/issue-4-demo-readiness.md) | Issue #4 status: allowed/denied demo, operator checklist |
 | [docs/README.md](docs/README.md), [docs/PLAN.md](docs/PLAN.md) | Original scope and phased plan |
 
 ## License

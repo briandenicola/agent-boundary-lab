@@ -103,7 +103,7 @@ class TestBothToolsAreAlwaysRegistered:
             monkeypatch.setattr(
                 tools,
                 name,
-                lambda _s, _n=name: (called.append(_n), {"tool_name": _n})[1],
+                lambda _s, _n=name, **_kw: (called.append(_n), {"tool_name": _n})[1],
             )
         for fn in agent.build_tool_functions(settings):
             fn()
@@ -114,10 +114,15 @@ class TestToolsExposeNoDestination:
     @pytest.mark.parametrize("tool_name", sorted(EXPECTED_TOOL_NAMES))
     def test_tool_takes_zero_arguments(self, settings: Settings, tool_name: str) -> None:
         fn = next(f for f in agent.build_tool_functions(settings) if f.__name__ == tool_name)
-        assert inspect.signature(fn).parameters == {}, (
+        # ``tool_context`` is injected by ADK and absent from the model-visible
+        # declaration, so the model still sees a zero-argument tool.
+        assert set(inspect.signature(fn).parameters) <= {"tool_context"}, (
             f"{tool_name} must take no arguments. Any parameter the model can fill is a "
             "destination the egress policy no longer solely controls."
         )
+        from google.adk.tools import FunctionTool
+
+        assert FunctionTool(fn)._get_declaration().parameters is None
 
     def test_tools_have_docstrings_for_the_model(self, settings: Settings) -> None:
         # ADK exposes the docstring to the model. A missing one is not a correctness bug,

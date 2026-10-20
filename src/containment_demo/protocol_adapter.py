@@ -19,10 +19,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from containment_demo.agent import USER_TOKEN_STATE_KEY
 from containment_demo.settings import Settings
 from containment_demo.telemetry import disable_content_capture
 
 logger = logging.getLogger(__name__)
+
+#: Foundry forwards request headers named x-client-* to the container (not Authorization).
+USER_TOKEN_HEADER = "x-client-policy-access-token"  # noqa: S105
 
 #: Routes owned by the server package. Ours must not collide with these.
 PLATFORM_ROUTES = frozenset(
@@ -76,11 +80,16 @@ def build_host(settings: Settings) -> Any:
         ``tests/unit/test_protocol_adapter.py::TestInputTextIsAwaited``.
         """
         user_text = await context.get_input_text()
+        # SOURCE-VERIFIED: client_headers holds only lowercase x-client-* request headers
+        # (azure-ai-agentserver-responses 2.2.0 hosting/_endpoint_handler.py:628). Whether
+        # Foundry delivers this one is UNVERIFIED until a live run.
+        user_token = context.client_headers.get(USER_TOKEN_HEADER) or None
         reply = await _run_agent_turn(
             runner=runner,
             settings=settings,
             user_text=user_text,
             cancellation_signal=cancellation_signal,
+            user_token=user_token,
         )
         return TextResponse(context, request, text=reply)
 
@@ -98,6 +107,7 @@ async def _run_agent_turn(
     settings: Settings,
     user_text: str,
     cancellation_signal: Any,
+    user_token: str | None = None,
 ) -> str:
     """Drive the ADK runner for a single user turn and collect the final text."""
     from google.genai import types
@@ -106,6 +116,7 @@ async def _run_agent_turn(
     session = await session_service.create_session(
         app_name=settings.agent_name,
         user_id="demo-user",
+        state={USER_TOKEN_STATE_KEY: user_token} if user_token else None,
     )
 
     content = types.Content(role="user", parts=[types.Part(text=user_text)])
