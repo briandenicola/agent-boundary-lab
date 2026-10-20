@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1450 860" width="1450" height="860" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<metadata>Source: 04-oidc-identity-flow.excalidraw (same directory). Generated from one shape spec; edit the .excalidraw source, not this SVG.</metadata>
+<rect width="1450" height="860" fill="#ffffff"/>
+<text x="30.0" y="46.0" font-size="28" fill="#1e1e1e" text-anchor="start" font-weight="bold">Allowed user vs denied user: identity flow</text>
+<text x="30.0" y="70.0" font-size="14" fill="#495057" text-anchor="start" font-weight="normal">Ingress OIDC gives the harness a display alias. Delegated-token checks decide who may reach the agent.</text>
+<rect x="30" y="150" width="180" height="80" rx="10" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="120.0" y="186.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Allowed user</text>
+<text x="120.0" y="205.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">(allowed_user_id)</text>
+<rect x="30" y="450" width="170" height="80" rx="10" fill="#ffe3e3" stroke="#e03131" stroke-width="2"/>
+<text x="115.0" y="486.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Denied user</text>
+<text x="115.0" y="505.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">(denied_user_id)</text>
+<rect x="290" y="85" width="240" height="85" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="410.0" y="114.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Microsoft Entra ID</text>
+<text x="410.0" y="133.1" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">OIDC issuer (v2.0)</text>
+<text x="410.0" y="151.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">tenant sign-in</text>
+<rect x="250" y="230" width="960" height="400" rx="10" fill="#d0ebff" fill-opacity="0.45" stroke="#1971c2" stroke-width="2"/>
+<text x="260.0" y="252.0" font-size="14" fill="#1971c2" text-anchor="start" font-weight="bold">AKS namespace (harness-external kustomize)</text>
+<rect x="280" y="300" width="220" height="100" rx="10" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="390.0" y="336.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">ingress-nginx +</text>
+<text x="390.0" y="355.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">oauth2-proxy</text>
+<text x="390.0" y="374.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">openid profile email</text>
+<rect x="640" y="300" width="190" height="100" rx="10" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="735.0" y="336.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Harness chat</text>
+<text x="735.0" y="355.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">actor alias is</text>
+<text x="735.0" y="374.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">display only</text>
+<rect x="920" y="300" width="270" height="100" rx="10" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="1055.0" y="336.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">A2A facade</text>
+<text x="1055.0" y="355.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">AccessGuard</text>
+<text x="1055.0" y="374.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">(delegated_auth.py)</text>
+<rect x="1265" y="300" width="160" height="100" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="1345.0" y="346.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Foundry</text>
+<text x="1345.0" y="365.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">hosted agent</text>
+<rect x="920" y="470" width="270" height="90" rx="10" fill="#ffe3e3" stroke="#e03131" stroke-width="2"/>
+<text x="1055.0" y="501.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Rejected before Foundry</text>
+<text x="1055.0" y="520.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">403 user_not_authorized</text>
+<text x="1055.0" y="539.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">(401 / insufficient_scope)</text>
+<rect x="630" y="470" width="200" height="90" rx="10" fill="#fff4e6" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="730.0" y="501.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Token hand-off to</text>
+<text x="730.0" y="520.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">facade: not</text>
+<text x="730.0" y="539.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">verified here</text>
+<polyline points="190.9,232.0 302.2,298.0" fill="none" stroke="#2f9e44" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="302.2,298.0 287.9,296.5 294.1,286.2" fill="#2f9e44"/>
+<rect x="221.1" y="253.9" width="51.0" height="22.2" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="246.6" y="269.9" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">HTTPS</text>
+<polyline points="197.1,448.2 288.2,401.8" fill="none" stroke="#e03131" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="288.2,401.8 279.4,413.1 273.9,402.4" fill="#e03131"/>
+<rect x="217.2" y="413.9" width="51.0" height="22.2" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="242.7" y="429.9" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">HTTPS</text>
+<polyline points="394.9,296.0 405.8,174.0" fill="none" stroke="#495057" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="405.8,174.0 410.6,187.5 398.7,186.4" fill="#495057"/>
+<polygon points="394.9,296.0 390.0,282.5 402.0,283.6" fill="#495057"/>
+<rect x="399.7" y="223.9" width="121.2" height="22.2" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="460.3" y="239.9" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">OIDC code flow</text>
+<polyline points="504.0,350.0 636.0,350.0" fill="none" stroke="#1971c2" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="636.0,350.0 623.0,356.0 623.0,344.0" fill="#1971c2"/>
+<rect x="505.5" y="330.8" width="129.0" height="38.5" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="570.0" y="346.8" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">x-auth-request-</text>
+<text x="570.0" y="363.0" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">headers</text>
+<polyline points="834.0,350.0 916.0,350.0" fill="none" stroke="#1971c2" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="916.0,350.0 903.0,356.0 903.0,344.0" fill="#1971c2"/>
+<rect x="826.1" y="330.8" width="97.8" height="38.5" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="875.0" y="346.8" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Bearer</text>
+<text x="875.0" y="363.0" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">(delegated)</text>
+<polyline points="1194.0,350.0 1261.0,350.0" fill="none" stroke="#2f9e44" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="1261.0,350.0 1248.0,356.0 1248.0,344.0" fill="#2f9e44"/>
+<rect x="1194.2" y="330.8" width="66.6" height="38.5" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1227.5" y="346.8" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">oid</text>
+<text x="1227.5" y="363.0" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">allowed</text>
+<polyline points="1055.0,404.0 1055.0,466.0" fill="none" stroke="#e03131" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="1055.0,466.0 1049.0,453.0 1061.0,453.0" fill="#e03131"/>
+<rect x="967.1" y="423.9" width="175.8" height="22.2" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1055.0" y="439.9" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">oid not in allow list</text>
+<rect x="40" y="660" width="1380" height="150" rx="10" fill="none" stroke="#868e96" stroke-width="2"/>
+<text x="50.0" y="682.0" font-size="14" fill="#343a40" text-anchor="start" font-weight="bold">Setup that makes the two users differ</text>
+<rect x="60" y="705" width="420" height="85" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="270.0" y="734.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">identity_setup.py (Microsoft Graph)</text>
+<text x="270.0" y="753.1" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">browser app, blueprint, agent identity</text>
+<text x="270.0" y="771.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">per-user oauth2PermissionGrants</text>
+<rect x="510" y="705" width="420" height="85" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="720.0" y="734.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Facade configuration (opt-in)</text>
+<text x="720.0" y="753.1" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">AUTH_MODE=delegated, TENANT_ID, AUDIENCE,</text>
+<text x="720.0" y="771.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">SCOPE, CLIENT_IDS, AUTHORIZED_USER_IDS</text>
+<rect x="960" y="705" width="440" height="85" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="1180.0" y="734.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Terraform identity.tf</text>
+<text x="1180.0" y="753.1" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">user-assigned identities + federated</text>
+<text x="1180.0" y="771.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">credentials (AKS workload identity)</text>
+</svg>

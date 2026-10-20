@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 740" width="1440" height="740" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<metadata>Source: 01-three-layers.excalidraw (same directory). Generated from one shape spec; edit the .excalidraw source, not this SVG.</metadata>
+<rect width="1440" height="740" fill="#ffffff"/>
+<text x="30.0" y="46.0" font-size="28" fill="#1e1e1e" text-anchor="start" font-weight="bold">Three layers, one claim</text>
+<text x="30.0" y="70.0" font-size="14" fill="#495057" text-anchor="start" font-weight="normal">Outbound containment is enforced by the platform, not the application. The egress policy is the only variable.</text>
+<rect x="30" y="100" width="440" height="500" rx="10" fill="none" stroke="#868e96" stroke-width="2"/>
+<text x="40.0" y="122.0" font-size="14" fill="#343a40" text-anchor="start" font-weight="bold">1. Agent (application)</text>
+<rect x="500" y="100" width="440" height="500" rx="10" fill="#e5dbff" fill-opacity="0.45" stroke="#6741d9" stroke-width="2"/>
+<text x="510.0" y="122.0" font-size="14" fill="#6741d9" text-anchor="start" font-weight="bold">2. Policy (platform, account-level RAI)</text>
+<rect x="970" y="100" width="440" height="500" rx="10" fill="#d3f9d8" fill-opacity="0.45" stroke="#2f9e44" stroke-width="2"/>
+<text x="980.0" y="122.0" font-size="14" fill="#2f9e44" text-anchor="start" font-weight="bold">3. Evidence (three independent views)</text>
+<rect x="55" y="150" width="390" height="80" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="250.0" y="186.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Google ADK agent</text>
+<text x="250.0" y="205.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">exactly two business tools</text>
+<rect x="55" y="255" width="390" height="60" rx="10" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="250.0" y="281.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">get_servicing_policy</text>
+<text x="250.0" y="300.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">allowlisted host: policy-api</text>
+<rect x="55" y="335" width="390" height="60" rx="10" fill="#ffe3e3" stroke="#e03131" stroke-width="2"/>
+<text x="250.0" y="361.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">send_to_external_processor</text>
+<text x="250.0" y="380.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">host NOT allowlisted: test-receiver</text>
+<rect x="55" y="440" width="390" height="130" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="250.0" y="482.5" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">One container image</text>
+<text x="250.0" y="501.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">containment-demo-agent@sha256:...</text>
+<text x="250.0" y="520.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">pinned by digest, not a tag</text>
+<text x="250.0" y="538.8" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Responses protocol adapter</text>
+<rect x="525" y="150" width="390" height="70" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="720.0" y="181.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Agent version: containment-demo-audit</text>
+<text x="720.0" y="200.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">image digest = X</text>
+<rect x="525" y="240" width="390" height="90" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="720.0" y="271.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">RAI policy: Audit</text>
+<text x="720.0" y="290.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">default-deny + exact-host allow</text>
+<text x="720.0" y="309.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">violations logged, calls pass</text>
+<rect x="525" y="380" width="390" height="70" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="720.0" y="411.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Agent version: containment-demo-enforced</text>
+<text x="720.0" y="430.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">image digest = X</text>
+<rect x="525" y="470" width="390" height="90" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="720.0" y="501.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">RAI policy: Enforced</text>
+<text x="720.0" y="520.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">default-deny + exact-host allow</text>
+<text x="720.0" y="539.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">violations blocked</text>
+<rect x="995" y="150" width="390" height="80" rx="10" fill="#fff4e6" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="1190.0" y="186.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">App / tool traces</text>
+<text x="1190.0" y="205.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">App Insights (audit only today)</text>
+<rect x="995" y="270" width="390" height="100" rx="10" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="1190.0" y="306.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Platform egress decisions</text>
+<text x="1190.0" y="325.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">AppDependencies:</text>
+<text x="1190.0" y="344.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">NetworkEgressDecision rows</text>
+<rect x="995" y="410" width="390" height="100" rx="10" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="1190.0" y="446.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Receipts at the two endpoints</text>
+<text x="1190.0" y="465.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Log Analytics: policy-api,</text>
+<text x="1190.0" y="484.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">test-receiver (demo_run_id)</text>
+<polyline points="720.0,224.0 720.0,236.0" fill="none" stroke="#6741d9" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="720.0,236.0 714.0,223.0 726.0,223.0" fill="#6741d9"/>
+<polyline points="720.0,454.0 720.0,466.0" fill="none" stroke="#6741d9" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="720.0,466.0 714.0,453.0 726.0,453.0" fill="#6741d9"/>
+<polyline points="403.2,438.4 480.0,405.0 480.0,185.0 521.0,185.0" fill="none" stroke="#495057" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="521.0,185.0 508.0,191.0 508.0,179.0" fill="#495057"/>
+<rect x="431.1" y="283.9" width="97.8" height="22.2" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="480.0" y="299.9" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">same digest</text>
+<polyline points="419.8,438.5 480.0,415.0 521.0,415.0" fill="none" stroke="#495057" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="521.0,415.0 508.0,421.0 508.0,409.0" fill="#495057"/>
+<polyline points="919.0,299.8 991.0,305.2" fill="none" stroke="#2f9e44" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="991.0,305.2 977.6,310.2 978.5,298.2" fill="#2f9e44"/>
+<rect x="898.3" y="291.4" width="113.4" height="22.2" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="955.0" y="307.4" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">decision rows</text>
+<polyline points="832.2,468.5 1065.8,371.5" fill="none" stroke="#2f9e44" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="1065.8,371.5 1056.1,382.1 1051.5,371.0" fill="#2f9e44"/>
+<text x="720.0" y="636.0" font-size="16" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Only variable between the two versions: the egress policy mode (Audit vs Enforced).</text>
+<text x="720.0" y="660.0" font-size="14" fill="#495057" text-anchor="middle" font-weight="normal">Evidence is correlated by demo_run_id (receipts) and by host + time (decision rows); see 08-evidence-join.</text>
+<rect x="30" y="695" width="26" height="18" rx="4" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="64.0" y="708.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Observed / allowed</text>
+<rect x="245" y="695" width="26" height="18" rx="4" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="279.0" y="708.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">AKS (not governed)</text>
+<rect x="460" y="695" width="26" height="18" rx="4" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="494.0" y="708.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Foundry</text>
+<rect x="675" y="695" width="26" height="18" rx="4" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="709.0" y="708.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Controlled endpoint</text>
+<rect x="890" y="695" width="26" height="18" rx="4" fill="#fff4e6" stroke="#e8590c" stroke-width="2" stroke-dasharray="5 3"/>
+<text x="924.0" y="708.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Proposed / audit-only</text>
+<rect x="1105" y="695" width="26" height="18" rx="4" fill="#ffe3e3" stroke="#e03131" stroke-width="2"/>
+<text x="1139.0" y="708.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Denied</text>
+</svg>

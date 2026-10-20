@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 960" width="1440" height="960" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<metadata>Source: 06-build-deploy-pipeline.excalidraw (same directory). Generated from one shape spec; edit the .excalidraw source, not this SVG.</metadata>
+<rect width="1440" height="960" fill="#ffffff"/>
+<text x="30.0" y="46.0" font-size="28" fill="#1e1e1e" text-anchor="start" font-weight="bold">Build and deploy pipeline</text>
+<text x="30.0" y="70.0" font-size="14" fill="#495057" text-anchor="start" font-weight="normal">Builds run in Azure (az acr build). Both agent versions pin one image digest.</text>
+<rect x="40" y="90" width="420" height="90" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="250.0" y="121.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">task build:foundry-agent</text>
+<text x="250.0" y="140.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">az acr build -f Dockerfile</text>
+<text x="250.0" y="159.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">-&gt; containment-demo-agent:TAG</text>
+<rect x="510" y="90" width="420" height="90" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="720.0" y="121.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">task build:tool-apis</text>
+<text x="720.0" y="140.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">az acr build -f services/Dockerfile</text>
+<text x="720.0" y="159.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">SERVICE=policy_api | test_receiver</text>
+<rect x="980" y="90" width="420" height="90" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="1190.0" y="121.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">task harness:build, build:all</text>
+<text x="1190.0" y="140.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">az acr build -f Dockerfile.harness</text>
+<text x="1190.0" y="159.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">plus bridge, chat, model, test-ui</text>
+<rect x="40" y="240" width="1370" height="150" rx="10" fill="#d3f9d8" fill-opacity="0.45" stroke="#2f9e44" stroke-width="2"/>
+<text x="50.0" y="262.0" font-size="14" fill="#2f9e44" text-anchor="start" font-weight="bold">Azure Container Registry (acr.tf)</text>
+<rect x="60" y="290" width="240" height="70" rx="10" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="180.0" y="321.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">containment-demo-</text>
+<text x="180.0" y="340.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">agent</text>
+<rect x="315" y="290" width="270" height="70" rx="10" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="450.0" y="321.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">containment-demo-</text>
+<text x="450.0" y="340.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">policy-api</text>
+<rect x="600" y="290" width="300" height="70" rx="10" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="750.0" y="321.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">containment-demo-</text>
+<text x="750.0" y="340.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">test-receiver</text>
+<rect x="915" y="290" width="250" height="70" rx="10" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="1040.0" y="321.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">containment-demo-</text>
+<text x="1040.0" y="340.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">harness</text>
+<rect x="1180" y="290" width="210" height="70" rx="10" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="1285.0" y="321.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">bridge, chat-agent,</text>
+<text x="1285.0" y="340.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">model-server, test-ui</text>
+<polyline points="232.0,183.8 194.3,286.2" fill="none" stroke="#495057" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="194.3,286.2 193.1,272.0 204.4,276.1" fill="#495057"/>
+<polyline points="652.8,182.3 503.0,287.7" fill="none" stroke="#495057" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="503.0,287.7 510.2,275.3 517.1,285.1" fill="#495057"/>
+<polyline points="727.7,184.0 743.8,286.0" fill="none" stroke="#495057" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="743.8,286.0 735.9,274.1 747.7,272.3" fill="#495057"/>
+<polyline points="1152.0,183.1 1070.1,286.9" fill="none" stroke="#495057" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="1070.1,286.9 1073.5,272.9 1082.9,280.4" fill="#495057"/>
+<polyline points="1214.3,183.6 1265.7,286.4" fill="none" stroke="#495057" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="1265.7,286.4 1254.5,277.5 1265.3,272.1" fill="#495057"/>
+<rect x="40" y="450" width="270" height="100" rx="10" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="175.0" y="486.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">task build:foundry-</text>
+<text x="175.0" y="505.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">agent-digest</text>
+<text x="175.0" y="524.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">prints image@sha256 to pin</text>
+<rect x="340" y="450" width="300" height="100" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="490.0" y="486.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">task deploy:foundry-agent</text>
+<text x="490.0" y="505.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">cloud:harness-up, then</text>
+<text x="490.0" y="524.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">cloud:agent-access-up</text>
+<rect x="670" y="450" width="300" height="100" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="820.0" y="486.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">task deploy:tool-apis</text>
+<text x="820.0" y="505.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">plan guard: only the two</text>
+<text x="820.0" y="524.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Container App updates apply</text>
+<rect x="1000" y="450" width="400" height="100" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="1200.0" y="486.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">task deploy:model-server,</text>
+<text x="1200.0" y="505.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">test-ui, agent-bridge, chat-agent</text>
+<text x="1200.0" y="524.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">kustomize + kubectl apply</text>
+<polyline points="178.9,364.0 176.5,446.0" fill="none" stroke="#2f9e44" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="176.5,446.0 170.9,432.8 182.9,433.2" fill="#2f9e44"/>
+<polyline points="314.0,500.0 336.0,500.0" fill="none" stroke="#2f9e44" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="336.0,500.0 323.0,506.0 323.0,494.0" fill="#2f9e44"/>
+<polyline points="527.6,361.7 710.7,448.3" fill="none" stroke="#0c8599" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="710.7,448.3 696.4,448.2 701.5,437.3" fill="#0c8599"/>
+<polyline points="765.5,363.7 798.5,446.3" fill="none" stroke="#0c8599" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="798.5,446.3 788.1,436.4 799.3,432.0" fill="#0c8599"/>
+<polyline points="1074.7,363.0 1151.6,447.0" fill="none" stroke="#1971c2" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="1151.6,447.0 1138.4,441.5 1147.2,433.4" fill="#1971c2"/>
+<polyline points="1266.3,363.6 1226.0,446.4" fill="none" stroke="#1971c2" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="1226.0,446.4 1226.3,432.1 1237.1,437.3" fill="#1971c2"/>
+<rect x="340" y="620" width="300" height="100" rx="10" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="490.0" y="656.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Init container on AKS</text>
+<text x="490.0" y="675.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">agent-harness pod, as the</text>
+<text x="490.0" y="694.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">agent-deployer identity</text>
+<rect x="670" y="620" width="300" height="100" rx="10" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="820.0" y="656.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Container Apps</text>
+<text x="820.0" y="675.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">policy-api, test-receiver</text>
+<text x="820.0" y="694.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">(Terraform apply)</text>
+<rect x="1000" y="620" width="400" height="100" rx="10" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="1200.0" y="656.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">AKS workloads</text>
+<text x="1200.0" y="675.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">harness, bridge, chat, model,</text>
+<text x="1200.0" y="694.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">test UI (kubectl)</text>
+<polyline points="490.0,554.0 490.0,616.0" fill="none" stroke="#495057" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="490.0,616.0 484.0,603.0 496.0,603.0" fill="#495057"/>
+<polyline points="820.0,554.0 820.0,616.0" fill="none" stroke="#495057" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="820.0,616.0 814.0,603.0 826.0,603.0" fill="#495057"/>
+<polyline points="1200.0,554.0 1200.0,616.0" fill="none" stroke="#495057" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="1200.0,616.0 1194.0,603.0 1206.0,603.0" fill="#495057"/>
+<rect x="340" y="800" width="290" height="60" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="485.0" y="826.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">containment-demo-audit</text>
+<text x="485.0" y="845.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">image@sha256:X</text>
+<rect x="670" y="800" width="290" height="60" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="815.0" y="826.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">containment-demo-enforced</text>
+<text x="815.0" y="845.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">image@sha256:X</text>
+<polyline points="488.3,724.0 486.1,796.0" fill="none" stroke="#6741d9" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="486.1,796.0 480.5,782.8 492.5,783.2" fill="#6741d9"/>
+<rect x="396.7" y="745.3" width="121.2" height="22.2" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="457.3" y="761.3" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">create version</text>
+<polyline points="595.2,721.8 750.5,798.2" fill="none" stroke="#6741d9" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="750.5,798.2 736.2,797.9 741.5,787.1" fill="#6741d9"/>
+<text x="990.0" y="814.0" font-size="14" fill="#6741d9" text-anchor="start" font-weight="normal">Foundry project: two agent versions</text>
+<text x="990.0" y="831.5" font-size="14" fill="#6741d9" text-anchor="start" font-weight="normal">pin the same image digest</text>
+<text x="30.0" y="654.0" font-size="14" fill="#495057" text-anchor="start" font-weight="normal">Deploying a tag instead of the digest would let</text>
+<text x="30.0" y="676.0" font-size="14" fill="#495057" text-anchor="start" font-weight="normal">the two versions run different code, so the policy</text>
+<text x="30.0" y="698.0" font-size="14" fill="#495057" text-anchor="start" font-weight="normal">would no longer be the only variable.</text>
+<rect x="30" y="920" width="26" height="18" rx="4" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="64.0" y="933.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Observed / allowed</text>
+<rect x="245" y="920" width="26" height="18" rx="4" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="279.0" y="933.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">AKS (not governed)</text>
+<rect x="460" y="920" width="26" height="18" rx="4" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="494.0" y="933.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Foundry</text>
+<rect x="675" y="920" width="26" height="18" rx="4" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="709.0" y="933.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Controlled endpoint</text>
+<rect x="890" y="920" width="26" height="18" rx="4" fill="#fff4e6" stroke="#e8590c" stroke-width="2" stroke-dasharray="5 3"/>
+<text x="924.0" y="933.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Proposed / audit-only</text>
+<rect x="1105" y="920" width="26" height="18" rx="4" fill="#ffe3e3" stroke="#e03131" stroke-width="2"/>
+<text x="1139.0" y="933.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Denied</text>
+</svg>

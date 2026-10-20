@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 860" width="1440" height="860" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<metadata>Source: 02-allowed-vs-denied-flow.excalidraw (same directory). Generated from one shape spec; edit the .excalidraw source, not this SVG.</metadata>
+<rect width="1440" height="860" fill="#ffffff"/>
+<text x="30.0" y="46.0" font-size="28" fill="#1e1e1e" text-anchor="start" font-weight="bold">Allowed vs denied tool call</text>
+<text x="30.0" y="70.0" font-size="14" fill="#495057" text-anchor="start" font-weight="normal">Same two tools, same image in both agent versions. Only the platform's egress decision differs.</text>
+<rect x="250" y="100" width="950" height="170" rx="10" fill="#d0ebff" fill-opacity="0.45" stroke="#1971c2" stroke-width="2"/>
+<text x="260.0" y="122.0" font-size="14" fill="#1971c2" text-anchor="start" font-weight="bold">AKS namespace agent-boundary-lab (not governed by Foundry policy)</text>
+<rect x="30" y="150" width="150" height="80" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="105.0" y="186.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Browser</text>
+<text x="105.0" y="205.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">(Entra user)</text>
+<rect x="290" y="150" width="220" height="80" rx="10" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="400.0" y="186.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">ingress-nginx +</text>
+<text x="400.0" y="205.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">oauth2-proxy (OIDC)</text>
+<rect x="630" y="150" width="190" height="80" rx="10" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="725.0" y="186.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Harness chat</text>
+<text x="725.0" y="205.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">(agent loop)</text>
+<rect x="940" y="150" width="240" height="80" rx="10" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="1060.0" y="186.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">A2A facade</text>
+<text x="1060.0" y="205.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">(audit + enforced slots)</text>
+<polyline points="184.0,190.0 286.0,190.0" fill="none" stroke="#495057" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="286.0,190.0 273.0,196.0 273.0,184.0" fill="#495057"/>
+<rect x="190.0" y="178.9" width="90.0" height="22.2" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="235.0" y="194.9" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">OIDC login</text>
+<polyline points="514.0,190.0 626.0,190.0" fill="none" stroke="#1971c2" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="626.0,190.0 613.0,196.0 613.0,184.0" fill="#1971c2"/>
+<rect x="505.5" y="170.8" width="129.0" height="38.5" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="570.0" y="186.8" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">x-auth-request-</text>
+<text x="570.0" y="203.0" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">headers</text>
+<polyline points="824.0,190.0 936.0,190.0" fill="none" stroke="#1971c2" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="936.0,190.0 923.0,196.0 923.0,184.0" fill="#1971c2"/>
+<rect x="831.1" y="170.8" width="97.8" height="38.5" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="880.0" y="186.8" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">A2A</text>
+<text x="880.0" y="203.0" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">SendMessage</text>
+<rect x="560" y="320" width="840" height="270" rx="10" fill="#e5dbff" fill-opacity="0.45" stroke="#6741d9" stroke-width="2"/>
+<text x="570.0" y="342.0" font-size="14" fill="#6741d9" text-anchor="start" font-weight="bold">Foundry hosted agent (same image digest in both versions)</text>
+<rect x="830" y="360" width="270" height="70" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="965.0" y="391.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">servicing_assistant (ADK)</text>
+<text x="965.0" y="410.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">audit + enforced versions</text>
+<rect x="600" y="470" width="300" height="60" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="750.0" y="496.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">get_servicing_policy</text>
+<text x="750.0" y="515.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">tool</text>
+<rect x="1030" y="470" width="340" height="60" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="1200.0" y="496.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">send_to_external_processor</text>
+<text x="1200.0" y="515.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">tool</text>
+<polyline points="1039.8,233.6 982.9,356.4" fill="none" stroke="#1971c2" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="982.9,356.4 982.9,342.1 993.8,347.1" fill="#1971c2"/>
+<rect x="984.6" y="269.6" width="199.2" height="38.5" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1084.2" y="285.6" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Responses call by</text>
+<text x="1084.2" y="301.9" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">agent name (Entra token)</text>
+<polyline points="889.7,431.8 815.0,468.2" fill="none" stroke="#6741d9" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="815.0,468.2 824.1,457.1 829.3,467.9" fill="#6741d9"/>
+<polyline points="1047.0,431.6 1129.2,468.4" fill="none" stroke="#6741d9" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="1129.2,468.4 1114.9,468.5 1119.8,457.6" fill="#6741d9"/>
+<rect x="605" y="680" width="290" height="80" rx="10" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="750.0" y="716.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">policy-api (Container App)</text>
+<text x="750.0" y="735.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">allowlisted host</text>
+<rect x="925" y="680" width="290" height="80" rx="10" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="1070.0" y="716.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">test-receiver (Container App)</text>
+<text x="1070.0" y="735.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">not allowlisted</text>
+<rect x="1250" y="680" width="150" height="80" rx="10" fill="#ffe3e3" stroke="#e03131" stroke-width="2"/>
+<text x="1325.0" y="716.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Blocked:</text>
+<text x="1325.0" y="735.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">no receipt</text>
+<polyline points="750.0,534.0 750.0,676.0" fill="none" stroke="#2f9e44" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="750.0,676.0 744.0,663.0 756.0,663.0" fill="#2f9e44"/>
+<rect x="650.4" y="592.9" width="199.2" height="38.5" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="750.0" y="608.9" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Allow (allow-policy-api)</text>
+<text x="750.0" y="625.1" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">receipt written</text>
+<polyline points="1180.2,533.4 1095.7,676.6" fill="none" stroke="#e8590c" stroke-width="2.2" stroke-dasharray="8 6" stroke-linejoin="round"/>
+<polygon points="1095.7,676.6 1097.1,662.3 1107.5,668.4" fill="#e8590c"/>
+<rect x="945.2" y="592.9" width="207.0" height="38.5" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1048.7" y="608.9" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Audit: AuditWouldDeny</text>
+<text x="1048.7" y="625.2" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">still reaches it, receipt</text>
+<polyline points="1219.0,533.5 1300.3,676.5" fill="none" stroke="#e03131" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="1300.3,676.5 1288.7,668.2 1299.1,662.3" fill="#e03131"/>
+<rect x="1270.6" y="592.9" width="82.2" height="38.5" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1311.7" y="608.9" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Enforced:</text>
+<text x="1311.7" y="625.2" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Deny</text>
+<text x="30.0" y="654.0" font-size="14" fill="#495057" text-anchor="start" font-weight="normal">Platform egress decision is made on the hosted agent's outbound call,</text>
+<text x="30.0" y="676.0" font-size="14" fill="#495057" text-anchor="start" font-weight="normal">between the tool and the destination. The harness, model and facade are outside it.</text>
+<rect x="30" y="810" width="26" height="18" rx="4" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="64.0" y="823.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Observed / allowed</text>
+<rect x="245" y="810" width="26" height="18" rx="4" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="279.0" y="823.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">AKS (not governed)</text>
+<rect x="460" y="810" width="26" height="18" rx="4" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="494.0" y="823.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Foundry</text>
+<rect x="675" y="810" width="26" height="18" rx="4" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="709.0" y="823.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Controlled endpoint</text>
+<rect x="890" y="810" width="26" height="18" rx="4" fill="#fff4e6" stroke="#e8590c" stroke-width="2" stroke-dasharray="5 3"/>
+<text x="924.0" y="823.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Proposed / audit-only</text>
+<rect x="1105" y="810" width="26" height="18" rx="4" fill="#ffe3e3" stroke="#e03131" stroke-width="2"/>
+<text x="1139.0" y="823.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Denied</text>
+</svg>

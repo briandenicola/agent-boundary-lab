@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 830" width="1440" height="830" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<metadata>Source: 08-evidence-join.excalidraw (same directory). Generated from one shape spec; edit the .excalidraw source, not this SVG.</metadata>
+<rect width="1440" height="830" fill="#ffffff"/>
+<text x="30.0" y="46.0" font-size="28" fill="#1e1e1e" text-anchor="start" font-weight="bold">Evidence join: what links to what</text>
+<text x="30.0" y="70.0" font-size="14" fill="#495057" text-anchor="start" font-weight="normal">A platform decision row has no run id (query string is stripped). Receipts carry demo_run_id.</text>
+<rect x="40" y="260" width="300" height="110" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="190.0" y="301.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Hosted agent tool call</text>
+<text x="190.0" y="320.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">sends ?demo_run_id=run-...</text>
+<text x="190.0" y="339.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">to the allowed or external host</text>
+<rect x="520" y="110" width="380" height="110" rx="10" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="710.0" y="151.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Platform egress decision</text>
+<text x="710.0" y="170.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">AppDependencies, NetworkEgressDecision</text>
+<text x="710.0" y="189.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">host, decision, reasonCode, enforcement</text>
+<rect x="520" y="270" width="380" height="100" rx="10" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="710.0" y="306.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Receipts</text>
+<text x="710.0" y="325.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">ContainerAppConsoleLogs_CL</text>
+<text x="710.0" y="344.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">service, event, received_at, demo_run_id</text>
+<rect x="520" y="420" width="380" height="100" rx="10" fill="#fff4e6" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="710.0" y="456.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">App tool spans (ADK)</text>
+<text x="710.0" y="475.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">OperationId = x-request-id</text>
+<text x="710.0" y="494.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">enforced: telemetry export denied</text>
+<polyline points="343.8,270.6 516.2,220.9" fill="none" stroke="#6741d9" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="516.2,220.9 505.3,230.3 502.0,218.8" fill="#6741d9"/>
+<rect x="373.3" y="226.5" width="113.4" height="38.5" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="430.0" y="242.5" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">platform logs</text>
+<text x="430.0" y="258.8" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">every call</text>
+<polyline points="344.0,316.5 516.0,318.1" fill="none" stroke="#0c8599" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="516.0,318.1 502.9,324.0 503.1,312.0" fill="#0c8599"/>
+<rect x="365.5" y="298.1" width="129.0" height="38.5" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="430.0" y="314.1" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">endpoint writes</text>
+<text x="430.0" y="330.3" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">receipt</text>
+<polyline points="343.8,360.9 538.4,418.9" fill="none" stroke="#e8590c" stroke-width="2.2" stroke-dasharray="8 6" stroke-linejoin="round"/>
+<polygon points="538.4,418.9 524.3,420.9 527.7,409.4" fill="#e8590c"/>
+<rect x="392.2" y="370.6" width="97.8" height="38.5" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="441.1" y="386.6" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">span, audit</text>
+<text x="441.1" y="402.9" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">only</text>
+<rect x="1000" y="125" width="400" height="90" rx="10" fill="#fff4e6" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="1200.0" y="156.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Inferred join: host + time</text>
+<text x="1200.0" y="175.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">decision row, then receipt ~1-2 s later</text>
+<text x="1200.0" y="194.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">adjacency, not a shared key</text>
+<rect x="1000" y="420" width="400" height="100" rx="10" fill="#fff4e6" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="1200.0" y="456.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Key join: demo_run_id</text>
+<text x="1200.0" y="475.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">receipt &lt;-&gt; app tool span</text>
+<text x="1200.0" y="494.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">lost once payload capture is off</text>
+<polyline points="904.0,167.0 996.0,167.9" fill="none" stroke="#2f9e44" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="996.0,167.9 982.9,173.8 983.1,161.8" fill="#2f9e44"/>
+<polyline points="877.2,268.8 1049.2,216.2" fill="none" stroke="#0c8599" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="1049.2,216.2 1038.5,225.7 1035.0,214.2" fill="#0c8599"/>
+<polyline points="877.2,371.2 1032.8,418.8" fill="none" stroke="#0c8599" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="1032.8,418.8 1018.7,420.8 1022.2,409.3" fill="#0c8599"/>
+<polyline points="904.0,470.0 996.0,470.0" fill="none" stroke="#e8590c" stroke-width="2.2" stroke-dasharray="8 6" stroke-linejoin="round"/>
+<polygon points="996.0,470.0 983.0,476.0 983.0,464.0" fill="#e8590c"/>
+<rect x="40" y="580" width="1370" height="190" rx="10" fill="none" stroke="#868e96" stroke-width="2"/>
+<text x="50.0" y="602.0" font-size="14" fill="#343a40" text-anchor="start" font-weight="bold">Reading one run id (verify_demo.py: pass / fail / inconclusive)</text>
+<rect x="60" y="625" width="320" height="120" rx="10" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="220.0" y="671.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Allow + policy-api receipt</text>
+<text x="220.0" y="690.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">reached the allowed host</text>
+<text x="220.0" y="709.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">(positive control)</text>
+<rect x="400" y="625" width="320" height="120" rx="10" fill="#fff4e6" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="560.0" y="671.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">AuditWouldDeny +</text>
+<text x="560.0" y="690.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">test-receiver receipt</text>
+<text x="560.0" y="709.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">audit let the call through</text>
+<rect x="740" y="625" width="320" height="120" rx="10" fill="#ffe3e3" stroke="#e03131" stroke-width="2"/>
+<text x="900.0" y="671.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Deny + no test-receiver</text>
+<text x="900.0" y="690.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">receipt after 180 s or more</text>
+<text x="900.0" y="709.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">platform block (enforced)</text>
+<rect x="1080" y="625" width="310" height="120" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="1235.0" y="671.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Missing row or receipt</text>
+<text x="1235.0" y="690.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">INCONCLUSIVE, never a pass</text>
+<text x="1235.0" y="709.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">a bare 403 proves nothing</text>
+<polyline points="1200.0,524.0 1200.0,560.0 1121.3,579.1" fill="none" stroke="#e8590c" stroke-width="2.2" stroke-dasharray="8 6" stroke-linejoin="round"/>
+<polygon points="1121.3,579.1 1132.5,570.2 1135.3,581.8" fill="#e8590c"/>
+<polyline points="1404.0,170.0 1420.0,170.0 1420.0,560.0 1303.1,579.3" fill="none" stroke="#e8590c" stroke-width="2.2" stroke-dasharray="8 6" stroke-linejoin="round"/>
+<polygon points="1303.1,579.3 1314.9,571.3 1316.9,583.1" fill="#e8590c"/>
+<rect x="30" y="790" width="26" height="18" rx="4" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="64.0" y="803.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Observed / allowed</text>
+<rect x="245" y="790" width="26" height="18" rx="4" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="279.0" y="803.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">AKS (not governed)</text>
+<rect x="460" y="790" width="26" height="18" rx="4" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="494.0" y="803.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Foundry</text>
+<rect x="675" y="790" width="26" height="18" rx="4" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="709.0" y="803.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Controlled endpoint</text>
+<rect x="890" y="790" width="26" height="18" rx="4" fill="#fff4e6" stroke="#e8590c" stroke-width="2" stroke-dasharray="5 3"/>
+<text x="924.0" y="803.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Proposed / audit-only</text>
+<rect x="1105" y="790" width="26" height="18" rx="4" fill="#ffe3e3" stroke="#e03131" stroke-width="2"/>
+<text x="1139.0" y="803.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Denied</text>
+</svg>

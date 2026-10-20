@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" width="1440" height="900" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<metadata>Source: 03-infra-topology.excalidraw (same directory). Generated from one shape spec; edit the .excalidraw source, not this SVG.</metadata>
+<rect width="1440" height="900" fill="#ffffff"/>
+<text x="30.0" y="46.0" font-size="28" fill="#1e1e1e" text-anchor="start" font-weight="bold">Infrastructure topology (infra/cloud/*.tf)</text>
+<text x="30.0" y="70.0" font-size="14" fill="#495057" text-anchor="start" font-weight="normal">One resource group. Foundry sits outside the VNet and is reached over private endpoints.</text>
+<rect x="20" y="90" width="1400" height="750" rx="10" fill="none" stroke="#868e96" stroke-width="2"/>
+<text x="30.0" y="112.0" font-size="14" fill="#343a40" text-anchor="start" font-weight="bold">Resource group</text>
+<rect x="40" y="120" width="800" height="510" rx="10" fill="#d0ebff" fill-opacity="0.45" stroke="#1971c2" stroke-width="2"/>
+<text x="50.0" y="142.0" font-size="14" fill="#1971c2" text-anchor="start" font-weight="bold">Virtual network (networking.tf)</text>
+<rect x="60" y="155" width="360" height="190" rx="10" fill="none" stroke="#868e96" stroke-width="2"/>
+<text x="70.0" y="177.0" font-size="14" fill="#343a40" text-anchor="start" font-weight="bold">aks subnet</text>
+<rect x="440" y="155" width="380" height="190" rx="10" fill="none" stroke="#868e96" stroke-width="2"/>
+<text x="450.0" y="177.0" font-size="14" fill="#343a40" text-anchor="start" font-weight="bold">container-apps subnet</text>
+<rect x="60" y="385" width="360" height="190" rx="10" fill="none" stroke="#868e96" stroke-width="2"/>
+<text x="70.0" y="407.0" font-size="14" fill="#343a40" text-anchor="start" font-weight="bold">postgres subnet (delegated)</text>
+<rect x="440" y="385" width="380" height="190" rx="10" fill="none" stroke="#868e96" stroke-width="2"/>
+<text x="450.0" y="407.0" font-size="14" fill="#343a40" text-anchor="start" font-weight="bold">pe-subnet</text>
+<rect x="80" y="195" width="320" height="120" rx="10" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="240.0" y="241.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">AKS cluster (aks.tf)</text>
+<text x="240.0" y="260.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">harness, A2A bridge,</text>
+<text x="240.0" y="279.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">model server, test UI pods</text>
+<rect x="460" y="195" width="340" height="120" rx="10" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="630.0" y="241.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Container Apps environment</text>
+<text x="630.0" y="260.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">policy-api, test-receiver</text>
+<text x="630.0" y="279.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">(container-apps.tf)</text>
+<rect x="80" y="425" width="320" height="110" rx="10" fill="#fff4e6" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="240.0" y="466.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">PostgreSQL Flexible Server</text>
+<text x="240.0" y="485.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">private, VNet-injected</text>
+<text x="240.0" y="504.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">optional: enable_state_store</text>
+<rect x="450" y="425" width="170" height="70" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="535.0" y="456.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Private endpoint</text>
+<text x="535.0" y="475.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">ACR</text>
+<rect x="635" y="425" width="170" height="70" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="720.0" y="456.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Private endpoint</text>
+<text x="720.0" y="475.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Foundry account</text>
+<rect x="900" y="120" width="500" height="420" rx="10" fill="#e5dbff" fill-opacity="0.45" stroke="#6741d9" stroke-width="2"/>
+<text x="910.0" y="142.0" font-size="14" fill="#6741d9" text-anchor="start" font-weight="bold">Foundry (foundry.tf, rai-policies.tf, managed-network.tf)</text>
+<rect x="920" y="160" width="460" height="70" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="1150.0" y="191.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Foundry account (AIServices)</text>
+<text x="1150.0" y="210.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">public network access disabled</text>
+<rect x="920" y="250" width="210" height="60" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="1025.0" y="276.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Project</text>
+<text x="1025.0" y="295.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">hosted agents</text>
+<rect x="1150" y="250" width="230" height="60" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="1265.0" y="276.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Chat model</text>
+<text x="1265.0" y="295.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">deployment</text>
+<rect x="920" y="330" width="210" height="80" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="1025.0" y="366.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">RAI policy: Audit</text>
+<text x="1025.0" y="385.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">(rai_policy_audit)</text>
+<rect x="1150" y="330" width="230" height="80" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="1265.0" y="366.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">RAI policy: Enforced</text>
+<text x="1265.0" y="385.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">(rai_policy_enforced)</text>
+<rect x="920" y="425" width="460" height="105" rx="10" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="1150.0" y="455.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Managed network (managed-network.tf)</text>
+<text x="1150.0" y="473.8" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">PE rules: account, ACR</text>
+<text x="1150.0" y="492.5" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">FQDN rules: both tool APIs, App Insights</text>
+<text x="1150.0" y="511.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">(AllowOnlyApprovedOutbound mode)</text>
+<rect x="40" y="670" width="380" height="110" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="230.0" y="711.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">User-assigned identities (identity.tf)</text>
+<text x="230.0" y="730.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">apps (ACR pull), workflow,</text>
+<text x="230.0" y="749.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">agent-deployer, demo-ui</text>
+<rect x="440" y="670" width="380" height="110" rx="10" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="630.0" y="711.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Azure Container Registry (acr.tf)</text>
+<text x="630.0" y="730.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">agent, tool-API and harness images</text>
+<text x="630.0" y="749.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">pulled by AKS, Container Apps, Foundry</text>
+<rect x="900" y="580" width="500" height="230" rx="10" fill="#d3f9d8" fill-opacity="0.45" stroke="#2f9e44" stroke-width="2"/>
+<text x="910.0" y="602.0" font-size="14" fill="#2f9e44" text-anchor="start" font-weight="bold">Observability (monitoring.tf)</text>
+<rect x="920" y="620" width="210" height="70" rx="10" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="1025.0" y="651.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Log Analytics</text>
+<text x="1025.0" y="670.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">receipts, logs</text>
+<rect x="1150" y="620" width="230" height="70" rx="10" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="1265.0" y="651.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Application Insights</text>
+<text x="1265.0" y="670.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">egress decisions</text>
+<rect x="920" y="715" width="460" height="60" rx="10" fill="#fff4e6" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="1150.0" y="741.2" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">Egress evidence workbook</text>
+<text x="1150.0" y="760.0" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">(proposed)</text>
+<polyline points="240.0,319.0 240.0,365.0 720.0,365.0 720.0,421.0" fill="none" stroke="#1971c2" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="720.0,421.0 714.0,408.0 726.0,408.0" fill="#1971c2"/>
+<rect x="392.1" y="353.9" width="175.8" height="22.2" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="480.0" y="369.9" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">invoke / deploy agent</text>
+<polyline points="809.0,460.0 870.0,460.0 870.0,195.0 916.0,195.0" fill="none" stroke="#6741d9" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="916.0,195.0 903.0,201.0 903.0,189.0" fill="#6741d9"/>
+<rect x="817.2" y="316.4" width="105.6" height="22.2" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="870.0" y="332.4" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">private link</text>
+<polyline points="548.9,498.8 608.9,666.2" fill="none" stroke="#495057" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="608.9,666.2 598.9,656.0 610.2,652.0" fill="#495057"/>
+<rect x="526.1" y="571.4" width="105.6" height="22.2" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="578.9" y="587.4" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">private link</text>
+<polyline points="916.0,497.3 884.0,500.0 884.0,255.0 804.0,255.0" fill="none" stroke="#6741d9" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="804.0,255.0 817.0,249.0 817.0,261.0" fill="#6741d9"/>
+<polyline points="1186.2,533.4 1240.1,616.6" fill="none" stroke="#2f9e44" stroke-width="2.2" stroke-linejoin="round"/>
+<polygon points="1240.1,616.6 1228.0,609.0 1238.1,602.5" fill="#2f9e44"/>
+<rect x="1156.5" y="563.9" width="113.4" height="22.2" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1213.2" y="579.9" font-size="13" fill="#1e1e1e" text-anchor="middle" font-weight="normal">decision rows</text>
+<rect x="30" y="860" width="26" height="18" rx="4" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="64.0" y="873.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Observed / allowed</text>
+<rect x="245" y="860" width="26" height="18" rx="4" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="279.0" y="873.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">AKS (not governed)</text>
+<rect x="460" y="860" width="26" height="18" rx="4" fill="#e5dbff" stroke="#6741d9" stroke-width="2"/>
+<text x="494.0" y="873.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Foundry</text>
+<rect x="675" y="860" width="26" height="18" rx="4" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="709.0" y="873.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Controlled endpoint</text>
+<rect x="890" y="860" width="26" height="18" rx="4" fill="#fff4e6" stroke="#e8590c" stroke-width="2" stroke-dasharray="5 3"/>
+<text x="924.0" y="873.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Proposed / audit-only</text>
+<rect x="1105" y="860" width="26" height="18" rx="4" fill="#ffe3e3" stroke="#e03131" stroke-width="2"/>
+<text x="1139.0" y="873.0" font-size="13" fill="#1e1e1e" text-anchor="start" font-weight="normal">Denied</text>
+</svg>
