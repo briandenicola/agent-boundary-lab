@@ -35,7 +35,10 @@ Before you create anything billable you need the right tools, the right Azure pe
 | Python 3.12 and [`uv`](https://docs.astral.sh/uv/) | Local venv, unit tests | `requires-python = ">=3.12,<3.13"` in [pyproject.toml](../../pyproject.toml); `venv` in [Taskfile.lint.yml](../../tasks/Taskfile.lint.yml) |
 | `kubectl`, `kubelogin` | AKS access (Entra-authenticated) | `_require-kubectl`, `_require-kubelogin` in [Taskfile.cloud.yml](../../tasks/Taskfile.cloud.yml) |
 | `jq` | Task scripts parse JSON | `target-check`, `lint:tasks` |
-| `kustomize` | Offline manifest check (`lint:manifests`) | [Taskfile.lint.yml line 98](../../tasks/Taskfile.lint.yml) |
+| `kustomize` | Offline manifest check (`lint:manifests`); also renders the external ingress (`chat-agent:external-render`) | [Taskfile.lint.yml line 98](../../tasks/Taskfile.lint.yml), [Taskfile.harness.yml](../../tasks/Taskfile.harness.yml) |
+| `helm` | Installs ingress-nginx and cert-manager for the external harness (Module 07) | `external-prereqs` in [Taskfile.harness.yml](../../tasks/Taskfile.harness.yml) |
+| `openssl` | Generates the oauth2-proxy cookie secret | `external-app` in [Taskfile.harness.yml](../../tasks/Taskfile.harness.yml) |
+| `dig` or `nslookup` | Verifies your DNS record before requesting a certificate | Module 07 |
 
 Docker is **not** required: images are built inside Azure Container Registry (`task build:*`, "no local Docker" per [rebuild-runbook.md](../rebuild-runbook.md)).
 
@@ -58,6 +61,16 @@ Exact pinned versions of the Python stack (ADK, agentserver, LiteLLM) are in [co
 | Access to Foundry hosted agents and the preview egress API in the region | Preview features; if unavailable mark work **BLOCKED** | [egress-control.md](../egress-control.md) |
 
 The Terraform caller automatically receives AKS cluster admin, ACR push and Foundry user roles ([aks.tf lines 111–121](../../infra/cloud/aks.tf), [acr.tf lines 92–97](../../infra/cloud/acr.tf), [identity.tf lines 111–126](../../infra/cloud/identity.tf)). Extra operators go in `TF_VAR_aks_operator_object_ids`.
+
+For the external, Entra-protected harness (Module 07) you also need:
+
+| Need | Why | Source |
+| --- | --- | --- |
+| **A public domain you control** and rights to create one DNS record in it | The harness is served at `https://<fqdn>`; you point an `A` record at the cluster's public IP. The lab does not create DNS for you. | [Module 07](07-external-access.md) |
+| An email address for Let's Encrypt | Passed as `LETSENCRYPT_EMAIL`; used for the ACME account and expiry notices | [clusterissuer.yaml](../../deploy/kustomize/harness-external/clusterissuer.yaml) |
+| Inbound **TCP 80 and 443** reachable from the internet to the AKS public load balancer | 443 serves the harness; 80 is required for the Let's Encrypt HTTP-01 challenge | [clusterissuer.yaml](../../deploy/kustomize/harness-external/clusterissuer.yaml) (`http01` solver) |
+| Rights to create an **app registration and service principal** in the tenant | `external-app` runs `az ad app create` / `az ad sp create`. *(Inference: Application Developer or equivalent; not a tested minimum.)* | `external-app` in [Taskfile.harness.yml](../../tasks/Taskfile.harness.yml) |
+| At least two Entra test users in the same tenant | One allowed user and one denied user for the demo (Module 04, Module 09) | [04-identity.md](04-identity.md) |
 
 Sign in and select the target:
 
@@ -86,7 +99,10 @@ The root Taskfile loads it (`dotenv: ['.env']` in [Taskfile.yml](../../Taskfile.
 | **Telemetry** | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Only outside the hosted runtime. |
 | **Agent deploy** | `DEMO_FOUNDRY_ACCOUNT_NAME`, `DEMO_FOUNDRY_PROJECT_NAME`, `DEMO_AGENT_IMAGE`, `DEMO_AGENT_NAME_AUDIT/ENFORCED`, `DEMO_RAI_POLICY_AUDIT_ID`, `DEMO_RAI_POLICY_ENFORCED_ID`, `DEMO_AGENT_*`, `DEMO_DEPLOY_*` | Read only by the in-VNet deploy job. Image must be a **digest**, policy ids must be full ARM ids. All come from Terraform outputs ([outputs.tf](../../infra/cloud/outputs.tf)). |
 | **Image tags** | `IMAGE_TAG`, `ENDPOINT_IMAGE_TAG`, `*_IMAGE_TAG` | Leave `ENDPOINT_IMAGE_TAG` **unset** until `task build:tool-apis` has pushed the images; set it afterwards or `cloud:up` rolls the endpoints back to a placeholder. |
-| **Opt-in identity (issue #4)** | `IDENTITY_*`, `POLICY_API_*`, `EXTERNAL_HOSTNAME`, `OIDC_*` … | Commented out and **not part of this workshop**; see [identity-probe.md](../identity-probe.md). |
+| **External harness** | `LETSENCRYPT_EMAIL`, `TENANT_ID`, `OIDC_APP_NAME`, `ROTATE_OIDC_SECRET` | Read by `external-*` tasks and `app:deploy-external`. `TENANT_ID` defaults to the `az` tenant; `OIDC_APP_NAME` defaults to `agent-boundary-harness-oidc`; `ROTATE_OIDC_SECRET=1` issues a new client secret on the next run. |
+| **External hostname** | `HOSTNAME` (Task variable) | **Pass it on the command line**: `task app:deploy-external HOSTNAME=<fqdn> LETSENCRYPT_EMAIL=<email>`. `.env.example` also lists `EXTERNAL_HOSTNAME`, but no task reads it today. |
+| **Diagnostics links** | `HARNESS_WORKBOOK_URL`, `HARNESS_LOGS_URL`, `HARNESS_APPINSIGHTS_URL` | Optional deep links shown in the harness UI. Applied by `task chat-agent:secret` ([Module 06](06-build-and-deploy.md)). |
+| **Opt-in identity probe (issue #4)** | `IDENTITY_*`, `POLICY_API_*` | Commented out; the I0 probe is not required for the external demo. See [identity-probe.md](../identity-probe.md). |
 
 Never put real secrets in `.env.example`; runtime credentials use managed identity. Synthetic data only.
 
@@ -131,6 +147,7 @@ Azure CLI matches the configured deployment tenant and subscription.
 3. Why is `ENDPOINT_IMAGE_TAG` left unset on the first apply?
 4. Does a green `task lint:terraform` show the Foundry preview API accepts your configuration?
 5. Do you need Docker locally?
+6. Which two things must you own before the external harness can work, besides the Azure subscription?
 
 <details><summary>Answers</summary>
 
@@ -139,6 +156,7 @@ Azure CLI matches the configured deployment tenant and subscription.
 3. The images do not exist in ACR yet; a placeholder image runs first.
 4. No; it validates syntax offline, not service acceptance.
 5. No; ACR builds the images.
+6. A public domain where you can create an `A` record, and Entra rights to create an app registration (plus open ports 80/443 for the certificate challenge).
 
 </details>
 

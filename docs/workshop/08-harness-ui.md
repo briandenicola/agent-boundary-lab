@@ -1,4 +1,4 @@
-# Module 07 — The Harness UI
+# Module 08 — The Harness UI
 
 The **harness** is the browser-facing piece you will actually drive during a demo. It is a small Starlette service on AKS that runs a *local* model with an ADK agent, whose two tools call the Audit and Enforced Foundry agents through the A2A facades (Module 05). The page shows the model's reply next to the raw tool results and run IDs, and links to the evidence. This module covers its API, its websocket protocol, its hardening and the CPU model it uses.
 
@@ -46,13 +46,17 @@ Dry-run versions: `task model-server:plan`, `task chat-agent:render`, `task chat
 
 ### 2. Reach the UI
 
+**Primary path: the external HTTPS URL.** Build it in [Module 07](07-external-access.md) (domain, DNS, certificate, Entra login), then browse to `https://<your-fqdn>`. This is how the demo is presented.
+
+**Fallback for development only: port-forward.** It bypasses Entra and uses a shared token:
+
 ```bash
 task chat-agent:open     # port-forward on http://localhost:8082 (Ctrl-C to stop)
 task chat-agent:token    # password for the browser prompt (any user name)
 task chat-agent:verify   # expect 401 without the token and 200 with it
 ```
 
-Over the external Entra ingress (Module 04) you instead sign in with Entra; in that mode `chat-agent:verify` expects the token-bearing request to be refused too, because only ingress identity headers are accepted.
+Over the external Entra ingress (Module 07) you instead sign in with Entra; in that mode `chat-agent:verify` expects the token-bearing request to be refused too, because only ingress identity headers are accepted.
 
 ### 3. Optional diagnostics links
 
@@ -172,4 +176,4 @@ Deeper reading: [architecture-as-built.md](../architecture-as-built.md), [identi
 
 ## Next
 
-Continue to [08 — Run and Verify](08-run-and-verify.md).
+Continue to [08 — Run and Verify](09-run-and-verify.md).

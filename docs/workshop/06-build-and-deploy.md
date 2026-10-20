@@ -86,7 +86,7 @@ task deploy:agent-bridge
 task deploy:chat-agent
 ```
 
-Or everything: `task deploy:all`. The whole flow from scratch: `task app:deploy` (see [tasks/Taskfile.app.yml](../../tasks/Taskfile.app.yml) lines 14–19), or `task app:deploy-external HOSTNAME=… LETSENCRYPT_EMAIL=…` to add the Entra-protected ingress.
+Or everything: `task deploy:all`. The whole flow from scratch: `task app:deploy` (see [tasks/Taskfile.app.yml](../../tasks/Taskfile.app.yml) lines 14–19), or `task app:deploy-external HOSTNAME=… LETSENCRYPT_EMAIL=…` to add the Entra-protected ingress. The external path needs a public domain and a DNS record you create between steps; read [Module 07](07-external-access.md) before running it.
 
 Dry runs for each component:
 
@@ -114,7 +114,7 @@ HARNESS_APPINSIGHTS_URL=<app-insights-url> \
 task chat-agent:secret
 ```
 
-They become the **Diagnostics** chips in the UI (Module 07). Missing values simply hide the chip; the harness never fabricates a link. For the OIDC secret see Module 04 (`task chat-agent:external-secret`).
+They become the **Diagnostics** chips in the UI (Module 08). Missing values simply hide the chip; the harness never fabricates a link. For the OIDC secret see Module 04 (`task chat-agent:external-secret`).
 
 ### 5. Publish the two Foundry agent versions
 
@@ -147,7 +147,7 @@ Exit codes from `deploy.py`: `0` ok, `1` failure, `3` digest rejected (**BLOCKED
 | [a2a-facade/](../../deploy/kustomize/a2a-facade/) | `base/` plus `audit/` and `enforced/` overlays: one image, two Deployments differing only by target env. |
 | [harness/](../../deploy/kustomize/harness/) | The chat service, ClusterIP only. |
 | [harness-external/](../../deploy/kustomize/harness-external/) | oauth2-proxy, two Ingresses, ClusterIssuer (Module 04). |
-| [local-model/](../../deploy/kustomize/local-model/) | CPU model server (Module 07). |
+| [local-model/](../../deploy/kustomize/local-model/) | CPU model server (Module 08). |
 | [demo-ui/](../../deploy/kustomize/demo-ui/) | Two-button test page. |
 
 Common pod hardening: `runAsNonRoot`, `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true`, `capabilities.drop: ["ALL"]`, and `automountServiceAccountToken: false` where no Kubernetes API access is needed (see [harness/deployment.yaml lines 19–25, 63–67](../../deploy/kustomize/harness/deployment.yaml#L19-L25)).
@@ -185,4 +185,4 @@ Deeper reading: [architecture-as-built.md](../architecture-as-built.md), [compat
 
 ## Next
 
-Continue to [07 — The Harness UI](07-harness-ui.md).
+Continue to [07 — The Harness UI](08-harness-ui.md).

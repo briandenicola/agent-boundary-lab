@@ -94,7 +94,7 @@ task chat-agent:external-status
 
 `external-bootstrap` performs prerequisites, creates the OIDC app registration and service principal (`az ad app create --sign-in-audience AzureADMyOrg`), writes the `harness-oidc-config` Secret, applies the ingress resources and prints status. To go back to the shared-token UI: `task chat-agent:external-down`.
 
-The full from-scratch path is `task app:deploy-external HOSTNAME=… LETSENCRYPT_EMAIL=…` ([tasks/Taskfile.app.yml](../../tasks/Taskfile.app.yml) lines 20–30).
+The DNS record, certificate and ingress prerequisites for this step are covered in [Module 07](07-external-access.md); do them first. The full from-scratch path is `task app:deploy-external HOSTNAME=… LETSENCRYPT_EMAIL=…` ([tasks/Taskfile.app.yml](../../tasks/Taskfile.app.yml) lines 20–30).
 
 ### 4. Observe allowed vs denied in the browser
 

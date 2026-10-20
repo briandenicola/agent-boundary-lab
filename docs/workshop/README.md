@@ -22,11 +22,12 @@ About 9 to 11 hours of lab time, plus unattended waits for Azure provisioning. S
 | 04 | [Identity](04-identity.md) | Entra test users, the OIDC identity flow and the allowed/denied actors |
 | 05 | [Agent and tools](05-agent-and-tools.md) | The ADK agent and its exactly two business tools |
 | 06 | [Build and deploy](06-build-and-deploy.md) | Images built in ACR, same-digest agent versions, application rollout |
-| 07 | [Harness UI](07-harness-ui.md) | The chat harness, local model, A2A facades and external Entra login |
-| 08 | [Run and verify](08-run-and-verify.md) | Allowed vs denied user, Audit vs Enforced, `verify_demo.py` |
-| 09 | [Monitoring](09-monitoring.md) | KQL, Log Analytics, Application Insights, the workbook |
-| 10 | [Teardown and rebuild](10-teardown-and-rebuild.md) | Safe deletion and a from-scratch rebuild |
-| 11 | [Troubleshooting](11-troubleshooting.md) | Symptom, cause, fix for real failures |
+| 07 | [External access: domain, DNS, TLS and Entra login](07-external-access.md) | Public hostname, DNS A record, ingress-nginx, Let's Encrypt, Entra OIDC |
+| 08 | [Harness UI](08-harness-ui.md) | The chat harness, local model, A2A facades and external Entra login |
+| 09 | [Run and verify](09-run-and-verify.md) | Allowed vs denied user, Audit vs Enforced, `verify_demo.py` |
+| 10 | [Monitoring](10-monitoring.md) | KQL, Log Analytics, Application Insights, the workbook |
+| 11 | [Teardown and rebuild](11-teardown-and-rebuild.md) | Safe deletion and a from-scratch rebuild |
+| 12 | [Troubleshooting](12-troubleshooting.md) | Symptom, cause, fix for real failures |
 
 ![Three layers](diagrams/01-three-layers.svg)
 

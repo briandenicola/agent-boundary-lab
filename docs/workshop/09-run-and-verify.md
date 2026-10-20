@@ -1,4 +1,4 @@
-# Module 08: Run the demo and verify the evidence
+# Module 09: Run the demo and verify the evidence
 
 **Duration:** about 60 minutes (the harness turn takes about 2 minutes on the CPU model; evidence ingestion needs a 3 minute wait)
 
@@ -72,14 +72,14 @@ These are offline tests (`tests/unit/test_policy_actor_authorization.py`). They 
 
 ### 3. Open the harness
 
-Local port-forward mode (shared token, any user name):
+**Primary: external mode** (HTTPS and Entra login, built in [Module 07](07-external-access.md)): browse to `https://<your-fqdn>`, sign in as the **allowed** test user first, then repeat in a private window as the **denied** user. In this mode the harness derives the actor alias from ingress identity headers.
+
+**Development fallback: local port-forward** (shared token, any user name, no Entra):
 
 ```bash
 task chat-agent:token   # prints the password; do this off-screen
 task chat-agent:open    # http://localhost:8082 ; Ctrl-C to stop
 ```
-
-External mode (HTTPS and Entra login, see [Module 07](07-harness-ui.md)): browse to `https://<your-fqdn>`, sign in as the **allowed** test user first, then repeat in a private window as the **denied** user. In this mode the harness derives the actor alias from ingress identity headers.
 
 Note the **UTC time you press send**. Ask for both tools in one message, for example: fetch the servicing policy, then send to the external processor, on both the audit and the enforced agent. Do not click again while the turn runs. Copy the `run-...` id shown for each side. Do not trust the model's prose; read the structured tool table.
 
@@ -135,4 +135,4 @@ Fill in [`../evidence-template.md`](../evidence-template.md): run ids, UTC times
 
 Further reading: [`../demo-runbook.md`](../demo-runbook.md), [`../evidence-template.md`](../evidence-template.md).
 
-**Next:** [Module 09: Monitoring](09-monitoring.md)
+**Next:** [Module 10: Monitoring](10-monitoring.md)

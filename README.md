@@ -23,7 +23,7 @@ Some results are TESTED (n is small, dated in [`docs/telemetry-map.md`](docs/tel
 
 ## Quick start
 
-Prerequisites: Azure subscription with owner-approved permissions, `az`, `terraform`, `kubectl`, `kubelogin`, `jq` and [Task](https://taskfile.dev). Details in [Module 02](docs/workshop/02-prerequisites.md). Settings go in an untracked `.env`.
+Prerequisites: Azure subscription with owner-approved permissions, `az`, `terraform`, `kubectl`, `kubelogin`, `jq`, `helm`, a public domain you can add a DNS record to, and [Task](https://taskfile.dev). Details in [Module 02](docs/workshop/02-prerequisites.md). Settings go in an untracked `.env`.
 
 ```bash
 task --list                 # every available task
@@ -35,8 +35,11 @@ task cloud:up               # BILLABLE: includes an AKS cluster
 task cloud:kubeconfig
 task build:all              # builds in ACR; no local Docker
 task deploy:all             # tool APIs, both agent versions, harness
-task chat-agent:token       # harness login password
-task chat-agent:open        # http://localhost:8082
+# External HTTPS + Entra login (needs a domain you control; see Module 07):
+task chat-agent:external-prereqs
+# ...create the DNS A record -> ingress-nginx public IP (Module 07), then:
+task chat-agent:external-bootstrap HOSTNAME=<fqdn> LETSENCRYPT_EMAIL=<email>
+# Development fallback: task chat-agent:open (port-forward, http://localhost:8082)
 ```
 
 Wait at least 3 minutes after a run, then verify:
@@ -46,7 +49,7 @@ Wait at least 3 minutes after a run, then verify:
 .venv/bin/python scripts/verify_demo.py --section c --enforced-run-id <run-...> --enforced-called-at <UTC ISO>
 ```
 
-Exit code 0 is PASS, 1 FAIL, 2 INCONCLUSIVE. Creating billable resources, changing policies and publishing images need owner approval. Tear down with `task identity:destroy`, then `task cloud:down` ([Module 10](docs/workshop/10-teardown-and-rebuild.md)).
+Exit code 0 is PASS, 1 FAIL, 2 INCONCLUSIVE. Creating billable resources, changing policies and publishing images need owner approval. Tear down with `task identity:destroy`, then `task cloud:down` ([Module 11](docs/workshop/11-teardown-and-rebuild.md)).
 
 ## Workshop
 

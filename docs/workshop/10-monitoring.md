@@ -1,4 +1,4 @@
-# Module 09: Monitoring and evidence queries
+# Module 10: Monitoring and evidence queries
 
 **Duration:** about 45 minutes
 
@@ -79,7 +79,7 @@ export HARNESS_APPINSIGHTS_URL='<portal URL of the Application Insights resource
 task chat-agent:secret
 ```
 
-`chat-agent:secret` keeps the existing token unless `ROTATE=1`, writes only the variables that are set, and restarts the harness deployment so it picks them up. If the links are missing, you skipped this step ([Module 11](11-troubleshooting.md)). Use `task chat-agent:token` to read the login token. URLs are links only; they contain no secrets.
+`chat-agent:secret` keeps the existing token unless `ROTATE=1`, writes only the variables that are set, and restarts the harness deployment so it picks them up. If the links are missing, you skipped this step ([Module 12](12-troubleshooting.md)). Use `task chat-agent:token` to read the login token. URLs are links only; they contain no secrets.
 
 ### 5. Optional: cross-check with the verifier
 
@@ -102,4 +102,4 @@ task chat-agent:secret
 - [ ] Query 6 for your enforced run shows `Deny / DefaultDeny / Enforced` and no receiver receipt after at least 180 s.
 - [ ] The workbook opens and the harness shows its diagnostics links.
 
-**Next:** [Module 10: Teardown and rebuild](10-teardown-and-rebuild.md)
+**Next:** [Module 11: Teardown and rebuild](11-teardown-and-rebuild.md)

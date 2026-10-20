@@ -1,4 +1,4 @@
-# Module 11: Troubleshooting
+# Module 12: Troubleshooting
 
 **Duration:** reference; about 20 minutes to read
 
@@ -35,6 +35,11 @@ Two rules before you debug:
 | Request fails with **504 at 60 s** during a chat turn | ingress-nginx default proxy timeout (60 s) is shorter than a CPU-model turn (about 2 minutes) | Proxy read/send timeouts of 300 s on the harness ingress | [`deploy/kustomize/harness-external/ingress-harness.yaml` L11-L13](../../deploy/kustomize/harness-external/ingress-harness.yaml#L11-L13) |
 | oauth2 callback returns **"Request Header Or Cookie Too Large"** | Entra session cookie and headers exceed the default nginx buffer | `proxy-buffer-size: "16k"` on the oauth2 ingress | [`deploy/kustomize/harness-external/ingress-oauth2.yaml` L8](../../deploy/kustomize/harness-external/ingress-oauth2.yaml#L8) |
 | `chat-agent:verify` expects 401 even with the token | `HARNESS_AUTH_MODE=ingress_oidc`; legacy token auth is off | Expected; test through the HTTPS host | [`../demo-runbook.md`](../demo-runbook.md) "External run" |
+| Certificate stays `READY=False`; cert-manager challenge **pending** | Hostname does not resolve to the ingress public IP (stale `A` record after a rebuild, or not created), or TCP 80 blocked | `dig +short <fqdn>` must equal `kubectl -n ingress-nginx get svc ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'`; fix the record; `kubectl -n <ns> describe certificate harness-external-tls` | [Module 07](07-external-access.md) |
+| Let's Encrypt **rate limit** errors after repeated failures | Many failed validations against the production issuer | Fix DNS first, wait out the limit; set `LETSENCRYPT_CLUSTER_ISSUER` only if you intend a different issuer | [`external-render` L247-L269](../../tasks/Taskfile.harness.yml#L247-L269) |
+| Browser shows certificate warning (fake/default cert) | Certificate not issued yet; ingress-nginx serves its default cert | Wait for `READY=True` in `task chat-agent:external-status` | [Module 07](07-external-access.md) |
+| Entra error **AADSTS50011** redirect URI mismatch | Hostname used in the browser differs from the one passed as `HOSTNAME` to `external-app` | Re-run `chat-agent:external-app HOSTNAME=<exact fqdn>` | [`tasks/Taskfile.harness.yml` L167-L230](../../tasks/Taskfile.harness.yml#L167-L230) |
+| `external-up` says secret `harness-oidc-config` missing | `external-app` did not run | Run `chat-agent:external-app` (or `external-bootstrap`) | [`tasks/Taskfile.harness.yml` L282-L299](../../tasks/Taskfile.harness.yml#L282-L299) |
 | Public LB backend unhealthy | nginx needs `externalTrafficPolicy=Local` and probe path `/healthz` | Applied by `task chat-agent:external-prereqs`; do not hand-edit the node resource group | [`tasks/Taskfile.harness.yml` L127-L165](../../tasks/Taskfile.harness.yml#L127-L165) |
 
 ### Harness and monitoring

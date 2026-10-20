@@ -1,4 +1,4 @@
-# Module 10: Teardown and rebuild
+# Module 11: Teardown and rebuild
 
 **Duration:** about 45 minutes of hands-on time (infrastructure creation and deletion add long unattended waits)
 
@@ -69,7 +69,7 @@ task cloud:acr-network-import
 task cloud:plan
 ```
 
-Symptom if missing: agent versions fail with generic `ProvisioningError` and the publisher times out ([Module 11](11-troubleshooting.md)). Reference: <https://aka.ms/azureaipeapproval>.
+Symptom if missing: agent versions fail with generic `ProvisioningError` and the publisher times out ([Module 12](12-troubleshooting.md)). Reference: <https://aka.ms/azureaipeapproval>.
 
 ### 3. Cluster access
 
@@ -121,9 +121,9 @@ task identity:status      # latest redacted result
 
 Graph operator sign-in and consent stay interactive.
 
-### 7. Optional external harness
+### 7. External harness (DNS, certificate, Entra login)
 
-If you did not use `app:deploy-external`, see `chat-agent:external-bootstrap` in [Module 07](07-harness-ui.md).
+If you did not use `app:deploy-external`, run `chat-agent:external-prereqs`, create or **update the DNS `A` record** to the new ingress-nginx public IP, then `chat-agent:external-bootstrap` ([Module 07](07-external-access.md)). A rebuild creates a new load balancer, so the old record points nowhere and the certificate cannot be issued until it is updated.
 
 ### 8. Verify
 
@@ -136,7 +136,7 @@ task agent-bridge:send SLOT=audit      # expect get_servicing_policy 200, send_t
 task agent-bridge:send SLOT=enforced   # expect 200 and the second tool 403
 ```
 
-Wait 3 minutes, then run `scripts/verify_demo.py` sections B and C ([Module 08](08-run-and-verify.md)). Finish with `task cloud:plan` reporting no changes. Regional eligibility (Sweden Central is the owner-approved target) is covered in the runbook.
+Wait 3 minutes, then run `scripts/verify_demo.py` sections B and C ([Module 09](09-run-and-verify.md)). Finish with `task cloud:plan` reporting no changes. Regional eligibility (Sweden Central is the owner-approved target) is covered in the runbook.
 
 ## Code tour
 
@@ -154,4 +154,4 @@ Wait 3 minutes, then run `scripts/verify_demo.py` sections B and C ([Module 08](
 - [ ] After a rebuild, both agent versions are `active` with one digest and `cloud:plan` is clean.
 - [ ] Both verifier sections returned PASS or an honest INCONCLUSIVE with a reason.
 
-**Next:** [Module 11: Troubleshooting](11-troubleshooting.md)
+**Next:** [Module 12: Troubleshooting](12-troubleshooting.md)
