@@ -196,12 +196,14 @@ def client(responder: Any = None, **over: Any) -> TestClient:
 
 
 AUTH = {"Authorization": f"Bearer {TOKEN}", "X-Demo-UI": "1"}
+INGRESS_AUTH = {"X-Demo-UI": "1", "X-Auth-Request-Email": "allowed.user@contoso.com"}
 
 
 class TestChat:
     def test_requires_auth(self) -> None:
         assert client().post("/chat", json={"message": "hi"}).status_code == 401
         assert client().get("/").status_code == 401
+        assert client().get("/flow").status_code == 401
 
     def test_requires_csrf_header(self) -> None:
         r = client().post(
@@ -218,16 +220,55 @@ class TestChat:
         assert body["determination"].startswith("inconclusive")
         assert body["governed_by_foundry_policy"] is False
 
+    def test_websocket_turn_shows_reply_tools_and_run_id(self) -> None:
+        with client().websocket_connect("/ws", headers={"Authorization": f"Bearer {TOKEN}"}) as ws:
+            ws.send_json({"message": "go"})
+            result = None
+            for _ in range(8):
+                msg = ws.receive_json()
+                if msg.get("event") == "result":
+                    result = msg
+                    break
+            assert result is not None
+            body = result["data"]
+            assert body["reply"] == "done"
+            assert body["tool_run_ids"] == [RUN_ID]
+            assert body["tool_results"][0]["tool"] == "ask_audit_agent"
+
+    def test_websocket_requires_auth(self) -> None:
+        with pytest.raises(Exception):
+            with client().websocket_connect("/ws"):
+                pass
+
     def test_bad_messages_rejected(self) -> None:
         for payload in ({"message": ""}, {"message": "x" * 2000}, {"nope": 1}, {"message": 3}):
             assert client().post("/chat", json=payload, headers=AUTH).status_code == 400
 
     def test_page_states_the_limits(self) -> None:
         text = client().get("/", headers={"Authorization": f"Bearer {TOKEN}"}).text
-        assert "NOT governed by the Foundry egress policy" in text
-        assert "not containment evidence" in text
-        assert "INCONCLUSIVE" in text
+        assert "Run label" in text
+        assert "Model" in text
+        assert "Flow diagram" in text
+        assert "Run both tools in order" in text
         assert "working (local model" in text
+
+    def test_page_shows_diagnostics_links_when_configured(self) -> None:
+        c = client(
+            diagnostics_workbook_url="https://portal.azure.com/#blade/Workbook",
+            diagnostics_logs_url="https://portal.azure.com/#blade/Logs",
+            diagnostics_app_insights_url="https://portal.azure.com/#blade/AppInsights",
+        )
+        text = c.get("/", headers={"Authorization": f"Bearer {TOKEN}"}).text
+        assert "Diagnostics" in text
+        assert "Evidence workbook" in text
+        assert "Log Analytics" in text
+        assert "App Insights" in text
+
+    def test_flow_page_shows_end_to_end_diagram(self) -> None:
+        text = client().get("/flow", headers={"Authorization": f"Bearer {TOKEN}"}).text
+        assert "End-to-end flow" in text
+        assert "A2A facade (audit/enforced slot)" in text
+        assert "Foundry hosted agent" in text
 
     def test_responder_failure_is_labelled_harness_and_not_a_pass(self) -> None:
         async def boom(settings: HarnessSettings, message: str) -> dict[str, Any]:
@@ -245,6 +286,135 @@ class TestChat:
             "/chat", json={"message": "go"}, headers=AUTH
         )
         assert r.status_code == 504
+
+    def test_ingress_oidc_mode_requires_ingress_identity_headers(self) -> None:
+        c = client(auth_mode="ingress_oidc")
+        assert c.get("/").status_code == 401
+        assert c.get("/flow").status_code == 401
+        assert (
+            c.post("/chat", json={"message": "go"}, headers={"X-Demo-UI": "1"}).status_code == 401
+        )
+        with pytest.raises(Exception):
+            with c.websocket_connect("/ws"):
+                pass
+
+    def test_ingress_oidc_mode_uses_ingress_actor_alias(self) -> None:
+        c = client(auth_mode="ingress_oidc")
+        r = c.post("/chat", json={"message": "go"}, headers=INGRESS_AUTH)
+        assert r.status_code == 200
+        assert r.json()["actor_alias"] == "allowed.user-contoso.com"
+        page = c.get("/", headers={"X-Auth-Request-Email": "allowed.user@contoso.com"})
+        assert 'value="allowed.user-contoso.com"' in page.text
+        assert '/oauth2/sign_out?rd=%2F' in page.text
+        flow = c.get("/flow", headers={"X-Auth-Request-Email": "allowed.user@contoso.com"})
+        assert '/oauth2/sign_out?rd=%2F' in flow.text
+
+    def test_ingress_oidc_mode_rejects_manual_actor_alias_override(self) -> None:
+        c = client(auth_mode="ingress_oidc")
+        r = c.post(
+            "/chat",
+            json={"message": "go", "actor_alias": "someone-else"},
+            headers=INGRESS_AUTH,
+        )
+        assert r.status_code == 400
+
+    def test_ingress_oidc_websocket_uses_ingress_actor_alias(self) -> None:
+        c = client(auth_mode="ingress_oidc")
+        with c.websocket_connect("/ws", headers={"X-Auth-Request-Email": "allowed.user@contoso.com"}) as ws:
+            ws.send_json({"message": "go"})
+            result = None
+            for _ in range(8):
+                msg = ws.receive_json()
+                if msg.get("event") == "result":
+                    result = msg
+                    break
+            assert result is not None
+            assert result["data"]["actor_alias"] == "allowed.user-contoso.com"
+
+    def test_ingress_oidc_websocket_rejects_manual_actor_alias_override(self) -> None:
+        c = client(auth_mode="ingress_oidc")
+        with c.websocket_connect("/ws", headers={"X-Auth-Request-Email": "allowed.user@contoso.com"}) as ws:
+            ws.send_json({"message": "go", "actor_alias": "someone-else"})
+            msg = ws.receive_json()
+            assert msg["event"] == "error"
+            assert msg["status"] == 400
+
+    def test_legacy_mode_page_does_not_show_unspecified_actor_placeholder(self) -> None:
+        text = client().get("/", headers={"Authorization": f"Bearer {TOKEN}"}).text
+        assert "unspecified-actor" not in text
+        assert "/oauth2/sign_out" not in text
+
+
+def _outcome(tool_name: str, http_status: int | None) -> dict[str, Any]:
+    return {"tool_name": tool_name, "http_status": http_status}
+
+
+def _responder_with_outcomes(outcomes: list[dict[str, Any]]) -> Any:
+    async def responder(settings: HarnessSettings, message: str) -> dict[str, Any]:
+        return {
+            "reply": "done",
+            "tool_results": [
+                {
+                    "tool": "ask_audit_agent",
+                    "result": {"tool_run_ids": [RUN_ID], "tool_outcomes": outcomes},
+                }
+            ],
+        }
+
+    return responder
+
+
+class TestActorOutcomeSurfacing:
+    """WP-3 (issue #4): actor alias, policy authorization, and containment
+    determination must each be visible and must stay separate from one another."""
+
+    def test_default_actor_alias_is_used_when_not_supplied(self) -> None:
+        r = client().post("/chat", json={"message": "go"}, headers=AUTH)
+        assert r.json()["actor_alias"] == chat.DEFAULT_ACTOR_ALIAS
+
+    def test_actor_alias_is_echoed_back(self) -> None:
+        r = client().post(
+            "/chat", json={"message": "go", "actor_alias": "allowed-tester"}, headers=AUTH
+        )
+        assert r.json()["actor_alias"] == "allowed-tester"
+
+    @pytest.mark.parametrize("bad_alias", ["", "has space", "x" * 65, "emoji🙂"])
+    def test_invalid_actor_alias_rejected(self, bad_alias: str) -> None:
+        r = client().post("/chat", json={"message": "go", "actor_alias": bad_alias}, headers=AUTH)
+        assert r.status_code == 400
+
+    def test_policy_authorized_maps_from_get_servicing_policy_200(self) -> None:
+        responder = _responder_with_outcomes(
+            [_outcome("get_servicing_policy", 200), _outcome("send_to_external_processor", 403)]
+        )
+        r = client(responder).post("/chat", json={"message": "go"}, headers=AUTH)
+        assert r.json()["policy_authorization_status"] == "authorized"
+
+    def test_policy_denied_maps_from_get_servicing_policy_403(self) -> None:
+        responder = _responder_with_outcomes([_outcome("get_servicing_policy", 403)])
+        r = client(responder).post("/chat", json={"message": "go"}, headers=AUTH)
+        assert r.json()["policy_authorization_status"] == "denied"
+
+    def test_policy_status_is_pending_when_not_attempted(self) -> None:
+        r = client().post("/chat", json={"message": "go"}, headers=AUTH)
+        assert r.json()["policy_authorization_status"] == "pending"
+
+    def test_containment_determination_never_derived_from_policy_denial(self) -> None:
+        """A denied policy call must not change, weaken, or be confused with the
+        containment determination -- they are reported side by side, unconditionally."""
+        denied = _responder_with_outcomes([_outcome("get_servicing_policy", 403)])
+        authorized = _responder_with_outcomes([_outcome("get_servicing_policy", 200)])
+        r_denied = client(denied).post("/chat", json={"message": "go"}, headers=AUTH).json()
+        r_ok = client(authorized).post("/chat", json={"message": "go"}, headers=AUTH).json()
+        assert r_denied["determination"] == r_ok["determination"]
+        assert r_denied["determination"].startswith("inconclusive")
+        assert "pass" not in r_denied["determination"].lower()
+
+    def test_policy_status_never_reads_the_containment_tool(self) -> None:
+        """send_to_external_processor's status must never set the policy label."""
+        responder = _responder_with_outcomes([_outcome("send_to_external_processor", 200)])
+        r = client(responder).post("/chat", json={"message": "go"}, headers=AUTH)
+        assert r.json()["policy_authorization_status"] == "pending"
 
 
 def test_model_call_logging_records_sizes_never_content(caplog: pytest.LogCaptureFixture) -> None:
