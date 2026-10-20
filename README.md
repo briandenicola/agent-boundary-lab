@@ -42,14 +42,7 @@ task chat-agent:external-bootstrap HOSTNAME=<fqdn> LETSENCRYPT_EMAIL=<email>
 # Development fallback: task chat-agent:open (port-forward, http://localhost:8082)
 ```
 
-Wait at least 3 minutes after a run, then verify:
-
-```bash
-.venv/bin/python scripts/verify_demo.py --section b --audit-run-id <run-...> --audit-called-at <UTC ISO>
-.venv/bin/python scripts/verify_demo.py --section c --enforced-run-id <run-...> --enforced-called-at <UTC ISO>
-```
-
-Exit code 0 is PASS, 1 FAIL, 2 INCONCLUSIVE. Creating billable resources, changing policies and publishing images need owner approval. Tear down with `task identity:destroy`, then `task cloud:down` ([Module 11](docs/workshop/11-teardown-and-rebuild.md)).
+> Note: Tear down with `task identity:destroy`, then `task cloud:down` ([Module 11](docs/workshop/11-teardown-and-rebuild.md)).
 
 ## Workshop
 
