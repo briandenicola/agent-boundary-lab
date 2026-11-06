@@ -37,7 +37,8 @@ def test_every_containment_demo_module_a_service_needs_is_copied_into_the_image(
     copied = _copied_modules()
     needed: set[str] = set()
     pending = [
-        p for service in ("policy_api", "test_receiver")
+        p
+        for service in ("policy_api", "test_receiver")
         for p in (ROOT / "services" / service).rglob("*.py")
     ]
     seen: set[str] = set()

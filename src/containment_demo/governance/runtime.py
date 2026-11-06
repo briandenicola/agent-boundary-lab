@@ -130,7 +130,11 @@ def _normalize(raw: object, arguments_valid: bool) -> Evaluation:
     if result.verdict == "escalate":
         return Evaluation("deny", "approval_required")
     if result.verdict == "transform":
-        if not result.has_transform or not result.transform_applied or result.transformed_args != {}:
+        if (
+            not result.has_transform
+            or not result.transform_applied
+            or result.transformed_args != {}
+        ):
             return Evaluation("error", "unsupported_transform", error=True)
         return Evaluation("transform", reason)
     if result.has_transform or result.transform_applied or result.transformed_args is not None:

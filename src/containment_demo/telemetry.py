@@ -125,7 +125,9 @@ def emit_governance_evidence(settings: Settings, result: dict[str, Any]) -> None
     if span.is_recording():
         span.add_event("demo.governance_decision", attributes=attributes)
     else:
-        with trace.get_tracer(TRACER_NAME).start_as_current_span("demo.governance_decision") as event:
+        with trace.get_tracer(TRACER_NAME).start_as_current_span(
+            "demo.governance_decision"
+        ) as event:
             context = event.get_span_context()
             if context.is_valid:
                 attributes["demo.governance.trace_id"] = format(context.trace_id, "032x")

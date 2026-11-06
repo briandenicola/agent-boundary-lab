@@ -82,7 +82,11 @@ async def diagnostic_results(settings: Settings, *, authorized: bool = True) -> 
 
 async def evaluate(governance: runtime.Governance, name: str) -> dict[str, Any] | None:
     return await governance.before_tool(
-        name, {}, session_id="session-unit", invocation_id="invocation-unit", tool_call_id="call-unit"
+        name,
+        {},
+        session_id="session-unit",
+        invocation_id="invocation-unit",
+        tool_call_id="call-unit",
     )
 
 
@@ -415,7 +419,9 @@ async def test_real_adk_dispatch_preserves_registration_and_delegated_token(
     policy, receiver = destinations
     assert policy.call_count == (0 if evaluation_failure else 1)
     if not evaluation_failure:
-        assert policy.calls[0].request.headers["authorization"] == "Bearer synthetic-delegated-token"
+        assert (
+            policy.calls[0].request.headers["authorization"] == "Bearer synthetic-delegated-token"
+        )
     assert receiver.call_count == (0 if mode is GovernanceMode.ENFORCED else 1)
     assert len(outcomes) == 2
     if evaluation_failure:
