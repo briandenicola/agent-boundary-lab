@@ -112,7 +112,8 @@ def build_agent(settings: Settings, model: Any | None = None) -> Any:
         model: Optional pre-built model, used by tests to avoid requiring credentials.
     """
     from google.adk.agents import LlmAgent
-    from google.adk.tools import BaseTool, ToolContext
+    from google.adk.tools.base_tool import BaseTool
+    from google.adk.tools.tool_context import ToolContext
 
     governance = Governance(settings)
 

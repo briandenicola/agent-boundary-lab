@@ -430,7 +430,9 @@ def outcome_from_record(record: dict[str, Any]) -> ToolOutcome:
         raw_run_id if isinstance(raw_run_id, str) and _SAFE_RUN_ID.fullmatch(raw_run_id) else None
     )
     forwarded = record.get("user_token_forwarded")
-    payload = record.get("result") if isinstance(record.get("result"), dict) else {}
+    payload = record.get("result")
+    if not isinstance(payload, dict):
+        payload = {}
     error = payload.get("error")
     object_id = payload.get("user_object_id")
     return ToolOutcome(

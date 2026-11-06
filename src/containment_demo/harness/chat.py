@@ -265,7 +265,8 @@ def create_app(settings: HarnessSettings, *, responder: Responder = run_turn) ->
         ("App Insights", settings.diagnostics_app_insights_url),
     ]
     diagnostics_items = "".join(
-        f'<a class="chip" href="{html.escape(url, quote=True)}" target="_blank" rel="noopener noreferrer">{label}</a>'
+        f'<a class="chip" href="{html.escape(url, quote=True)}" '
+        f'target="_blank" rel="noopener noreferrer">{label}</a>'
         for label, url in diagnostics_links
         if url.strip()
     )
@@ -282,6 +283,10 @@ def create_app(settings: HarnessSettings, *, responder: Responder = run_turn) ->
         if settings.auth_mode != "ingress_oidc":
             return None
         return await acquire_user_token(settings, headers.get(INGRESS_TOKEN_HEADER))
+
+    async def _respond(message: str) -> dict[str, Any]:
+        """Give create_task a coroutine even when a responder returns another awaitable."""
+        return await responder(settings, message)
 
     async def page(request: Request) -> Response:
         actor_alias = ""
@@ -477,7 +482,7 @@ def create_app(settings: HarnessSettings, *, responder: Responder = run_turn) ->
                 # The task copies the context here, so the token reaches the tools.
                 reset = current_user_token.set(user_token)
                 try:
-                    turn_task = asyncio.create_task(responder(settings, message))
+                    turn_task = asyncio.create_task(_respond(message))
                 finally:
                     current_user_token.reset(reset)
                 started = asyncio.get_running_loop().time()

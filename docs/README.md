@@ -19,7 +19,8 @@ demo has been tested; ACS governance is new work. Follow `PLAN.md` for implement
 Issue #10 local governance artifacts are available. Owner-run sequence:
 `task governance:prepare` -> `task governance:check` -> `task governance:tamper`.
 These install/check ACS and OPA locally, use mock HTTP destinations, and do not deploy
-anything. Results and the updated dependency lock are pending owner execution.
+anything. **Local validation (2026-11-06):** 259 tests, formatting, lint, type checks and
+all five tamper checks passed; the owner-generated dependency lock is included.
 The existing hosted image does not yet include ACS/OPA or these policy artifacts;
 keep governance Disabled there until the G4 packaging/deployment stage is implemented.
 

@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 from starlette.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from containment_demo.harness import agent, chat
 from containment_demo.harness.settings import HarnessSettings
@@ -236,9 +237,23 @@ class TestChat:
             assert body["tool_results"][0]["tool"] == "ask_audit_agent"
 
     def test_websocket_requires_auth(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(WebSocketDisconnect) as rejection:
             with client().websocket_connect("/ws"):
                 pass
+        assert rejection.value.code == 1008
+
+    def test_websocket_accepts_a_future_responder(self) -> None:
+        def responder(settings: HarnessSettings, message: str) -> asyncio.Future[dict[str, Any]]:
+            future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+            future.set_result({"reply": "future result", "tool_results": []})
+            return future
+
+        with client(responder).websocket_connect("/ws", headers=AUTH) as ws:
+            ws.send_json({"message": "go"})
+            assert ws.receive_json()["event"] == "accepted"
+            result = ws.receive_json()
+            assert result["event"] == "result"
+            assert result["data"]["reply"] == "future result"
 
     def test_bad_messages_rejected(self) -> None:
         for payload in ({"message": ""}, {"message": "x" * 2000}, {"nope": 1}, {"message": 3}):
@@ -294,9 +309,10 @@ class TestChat:
         assert (
             c.post("/chat", json={"message": "go"}, headers={"X-Demo-UI": "1"}).status_code == 401
         )
-        with pytest.raises(Exception):
+        with pytest.raises(WebSocketDisconnect) as rejection:
             with c.websocket_connect("/ws"):
                 pass
+        assert rejection.value.code == 1008
 
     def test_ingress_oidc_mode_uses_ingress_actor_alias(self) -> None:
         c = client(auth_mode="ingress_oidc")

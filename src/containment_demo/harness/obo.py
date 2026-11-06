@@ -29,7 +29,7 @@ class OboError(Exception):
 
 
 def _exchange(settings: HarnessSettings, assertion: str) -> str:
-    import msal
+    import msal  # type: ignore[import-untyped]
 
     app = msal.ConfidentialClientApplication(
         settings.obo_client_id,

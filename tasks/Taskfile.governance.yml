@@ -41,7 +41,7 @@ tasks:
         msg: Run task governance:prepare first.
     cmds:
       - .task/governance/bin/opa check --strict policies/acs/bundle
-      - .venv/bin/python -m pytest tests/unit/test_governance.py tests/unit/test_agent.py tests/unit/test_diagnostics.py tests/unit/test_settings.py tests/unit/test_tools.py tests/unit/test_telemetry.py tests/unit/test_protocol_adapter.py -q
+      - .venv/bin/python -m pytest tests/unit/test_governance.py tests/unit/test_agent.py tests/unit/test_diagnostics.py tests/unit/test_settings.py tests/unit/test_tools.py tests/unit/test_telemetry.py tests/unit/test_protocol_adapter.py tests/unit/test_harness.py tests/unit/test_invocation_primitive.py -q
       - task: :lint:format
       - task: :lint:ruff
       - task: :lint:types

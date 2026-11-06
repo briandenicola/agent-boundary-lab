@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = "==3.12.*"
 
 [manifest]
@@ -32,6 +32,18 @@ wheels = [
 http-server = [
     { name = "sse-starlette" },
     { name = "starlette" },
+]
+
+[[package]]
+name = "agent-control-specification"
+version = "0.3.1b1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6e/41/40ae2a5e014b7473b9310f3eb286250b7795aa513c676afbf75d6d888229/agent_control_specification-0.3.1b1.tar.gz", hash = "sha256:560a717b51bb808984c7fd1391de0890eb68c1c114dbe91d96381c49ec98257e", size = 358205, upload-time = "2026-08-03T17:18:43.381Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f0/96/2f4c6e9045dd08b51c5d904455899741f65ffc3200ee5928737ff969b850/agent_control_specification-0.3.1b1-cp311-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:a0eea57016fc4cf3c620d92b81ad8c7b1376aa2865991a561ea6a427cb1451be", size = 3445414, upload-time = "2026-08-03T17:18:44.774Z" },
 ]
 
 [[package]]
@@ -525,6 +537,7 @@ deploy = [
 ]
 dev = [
     { name = "a2a-sdk", extra = ["http-server"] },
+    { name = "agent-control-specification" },
     { name = "fastapi" },
     { name = "msal" },
     { name = "mypy" },
@@ -537,6 +550,9 @@ dev = [
     { name = "ruff" },
     { name = "starlette" },
     { name = "uvicorn", extra = ["standard"] },
+]
+governance = [
+    { name = "agent-control-specification" },
 ]
 harness = [
     { name = "msal" },
@@ -570,6 +586,8 @@ requires-dist = [
     { name = "a2a-sdk", marker = "extra == 'demo-ui'", specifier = "==1.0.2" },
     { name = "a2a-sdk", extras = ["http-server"], marker = "extra == 'a2a-facade'", specifier = "==1.0.2" },
     { name = "a2a-sdk", extras = ["http-server"], marker = "extra == 'dev'", specifier = "==1.0.2" },
+    { name = "agent-control-specification", marker = "extra == 'dev'", specifier = "==0.3.1b1" },
+    { name = "agent-control-specification", marker = "extra == 'governance'", specifier = "==0.3.1b1" },
     { name = "azure-ai-agentserver-core", specifier = "==2.2.0" },
     { name = "azure-ai-agentserver-responses", specifier = "==2.2.0" },
     { name = "azure-ai-projects", marker = "extra == 'a2a'", specifier = ">=2.8.0,<3" },
@@ -622,7 +640,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'dev'", specifier = ">=0.32" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'services'", specifier = ">=0.32" },
 ]
-provides-extras = ["deploy", "demo-ui", "a2a", "a2a-facade", "harness", "services", "policy-identity", "telemetry", "verify", "identity-probe", "dev"]
+provides-extras = ["governance", "deploy", "demo-ui", "a2a", "a2a-facade", "harness", "services", "policy-identity", "telemetry", "verify", "identity-probe", "dev"]
 
 [[package]]
 name = "cryptography"
