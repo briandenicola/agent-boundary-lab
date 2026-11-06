@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from containment_demo import tools
+from containment_demo.governance.runtime import Governance
 from containment_demo.settings import Settings
 
 AGENT_INSTRUCTION = """\
@@ -111,12 +112,27 @@ def build_agent(settings: Settings, model: Any | None = None) -> Any:
         model: Optional pre-built model, used by tests to avoid requiring credentials.
     """
     from google.adk.agents import LlmAgent
+    from google.adk.tools import BaseTool, ToolContext
+
+    governance = Governance(settings)
+
+    async def before_tool_callback(
+        tool: BaseTool, args: dict[str, Any], tool_context: ToolContext
+    ) -> dict[str, Any] | None:
+        return await governance.before_tool(
+            tool.name,
+            args,
+            session_id=tool_context.session.id,
+            invocation_id=tool_context.invocation_id,
+            tool_call_id=tool_context.function_call_id,
+        )
 
     return LlmAgent(
         name="servicing_assistant",
         model=model if model is not None else build_model(settings),
         instruction=AGENT_INSTRUCTION,
         tools=build_tool_functions(settings),
+        before_tool_callback=before_tool_callback,
     )
 
 

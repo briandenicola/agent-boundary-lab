@@ -16,6 +16,13 @@ demo has been tested; ACS governance is new work. Follow `PLAN.md` for implement
 > passed. The approved scope and dependency-ordered work for #10 are in
 > [`PLAN.md`](PLAN.md#issue-10--agtacs-runtime-governance).
 
+Issue #10 local governance artifacts are available. Owner-run sequence:
+`task governance:prepare` -> `task governance:check` -> `task governance:tamper`.
+These install/check ACS and OPA locally, use mock HTTP destinations, and do not deploy
+anything. Results and the updated dependency lock are pending owner execution.
+The existing hosted image does not yet include ACS/OPA or these policy artifacts;
+keep governance Disabled there until the G4 packaging/deployment stage is implemented.
+
 > **Status (2026-10-09):** the build is no longer only a specification. Deployed and observed: both Foundry hosted agents (one image digest, Audit and Enforced policies), the two controlled endpoints, A2A façades on AKS, a demo UI, a local-model (Qwen2.5-3B, CPU) harness chat service, and `verify_demo.py` sections B and C returning PASS (small n; see [`telemetry-map.md`](telemetry-map.md) §0.13, §0.14). Open: Entra auth for the A2A hop (issue #4), model reliability and speed, section D. What is actually deployed: [`architecture-as-built.md`](architecture-as-built.md). Remaining text in this file is the original design unless marked.
 
 ## Documentation index

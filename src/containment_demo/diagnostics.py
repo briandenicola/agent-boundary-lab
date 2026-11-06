@@ -22,12 +22,14 @@ from __future__ import annotations
 
 import hmac
 import logging
+import uuid
 from typing import Any
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from containment_demo import tools
+from containment_demo.governance.runtime import Governance
 from containment_demo.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -99,7 +101,14 @@ async def diagnostics_handler(request: Request, settings: Settings) -> JSONRespo
             status_code=400,
         )
 
-    results = [_run_one(name, settings) for name in requested]
+    governance = Governance(settings)
+    invocation_id = f"diagnostic-{uuid.uuid4()}"
+    results = []
+    for name in requested:
+        rejection = await governance.before_tool(
+            name, {}, session_id=invocation_id, invocation_id=invocation_id
+        )
+        results.append(rejection if rejection is not None else _run_one(name, settings))
     logger.info(
         "diagnostic run complete",
         extra={"demo_run_id": settings.demo_run_id, "policy_mode": str(settings.policy_mode)},

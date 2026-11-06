@@ -19,6 +19,7 @@ outside the hosted runtime and is a no-op if a provider is already registered.
 from __future__ import annotations
 
 import importlib
+import json
 import logging
 import os
 from typing import Any
@@ -95,6 +96,41 @@ def emit_tool_evidence(settings: Settings, result: dict[str, Any]) -> None:
 
     with tracer.start_as_current_span("demo.tool_result") as fallback:
         fallback.set_attributes(attributes)
+
+
+def emit_governance_evidence(settings: Settings, result: dict[str, Any]) -> None:
+    """Application governance evidence, never a synthetic platform egress decision."""
+    attributes: dict[str, Any] = dict(run_attributes(settings))
+    for key in (
+        "tool_name",
+        "session_id",
+        "invocation_id",
+        "tool_call_id",
+        "governance_mode",
+        "policy_id",
+        "policy_version",
+        "acs_verdict",
+        "enforcement_action",
+        "reason_code",
+        "evaluation_duration_ms",
+        "timestamp",
+    ):
+        value = result.get(key)
+        if value is not None:
+            attributes[f"demo.governance.{key}"] = value
+    span = trace.get_current_span()
+    context = span.get_span_context()
+    if context.is_valid:
+        attributes["demo.governance.trace_id"] = format(context.trace_id, "032x")
+    if span.is_recording():
+        span.add_event("demo.governance_decision", attributes=attributes)
+    else:
+        with trace.get_tracer(TRACER_NAME).start_as_current_span("demo.governance_decision") as event:
+            context = event.get_span_context()
+            if context.is_valid:
+                attributes["demo.governance.trace_id"] = format(context.trace_id, "032x")
+            event.set_attributes(attributes)
+    logger.info("governance decision %s", json.dumps(attributes, sort_keys=True))
 
 
 def configure_local_telemetry(settings: Settings) -> bool:

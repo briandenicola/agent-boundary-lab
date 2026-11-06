@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import uuid
 from enum import StrEnum
+from pathlib import Path
 from urllib.parse import urlparse
 
 from pydantic import Field, HttpUrl, SecretStr, field_validator, model_validator
@@ -49,6 +50,12 @@ class ErrorCategory(StrEnum):
     TIMEOUT = "timeout"
     CONNECTION_ERROR = "connection_error"
     UNEXPECTED = "unexpected"
+
+
+class GovernanceMode(StrEnum):
+    DISABLED = "disabled"
+    AUDIT = "audit"
+    ENFORCED = "enforced"
 
 
 def _host_of(url: str) -> str:
@@ -105,6 +112,13 @@ class Settings(BaseSettings):
         description="Synthetic correlation marker. The only correlation key we control, "
         "and therefore not optional — see docs/compatibility.md C3.",
     )
+
+    # --- Runtime governance (independent of platform egress) ----------------------------
+
+    governance_mode: GovernanceMode = GovernanceMode.DISABLED
+    governance_manifest: Path | None = None
+    governance_opa_path: Path = Path(".task/governance/bin/opa")
+    governance_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
 
     # --- Model access ------------------------------------------------------------------
 
@@ -174,6 +188,13 @@ class Settings(BaseSettings):
                     "diagnostics_enabled is true. The diagnostic route triggers real "
                     "outbound calls, so it is never exposed unauthenticated."
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _governance_requires_a_manifest(self) -> Settings:
+        if self.governance_mode is not GovernanceMode.DISABLED:
+            if self.governance_manifest is None:
+                raise ValueError("governance_manifest is required when governance is enabled")
         return self
 
     @property

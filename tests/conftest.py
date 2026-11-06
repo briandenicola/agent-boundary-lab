@@ -21,6 +21,8 @@ def _isolate_deployment_env() -> Iterator[None]:
     saved = dict(os.environ)
     for key in [k for k in os.environ if k.startswith(_DEPLOYMENT_PREFIXES)]:
         del os.environ[key]
+    # Existing egress regression tests must not inherit an operator's ACS mode.
+    os.environ["DEMO_GOVERNANCE_MODE"] = "disabled"
     yield
     os.environ.clear()
     os.environ.update(saved)

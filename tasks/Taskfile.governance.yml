@@ -1,0 +1,52 @@
+version: '3'
+silent: true
+
+env:
+  GOVERNANCE_TEST_OPA: '{{.ROOT_DIR}}/.task/governance/bin/opa'
+
+tasks:
+  prepare:
+    desc: Install pinned ACS/OPA and update the dependency lock; owner-run, downloads required
+    cmds:
+      - task: opa
+      - uv lock
+      - uv sync --locked --extra dev --extra services --extra governance --no-build-package agent-control-specification
+
+  opa:
+    internal: true
+    cmds:
+      - |
+        set -eu
+        [ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ] || {
+          echo "ACS 0.3.1b1 publishes a Linux x86_64 wheel only; this setup does not compile SDK source."
+          exit 1
+        }
+        mkdir -p .task/governance/bin
+        FILE=$(mktemp .task/governance/bin/opa-download.XXXXXX)
+        trap 'rm -f "$FILE"' EXIT
+        curl --fail --silent --show-error --location --proto '=https' --max-time 120 \
+          https://github.com/open-policy-agent/opa/releases/download/v1.9.0/opa_linux_amd64_static \
+          -o "$FILE"
+        printf '%s  %s\n' 66fa66f3b730b2fb086003863428b382b2898d343adb4b5dfab5598b4d739eed "$FILE" \
+          | sha256sum --check --status || { echo "OPA checksum verification failed"; exit 1; }
+        chmod 755 "$FILE"
+        mv "$FILE" .task/governance/bin/opa
+
+  check:
+    desc: Offline ACS/Rego, ADK/diagnostic regressions, format, lint and types; run prepare first
+    preconditions:
+      - sh: test -x .task/governance/bin/opa
+        msg: Run task governance:prepare first.
+      - sh: test -x .venv/bin/python
+        msg: Run task governance:prepare first.
+    cmds:
+      - .task/governance/bin/opa check --strict policies/acs/bundle
+      - .venv/bin/python -m pytest tests/unit/test_governance.py tests/unit/test_agent.py tests/unit/test_diagnostics.py tests/unit/test_settings.py tests/unit/test_tools.py tests/unit/test_telemetry.py tests/unit/test_protocol_adapter.py -q
+      - task: :lint:format
+      - task: :lint:ruff
+      - task: :lint:types
+
+  tamper:
+    desc: Prove governance guards fail when bypassed in isolated temporary copies
+    cmds:
+      - .venv/bin/python scripts/verify_governance_guards.py

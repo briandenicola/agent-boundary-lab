@@ -769,9 +769,17 @@ true on-premises hosting, and OpenShift portability remain outside this issue.
 
 ## Issue #10 — AGT/ACS runtime governance
 
-**Status (2026-11-06): implementation scope and planning approved; not implemented.**
+**Status (2026-11-06): G0-G3 artifacts written; owner-run validation pending.**
 Extend the tested egress/identity demo. Do not rerun the original build phases or replace
 the hosted ADK agent, Responses adapter, A2A facade, or delegated policy API behavior.
+
+**G0-G3 artifact update (2026-11-06):** published SDK/OPA and locked ADK contracts are
+source-verified. Code, policies, offline regression tests and owner-run Task targets are
+written; dependency locking, runtime checks and tamper results remain pending owner
+execution. No stage is labelled done based on source inspection alone. Start with
+`task governance:prepare`, then `task governance:check` and `task governance:tamper`.
+Preparation updates `uv.lock`; return that change with the results for commit.
+G4-G5 hosted artifacts and live validation are not part of this approved implementation.
 
 **Outcome:** ACS decides whether a tool invocation may execute; the host enforces that
 decision. Foundry independently decides whether an executing tool can reach its
@@ -795,7 +803,7 @@ destination. Show both controls with separate, correlated evidence.
 
 ### G0 — SDK, OPA and execution-boundary compatibility
 
-**Depends on:** nothing in the new track. **Status:** not started.
+**Depends on:** nothing in the new track. **Status:** source-verified; runtime gate pending.
 
 - [ ] Verify a published SDK/native wheel, manifest schema and OPA version against Python
       3.12 and the existing image's OS/architecture and dependency lock.
@@ -813,7 +821,7 @@ destination. Show both controls with separate, correlated evidence.
 
 ### G1 — Policies, configuration and reusable governance component
 
-**Depends on:** G0. **Status:** not started.
+**Depends on:** G0. **Status:** artifacts written; owner-run gate pending.
 
 - [ ] Add a small `src/containment_demo/governance/` component for manifest loading,
       snapshot construction, normalized decisions and host enforcement.
@@ -835,7 +843,7 @@ destination. Show both controls with separate, correlated evidence.
 
 ### G2 — Mediate ADK and deterministic execution
 
-**Depends on:** G1. **Status:** not started.
+**Depends on:** G1. **Status:** artifacts written; owner-run gate pending.
 
 - [ ] Attach the supported callback in `agent.py`; continue allowed calls and return
       structured governance rejection results before denied tools execute.
@@ -850,7 +858,7 @@ destination. Show both controls with separate, correlated evidence.
 
 ### G3 — Offline regression tests and governance evidence
 
-**Depends on:** G2. **Status:** not started.
+**Depends on:** G2. **Status:** tests/Task targets written; results pending.
 
 - [ ] Add focused tests under `tests/unit/` using real ACS/Rego and mocked destinations:
       allow, deny, evaluator timeout/failure, malformed verdict, unknown operation,
@@ -884,7 +892,8 @@ destination. Show both controls with separate, correlated evidence.
 - [ ] Add small dependency-aware Task targets for local checking, governance setup,
       hosted verification and bounded teardown; reuse current build/deploy operations.
       Proposed entry points: `governance:check`, `governance:up`,
-      `governance:verify`, `governance:down`. These do not exist yet.
+      `governance:verify`, `governance:down`. Local `governance:prepare`, `check` and
+      `tamper` now exist; the hosted entry points do not.
 - [ ] Integrate the governance setup into an opt-in all-up app deployment with standalone
       setup available. No manual identity/resource preparation or monolithic CLI wrappers.
 - [ ] Read back actual digest, governance manifest/mode, agent version and policy
@@ -935,7 +944,9 @@ hosted invocations and teardown via reviewed Task targets. Commit/push completed
 
 **Deferred:** human approval resolution, A2A authorization policies, APIM, Agent 365,
 extra model/input/output governance, Dapr integration and on-premises/OpenShift portability.
-An approval-bearing verdict stays blocked until the follow-on approval mechanism exists.
+In Enforced mode an approval-bearing verdict stays blocked until the follow-on approval
+mechanism exists. Audit labels it non-enforcing and continues the original invocation;
+it does not resolve or grant an approval.
 
 **Primary references (read 2026-11-06):**
 
@@ -952,7 +963,7 @@ Nothing below is done unless stated. Billable items need owner approval first.
 | Item | Status |
 | --- | --- |
 | **#4 End-to-end agent and user identity** | Existing identity demo tested, owner-confirmed 2026-11-06. Earlier implementation/probe notes above are historical. |
-| **#10 AGT/ACS runtime governance** | Planning approved; G0-G5 above, implementation not started. Preserve the tested identity/egress baseline. |
+| **#10 AGT/ACS runtime governance** | G0-G3 artifacts written; owner-run locking/checks pending. G4-G5 not started. Preserve the tested identity/egress baseline. |
 | **#2 Document the AKS harness** | Open. Harness built and documented in `docs/architecture-as-built.md`, B13, B14; close after review. |
 | **#3 Local model evaluation** | Open. Qwen2.5-3B is the candidate (B11 laptop, §0.14 one AKS turn). Tool-calling reliability over many turns and speed are unmeasured; result stays functional, not containment. |
 | **#1 Chat UI on AKS** | Open. Harness chat service is the chat UI; the two-button demo UI also still exists. |

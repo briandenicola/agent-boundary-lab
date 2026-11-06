@@ -30,6 +30,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+governance = [
+    "agent-control-specification==0.3.1b1",
+]
 # Only the in-VNet deploy Job needs this. It is kept out of the base dependencies on
 # purpose: azure-ai-projects requires openai>=3, the agent image does not need it, and
 # the agent image's digest is the experiment's control — it must not change because the
@@ -101,6 +104,7 @@ identity-probe = [
     "cryptography==50.0.2",
 ]
 dev = [
+    "agent-control-specification==0.3.1b1",
     "msal>=1.39,<2",
     "PyJWT[crypto]==2.15.1",
     # Used by tests/unit/test_dependency_overrides.py to read declared constraints

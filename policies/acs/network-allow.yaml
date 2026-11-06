@@ -1,0 +1,23 @@
+agent_control_specification_version: "0.3.1-beta"
+metadata:
+  name: containment-network-allow
+  version: "1"
+policies:
+  tool_policy:
+    type: rego
+    bundle: ./bundle
+    query: data.containment.network_allow
+intervention_points:
+  pre_tool_call:
+    policy_target: "$snap.tool_call.args"
+    policy_target_kind: tool_args
+    tool_name_from: "$snap.tool_call.name"
+    policy:
+      id: tool_policy
+tools:
+  get_servicing_policy:
+    type: Tool
+    id: get_servicing_policy
+  send_to_external_processor:
+    type: Tool
+    id: send_to_external_processor
