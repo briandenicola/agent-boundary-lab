@@ -1,5 +1,12 @@
 # Architecture as built
 
+**Current status (2026-11-06):** the owner confirmed the existing Foundry egress and
+identity demo has been tested. Older identity rollout blockers and proposed labels on
+this page are historical, superseded for that baseline by this report. This is not a
+new assistant-run verification and does not establish results for optional experiments.
+AGT/ACS governance is new work, planned in
+[`PLAN.md`](PLAN.md#issue-10--agtacs-runtime-governance); it is not yet an as-built component.
+
 **Written 2026-10-09 (Brett).** This describes what is deployed and observed today, not the
 target design in [`README.md`](README.md). Labels follow [`PLAN.md`](PLAN.md): **TESTED**
 (observed by us, with a date), **PROPOSED** (designed, not shown), **BLOCKED** (a named

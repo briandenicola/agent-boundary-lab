@@ -1,5 +1,12 @@
 # Implementation plan: ADK agent containment and observability
 
+**Current baseline (2026-11-06):** the owner confirmed the existing Foundry egress and
+identity demo has been tested. Earlier phase and identity blocker notes are historical,
+not a reason to rebuild that baseline. This records an owner-reported result, not new
+assistant-run measurements or completion of every optional historical check.
+The next approved planning track is [issue #10](#issue-10--agtacs-runtime-governance):
+new ACS runtime governance, independent of the existing network and identity controls.
+
 **Re-gated 2026-10-08 by Ripley** against `docs/compatibility.md`, `docs/telemetry-map.md`,
 `docs/egress-control.md`, `.squad/decisions.md`, and the code that actually exists. The
 original plan was written before Brett, Parker, Dallas and Lambert did verification work,
@@ -594,6 +601,11 @@ and contexts are retained 60 days from last write.
 
 ## Issue #4 — End-to-end agent and user identity
 
+**Current status (owner-confirmed 2026-11-06): tested existing identity demo.**
+The implementation-stage notes and unchecked probe lists below are retained as history;
+they do not describe the current overall demo status. #10 preserves this baseline and
+does not reopen identity implementation or claim new results for individual probes.
+
 **Status (2026-10-19): integrated setup implemented/offline checked; hosted I0 unverified.**
 The [owner-run probe and setup](identity-probe.md) are checked in. Terraform now owns
 only generated naming and Azure invoke RBAC; the Graph SDK/API engine owns persistent
@@ -755,13 +767,192 @@ true on-premises hosting, and OpenShift portability remain outside this issue.
 
 ---
 
-## Backlog / next (2026-10-09)
+## Issue #10 — AGT/ACS runtime governance
+
+**Status (2026-11-06): implementation scope and planning approved; not implemented.**
+Extend the tested egress/identity demo. Do not rerun the original build phases or replace
+the hosted ADK agent, Responses adapter, A2A facade, or delegated policy API behavior.
+
+**Outcome:** ACS decides whether a tool invocation may execute; the host enforces that
+decision. Foundry independently decides whether an executing tool can reach its
+destination. Show both controls with separate, correlated evidence.
+
+### Implementation contract
+
+- Exactly two business tools remain registered in every governance mode. No arbitrary
+  URL inputs, policy selection from prompts, or governance branches inside HTTP tools.
+- Governance mode is separate from `DEMO_POLICY_MODE`, which remains an egress evidence
+  label. Policy selection comes from validated startup configuration.
+- Use the official `agent-control-specification` Python SDK and Rego via its supported
+  OPA dispatcher. No custom policy engine, external annotators, or new telemetry exporter.
+- Guard agent-selected calls and the authenticated deterministic diagnostic route with
+  the same evaluation/enforcement component, once per attempted invocation.
+- Preserve fixed destinations, TLS verification, bounded timeouts, disabled redirects,
+  independent tool results, and request-scoped delegated tokens. Never put tokens in the
+  ACS snapshot, model-visible arguments, governance evidence, or exception details.
+- New governance deployments use separate demo agent versions and dedicated policies.
+  Never modify the existing Audit/Enforced experiment or production/mixed-purpose policies.
+
+### G0 — SDK, OPA and execution-boundary compatibility
+
+**Depends on:** nothing in the new track. **Status:** not started.
+
+- [ ] Verify a published SDK/native wheel, manifest schema and OPA version against Python
+      3.12 and the existing image's OS/architecture and dependency lock.
+- [ ] Pin dependencies and OPA installation/checksum; record primary references, access
+      dates, supported APIs and owner-run smoke commands in `docs/compatibility.md`.
+- [ ] Verify ADK's supported async `before_tool_callback` contract and denial semantics
+      against the locked version. Inspect its actual execution path, not only documentation.
+- [ ] Confirm the diagnostic route's direct tool calls need explicit mediation.
+      Do not use AGT's Foundry client adapter as a substitute: its documented manual
+      `requires_action` loop is not our hosted Responses -> ADK execution loop.
+- [ ] Run an owner-executed real ACS/Rego allow/deny smoke check without Azure or a model.
+      An unavailable SDK/runtime is a named blocker, not permission to invent an API.
+
+**Exit:** supported, pinned package/runtime combination and executable boundary contract.
+
+### G1 — Policies, configuration and reusable governance component
+
+**Depends on:** G0. **Status:** not started.
+
+- [ ] Add a small `src/containment_demo/governance/` component for manifest loading,
+      snapshot construction, normalized decisions and host enforcement.
+- [ ] Add `policies/acs/` manifests/bundles: approved servicing operation, external
+      processor denied, external processor allowed for the network comparison, and
+      default deny for unknown/unauthorized operations. Keep policy logic out of Python.
+- [ ] Add validated governance mode and manifest configuration to settings and
+      `.env.example`. Default to Disabled for backward compatibility.
+- [ ] Disabled: do not initialize/evaluate ACS or require a manifest/OPA to execute.
+      Audit: evaluate and record would-block decisions and evaluation errors, but continue
+      the original operation. Enforced: block denials and evaluation failures explicitly.
+- [ ] Treat approval-bearing denials as blocked/approval-required, never automatic allow.
+      Validate supported transforms against the fixed, zero-business-argument tool
+      contract; reject unrepresentable transforms explicitly in Enforced mode.
+- [ ] Bound evaluation time; distinguish policy denial, evaluator failure, invalid
+      verdict/transform and approval-required outcomes without exposing sensitive data.
+
+**Exit:** real Rego decisions and explicit mode/error behavior, independent of HTTP tools.
+
+### G2 — Mediate ADK and deterministic execution
+
+**Depends on:** G1. **Status:** not started.
+
+- [ ] Attach the supported callback in `agent.py`; continue allowed calls and return
+      structured governance rejection results before denied tools execute.
+- [ ] Route `diagnostics.py` through the same component before invoking its existing
+      runners. Keep it authenticated and preserve per-tool independent outcomes.
+- [ ] Supply invocation/tool-call, run and session correlation without passing delegated
+      tokens to ACS. Retain existing token transport and downstream authorization.
+- [ ] Keep `tools.py` free of governance/network-policy branching. Disabled must preserve
+      existing tool registration, execution and result contracts.
+
+**Exit:** neither supported execution path bypasses governance; each attempt is evaluated once.
+
+### G3 — Offline regression tests and governance evidence
+
+**Depends on:** G2. **Status:** not started.
+
+- [ ] Add focused tests under `tests/unit/` using real ACS/Rego and mocked destinations:
+      allow, deny, evaluator timeout/failure, malformed verdict, unknown operation,
+      Audit, Disabled, approval-required and supported/rejected transforms.
+- [ ] Exercise real ADK tool dispatch without a live model and authenticated diagnostics.
+      Assert denied/failed evaluations make zero HTTP calls, while allowed calls execute.
+      Cover both-tool registration and one tool's failure not suppressing the other.
+- [ ] Verify manifest/OPA absence fails explicitly when needed and that Disabled still
+      works without them. OPA-backed required checks must fail, not silently skip.
+- [ ] Add separate governance events with run/trace/session/tool-call identifiers,
+      governance mode, policy identity/version, ACS verdict, host action, reason,
+      duration and timestamp. Do not log arguments, payloads, tokens or raw snapshots.
+- [ ] Guard telemetry privacy and correlation. Keep ACS and platform decisions distinct;
+      absent governance evidence remains inconclusive even when receipt queries are empty.
+- [ ] Tamper-test key guards: bypass mediation, permit evaluator failure and suppress
+      decision evidence; confirm focused tests fail, then restore the intended behavior.
+- [ ] Run owner-executed focused tests, existing affected regressions, formatter, lint and
+      type checks through Task targets. Default tests remain offline.
+
+**Exit:** both execution paths and evidence guards proven locally, existing behavior preserved.
+
+### G4 — Isolated hosted scenarios and owner-run Task automation
+
+**Depends on:** G3. **Status:** not started.
+
+- [ ] Package the pinned runtime and policy artifacts in the agent image; keep one
+      immutable digest for the governance scenario comparisons.
+- [ ] Add explicit opt-in deployment configuration for governance agent versions and
+      dedicated egress policies. Governance-denial scenarios permit the receiver at
+      every network layer, including an Enforced RAI policy with both API hosts allowed.
+- [ ] Add small dependency-aware Task targets for local checking, governance setup,
+      hosted verification and bounded teardown; reuse current build/deploy operations.
+      Proposed entry points: `governance:check`, `governance:up`,
+      `governance:verify`, `governance:down`. These do not exist yet.
+- [ ] Integrate the governance setup into an opt-in all-up app deployment with standalone
+      setup available. No manual identity/resource preparation or monolithic CLI wrappers.
+- [ ] Read back actual digest, governance manifest/mode, agent version and policy
+      attachment before comparisons; do not infer configuration from requested settings.
+- [ ] Provide an isolated opt-in evaluator-failure fixture; never add a public request
+      parameter that disables governance or changes policy.
+- [ ] Extend verification for the matrix below. Use an authorized synthetic actor for
+      successful policy API calls; an identity rejection is not a positive receipt control.
+- [ ] Verify real hosted model-selected calls and deterministic calls separately.
+      Recheck the unchanged original Audit/Enforced egress scenarios with governance Disabled.
+
+| Scenario | ACS / host | Network configuration | Required evidence |
+| --- | --- | --- | --- |
+| Governance denial | Deny / block | Both destinations allowed | ACS deny, host prevented execution, no receiver receipt, receipt pipeline positive control |
+| Network denial | Allow / execute | Receiver denied by Foundry | ACS allow, tool attempt, real platform Deny, no receiver receipt, servicing receipt |
+| Successful execution | Allow / execute | Servicing API allowed | ACS allow, tool execution, platform allow, servicing receipt |
+| Evaluation failure | Error / block, Enforced | Both destinations allowed | Evaluation error distinct from deny, host prevented execution, no receiver receipt, positive control |
+| Audit control | Deny / continue, Audit | Both destinations allowed | Non-enforcing governance decision, tool execution and receiver receipt |
+
+Change only the relevant governance policy/mode or egress policy within each comparison;
+hold identity, tool settings and image digest constant. Absence requires the existing
+receipt ingestion wait and unattributed-receipt checks. Do not require a platform decision
+for an invocation that the host prevented from executing. Missing signals are inconclusive.
+
+**Exit:** owner-run hosted reports support each matrix row and original egress regressions.
+
+### G5 — Runbook, tested results and handoff
+
+**Depends on:** G4. **Status:** not started.
+
+- [ ] Add `docs/governance-demo.md` with setup, local/hosted commands, scenario order,
+      evidence inspection, failure handling and teardown. Reuse the existing architecture
+      document rather than create a second competing system description.
+- [ ] Update `docs/README.md`, `docs/architecture-as-built.md`, `docs/demo-runbook.md`,
+      `docs/rebuild-runbook.md`, `docs/telemetry-map.md` and the evidence template with
+      shipped behavior and dated owner-run results.
+- [ ] Record the tested baseline's existing evidence references without inventing run
+      IDs or treating this planning status correction as a new live measurement.
+- [ ] Label local runs functional tests, hosted runs by their actual evidence, and new
+      or unsupported capabilities accurately. Do not relabel historical results.
+
+**Done:** repeatable owner-run automation demonstrates independent governance and network
+controls while preserving the tested identity/egress baseline.
+
+**Execution:** planning approval is not deployment approval. The owner runs dependency
+installation, checks, tamper tests, builds, image publication, policy/resource changes,
+hosted invocations and teardown via reviewed Task targets. Commit/push completed stages.
+
+**Deferred:** human approval resolution, A2A authorization policies, APIM, Agent 365,
+extra model/input/output governance, Dapr integration and on-premises/OpenShift portability.
+An approval-bearing verdict stays blocked until the follow-on approval mechanism exists.
+
+**Primary references (read 2026-11-06):**
+
+- ACS quickstart: https://github.com/microsoft/agent-governance-toolkit/blob/main/policy-engine/QUICKSTART.md
+- Python host SDK: https://github.com/microsoft/agent-governance-toolkit/blob/main/policy-engine/sdk/python/README.md
+- ADK callback contract: https://adk.dev/callbacks/types-of-callbacks/
+
+---
+
+## Backlog / next (updated 2026-11-06)
 
 Nothing below is done unless stated. Billable items need owner approval first.
 
 | Item | Status |
 | --- | --- |
-| **#4 End-to-end agent and user identity** | Independent code/offline checks available: I0 probe, interactive directory lifecycle, shared delegated JWT validation, opt-in policy authorization and rollout guards. Browser/Foundry integration and deployment remain blocked; no hosted identity result. See the track above. |
+| **#4 End-to-end agent and user identity** | Existing identity demo tested, owner-confirmed 2026-11-06. Earlier implementation/probe notes above are historical. |
+| **#10 AGT/ACS runtime governance** | Planning approved; G0-G5 above, implementation not started. Preserve the tested identity/egress baseline. |
 | **#2 Document the AKS harness** | Open. Harness built and documented in `docs/architecture-as-built.md`, B13, B14; close after review. |
 | **#3 Local model evaluation** | Open. Qwen2.5-3B is the candidate (B11 laptop, §0.14 one AKS turn). Tool-calling reliability over many turns and speed are unmeasured; result stays functional, not containment. |
 | **#1 Chat UI on AKS** | Open. Harness chat service is the chat UI; the two-button demo UI also still exists. |

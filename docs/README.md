@@ -6,7 +6,15 @@ Build a small Python agent using Google Agent Development Kit (ADK), deploy it a
 
 The message: **Keep your agent framework; manage the outbound boundary independently and inspect the evidence.** This is a complementary platform pattern, not a replacement for an existing enterprise agent platform.
 
-This repository began as a build specification and is now partly built and tested (status below). Follow `PLAN.md` for phases.
+This repository began as a build specification. The existing Foundry egress and identity
+demo has been tested; ACS governance is new work. Follow `PLAN.md` for implementation tracks.
+
+> **Current status (2026-11-06):** the owner confirmed that the existing Foundry egress
+> and identity demo has been tested. Earlier proposed/unverified labels below describe
+> historical stages, not the current baseline. This update records the owner's report,
+> not a new assistant-run verification or a claim that every historical optional probe
+> passed. The approved scope and dependency-ordered work for #10 are in
+> [`PLAN.md`](PLAN.md#issue-10--agtacs-runtime-governance).
 
 > **Status (2026-10-09):** the build is no longer only a specification. Deployed and observed: both Foundry hosted agents (one image digest, Audit and Enforced policies), the two controlled endpoints, A2A façades on AKS, a demo UI, a local-model (Qwen2.5-3B, CPU) harness chat service, and `verify_demo.py` sections B and C returning PASS (small n; see [`telemetry-map.md`](telemetry-map.md) §0.13, §0.14). Open: Entra auth for the A2A hop (issue #4), model reliability and speed, section D. What is actually deployed: [`architecture-as-built.md`](architecture-as-built.md). Remaining text in this file is the original design unless marked.
 
@@ -53,7 +61,11 @@ See the [rebuild runbook](rebuild-runbook.md) for image tags, ordering and valid
 
 ### Identity extension: issue #4
 
-**Proposed, not deployed (scope agreed 2026-10-15):** expose the AKS harness at a real
+**Tested baseline (owner-confirmed 2026-11-06).** The identity extension is no longer
+proposed. The following scope and rollout notes were written during implementation;
+their unresolved-status statements are historical.
+
+**Original scope (agreed 2026-10-15):** expose the AKS harness at a real
 HTTPS URL, require login by assigned Entra users, and demonstrate delegated user access
 through the harness and Foundry hosted agents to the policy API on Container Apps.
 Use the Entra Agent ID authentication sidecar for the harness's token operations.
