@@ -162,8 +162,8 @@ async def test_audit_evaluation_failure_is_explicit_and_non_enforcing(
         body = await diagnostic_results(make_settings(GovernanceMode.AUDIT))
     assert all(result["succeeded"] for result in body["results"])
     assert all(route.called for route in destinations)
-    assert '"acs_verdict": "error"' in caplog.text
-    assert '"enforcement_action": "audit_continue"' in caplog.text
+    assert '"demo.governance.acs_verdict": "error"' in caplog.text
+    assert '"demo.governance.enforcement_action": "audit_continue"' in caplog.text
     assert "synthetic-secret" not in caplog.text
 
 
