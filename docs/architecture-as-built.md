@@ -78,12 +78,12 @@ that governance was exercised. See [Copilot failure diagnosis and recovery](gove
 | Component | Runtime / ownership | Source and operator tasks |
 | --- | --- | --- |
 | Baseline ADK agents | Foundry hosted containers | `src/containment_demo/`; `build:foundry-agent`, `deploy:foundry-agent` |
-| Seven isolated governance agents | Same governed image digest; separate agent names | `governance/hosted.py`; `governance:build`, `governance:up`, `governance:status` |
+| Seven isolated governance agents | Same governed image digest; separate agent names | `governance/hosted.py`; `acs:build`, `acs:deploy`, `acs:status` |
 | ACS / Rego / OPA | Inside the hosted container; application governance | `governance/`, `policies/acs/` |
 | Baseline RAI policies | Foundry account; existing Terraform declarations | `infra/cloud/rai-policies.tf`; preserve externally managed live settings |
-| Three governance policies | Separate Terraform state; live baseline content filters copied | `infra/governance/` |
+| Three governance policies | Separate Terraform state; live baseline content filters copied | `infra/governance/`; `acs:up` |
 | Policy API and receiver | Azure Container Apps | `services/`; `build:tool-apis`, `deploy:tool-apis` |
-| Governance publisher | Private AKS helper, workload identity | `scripts/governance_manifest.py`, `tasks/Taskfile.governance.yml` |
+| Governance publisher | Private AKS helper, workload identity | `scripts/governance_manifest.py`; `acs:deploy`, optional `acs:copilot` |
 | Baseline harness / bridges | AKS, standing in for an on-premises caller | `harness/`, `a2a_facade/`; `deploy:chat-agent`, `deploy:agent-bridge` |
 | Optional CPU model / two-button UI | Baseline AKS client components | `deploy:model-server`, `deploy:test-ui` |
 | Evidence | Application Insights and Log Analytics | `verify_demo.py`, `verify_governance.py`, [telemetry map](telemetry-map.md) |

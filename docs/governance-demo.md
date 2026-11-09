@@ -64,20 +64,31 @@ For permitted lookup with delegated OAuth, use the separate, not-yet-deployed
 [toolbox project](#8-operator-reference-isolated-toolbox-project); do not change
 the original publication to enable it.
 
-**Status, 2026-11-09:** all seven isolated agents are deployed as active version `1`,
-with three dedicated policies and seven verified model-access grants. Both real API
-services are deployed and healthy. The owner chose deployment only and will run the
-manual tests; no comparison invocations have been made. Scenario outcomes below are
-**expected behavior**, not claims that the hosted comparison has passed.
-
-All seven agents use:
+**Status, 2026-11-09, after the owner-authorized ACS setup:** all seven isolated
+agents are active version `4`, with three dedicated policies and seven verified
+model-access grants. `acs:up` reused the existing policies, publisher access and
+Entra application `normal-manatee-55075-copilot-oauth`
+(client ID `eb60f4ad-effc-468f-972a-ecd38508ce2b`). Both real API services are
+healthy. Build `dtc` published tag `a87cc7a` from committed source:
 
 ```text
-normalmanatee55075acr.azurecr.io/containment-demo-governed-agent@sha256:52a8e31808c575c674f0a4e1cb4ba2617807d9b49903c80b8b142a9a47cf1e53
+normalmanatee55075acr.azurecr.io/containment-demo-governed-agent@sha256:e077b1b16841e7a3f52469190c06492b700c640f982d3ec34a9902d33f246e58
 ```
 
-The original `egress-audit` and `egress-enforced` policy properties were unchanged in
-before/after ARM readback. The AKS cluster has been resumed and remains running.
+`acs:copilot` updated the existing **ACS Servicing Demo** publication to version
+`4`, retaining title ID `T_38856d94-9c7d-2797-4f82-57e55875274b`. Repeating
+deployment and publication reused version `4` and the same title, without a new
+catalog submission. `acs:status` read back all seven active versions.
+
+No hosted model calls or comparison invocations were made during this setup.
+The earlier successful Copilot conversation was on version `3`; deployment
+readiness is not a new conversation result. Scenario outcomes below are
+**expected behavior**, not claims that the hosted comparison has passed.
+
+Before/after readback confirmed unchanged original `egress-audit` and
+`egress-enforced` policy properties, API images and selected authorization
+configuration, and account public-network setting. `cloud:up` was neither run nor
+modified. AKS remains running.
 
 ## Choose an interface
 

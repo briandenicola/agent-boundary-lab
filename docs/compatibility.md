@@ -218,7 +218,7 @@ Primary references, accessed 2026-10-07 through 2026-10-19 unless noted:
 - [Hosted telemetry](https://learn.microsoft.com/azure/foundry/agents/how-to/configure-hosted-agent-telemetry).
 - [Resource diagnostic categories](https://learn.microsoft.com/azure/azure-monitor/reference/supported-logs/microsoft-cognitiveservices-accounts-logs), accessed 2026-11-06.
 
-## Deployment record (2026-11-09)
+## Initial deployment record (2026-11-09)
 
 Both real controlled APIs were deployed with tag `6da553c-dirty-20261109162459`.
 The guarded plan applied exactly two Container App updates, no additions/deletions.
@@ -348,3 +348,23 @@ starts in a mixed log stream. Local journal identifiers are labeled as recorded
 state, distinct from live Foundry readback. Missing readback is inconclusive.
 The owned publication `ensure` action reuses an unchanged publication, upgrades
 only its version pin when required, and preserves uncertain-write refusal.
+Publication CLI logs also go to standard error, leaving its saved readback as
+strict JSON; this is applied from the current publisher source without rebuilding
+the hosted business runtime.
+
+Owner-authorized execution completed on 2026-11-09:
+
+| Item | Observed result |
+| --- | --- |
+| Infrastructure | Three dedicated policies unchanged; Terraform reported 0 added, 0 changed, 0 destroyed |
+| Entra registration | Reused `normal-manatee-55075-copilot-oauth`, client `eb60f4ad-effc-468f-972a-ecd38508ce2b` |
+| Shared image | ACR run `dtc`, source/tag `a87cc7a`, digest `sha256:e077b1b16841e7a3f52469190c06492b700c640f982d3ec34a9902d33f246e58` |
+| Hosted deployment | All seven scenario agents active version `4`; all seven model grants verified |
+| Copilot publication | Existing **ACS Servicing Demo**, Shared / Just you, pinned to `4`; title `T_38856d94-9c7d-2797-4f82-57e55875274b` retained |
+| Repeatability | Second deploy reused all seven v4 agents; second publication reused the title and endpoint without another PATCH/POST |
+| Baseline preservation | Exact before/after selected readback matched: original RAI properties, API images/authorization settings and account public-network setting |
+
+`cloud:up` was neither run nor modified. No hosted model calls or comparison
+invocations were made; the earlier version-3 chat evidence is not a version-4
+runtime result. The isolated toolbox project/MCP/connection were not deployed
+while the custom-OAuth provisioning contract remains blocked.

@@ -55,6 +55,12 @@ matched a real ACS `deny` / `blocked` event. See the
 [dated observation and limits](telemetry-map.md#microsoft-365-copilot-blocked-action-observation).
 Protected lookup and the full hosted comparison remain separate work.
 
+The latest owner-authorized setup on 2026-11-09 deployed all seven agents as
+active version `4` and updated the existing Copilot publication's pin to `4`.
+Repeated deployment/publication reused those resources. Original policy and API
+configuration were unchanged. No new hosted conversation or comparison was
+invoked; use `task acs:status` for current resource identifiers and sample prompts.
+
 ## Operating rules
 
 Use the repository's Task targets. The owner runs builds, deployments, hosted calls

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import logging
 import os
 import re
 import sys
@@ -306,6 +307,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--metadata", required=True, help="Public app metadata JSON; never tokens")
     args = parser.parse_args(argv)
     configure_logging()
+    for handler in logging.getLogger().handlers:
+        if isinstance(handler, logging.StreamHandler) and handler.stream is sys.stdout:
+            handler.setStream(sys.stderr)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     request = PublishRequest.model_validate_json(args.metadata)
     token = SecretStr(sys.stdin.read().strip())
     if not token.get_secret_value() or any(

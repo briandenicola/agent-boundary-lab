@@ -131,11 +131,13 @@ attempt occurred, not that the network blocked it.
 
 The isolated comparison preserves the baseline and uses three dedicated policies:
 both-hosts-allowed, receiver-denied Enforced, and receiver-denied Audit.
-All seven agents were active version `1` on one image digest on 2026-11-09.
-Configuration readback is not a runtime result.
+The latest owner-authorized ACS setup on 2026-11-09 read back all seven agents
+as active version `4` on one image digest. Configuration readback is not a runtime
+result. Use the [standalone ACS lifecycle](governance-demo.md#normal-owner-workflow)
+for setup; the comparison below remains opt-in.
 
 ```bash
-task governance:status
+task acs:status
 # Owner-run regression only; requires the private synthetic-user token file:
 GOVERNANCE_TOKEN_FILE=/private/path/tokens.json task governance:run
 # Fourteen billable invocations, not a Copilot conversation.

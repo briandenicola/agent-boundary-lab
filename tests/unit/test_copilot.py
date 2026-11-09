@@ -5,7 +5,10 @@ from __future__ import annotations
 import copy
 import io
 import json
+import logging
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -339,6 +342,33 @@ def test_missing_publishing_user_token_has_no_identity_fallback(
     monkeypatch.setattr("sys.stdin", io.StringIO(""))
     with pytest.raises(ValueError, match="publishing user's Foundry token"):
         copilot.main(["publish", "--metadata", json.dumps(metadata.payload())])
+
+
+def test_publication_readback_keeps_logs_off_the_json_channel(
+    publisher, metadata, monkeypatch, capsys
+):
+    pub, _service = publisher
+    pub.ensure(metadata, FACTS)
+    monkeypatch.setattr(logging.getLogger(), "handlers", [logging.StreamHandler(sys.stdout)])
+    monkeypatch.setattr(copilot, "configure_logging", lambda: None)
+    monkeypatch.setattr(copilot, "HostedSettings", lambda: SimpleNamespace(endpoint=ENDPOINT))
+    monkeypatch.setattr(copilot, "spec_for", lambda cfg, scenario: SimpleNamespace(agent_name=NAME))
+    monkeypatch.setattr(sys, "stdin", io.StringIO("synthetic-token"))
+
+    def build_publisher(*args):
+        logging.warning("Synthetic publication readback")
+        return pub
+
+    monkeypatch.setattr(copilot, "Publisher", build_publisher)
+    http_logger = logging.getLogger("httpx")
+    previous_level = http_logger.level
+    try:
+        assert copilot.main(["status", "--metadata", json.dumps(metadata.payload())]) == 0
+    finally:
+        http_logger.setLevel(previous_level)
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["title_id"] == "synthetic-title"
+    assert "Synthetic publication readback" in captured.err
 
 
 def test_placeholder_url_is_rejected_after_url_hostname_normalization(

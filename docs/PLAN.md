@@ -11,7 +11,7 @@ Superseded phase checklists and issue-specific squad plans are retained in Git h
 | Phases 1-7: hosted ADK, tools, egress and evidence | Implemented; dated live evidence in [telemetry map](telemetry-map.md) |
 | Issue #4: user identity | Tested baseline, owner-confirmed 2026-11-06 |
 | Issue #10: ACS G0-G3 | Implemented; real ACS/Rego and offline ADK boundary checks passed |
-| Issue #10: ACS G4 deployment | Seven isolated agents active, three policies and seven model grants verified 2026-11-09 |
+| Issue #10: ACS G4 deployment | Seven isolated agents active v4, three policies and seven model grants verified 2026-11-09; repeated deployment reused v4 |
 | Issue #10: hosted comparison | Awaiting owner-run tests; deployment health is not a runtime result |
 | Microsoft 365 Copilot | ACS-first chat and correlated deny/blocked event observed on version 3, 2026-11-09; destination evidence and delegated lookup remain separate |
 | Phases 8-9: Dapr Workflow | Deferred; no dependency of the Copilot demo |
@@ -58,6 +58,17 @@ from recorded state and hosted runtime evidence.
 Protected Copilot lookup remains a separate blocked gate, not a capability made
 ready by renaming or consolidating Tasks.
 
+On 2026-11-09, the owner authorized execution while away. `acs:up`, `acs:build`,
+`acs:deploy`, `acs:copilot` and `acs:status` completed against the existing
+foundation. Build `dtc` used committed source `a87cc7a`; all seven agents are
+active version `4`. The existing ACS-first publication retained its title ID and
+now pins version `4`. Repeated deployment/publication reused those resources.
+Before/after readback confirmed the original policy properties, API images and
+selected authorization configuration, and account public-network setting were
+unchanged. No hosted comparison/model calls or toolbox deployment were performed.
+The actual digest and publication identifiers are recorded in
+[compatibility](compatibility.md#acs-lifecycle-and-status-transport----2026-11-09).
+
 ### G0-G3 -- completed implementation
 
 - Published ACS 0.3.1b1, manifest schema 0.3.1-beta and OPA 1.9.0 are pinned.
@@ -73,9 +84,10 @@ ready by renaming or consolidating Tasks.
 ### G4 -- isolated hosted scenarios and owner-run Task automation
 
 Initial deployment completed 2026-11-09 with all seven scenario agents active as
-version `1` on the same image digest. Later owner deployments updated the image;
-use `governance:status` for current versions. The published Copilot run below used
-version `3`. Existing baseline policy properties were preserved.
+version `1` on the same image digest. The latest owner-authorized ACS setup
+updated all seven to active version `4`; use `acs:status` for current versions.
+The successful Copilot conversation below used version `3`, not version `4`.
+Existing baseline policy properties were preserved.
 
 | Scenario | ACS / host | Foundry network | Required runtime evidence |
 | --- | --- | --- | --- |
