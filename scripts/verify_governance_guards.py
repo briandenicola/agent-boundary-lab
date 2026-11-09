@@ -51,12 +51,15 @@ MUTATIONS = (
 )
 
 
-def check(copy: Path, test: str) -> subprocess.CompletedProcess[str]:
+def check(copy: Path, selector: str) -> subprocess.CompletedProcess[str]:
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("POLICY_API_")
+    }
     return subprocess.run(  # noqa: S603
-        [sys.executable, "-m", "pytest", f"{TESTS}::{test}", "-q"],
+        [sys.executable, "-m", "pytest", selector, "-q"],
         cwd=copy,
         env={
-            **os.environ,
+            **environment,
             "PYTHONPATH": str(copy / "src"),
             "GOVERNANCE_TEST_OPA": str(ROOT / ".task/governance/bin/opa"),
         },
@@ -67,16 +70,20 @@ def check(copy: Path, test: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def main() -> int:
+def run_mutations(
+    mutations: tuple[tuple[str, Path, str, str, str], ...],
+    test_file: str = TESTS,
+) -> int:
     with TemporaryDirectory(prefix="containment-governance-guards-") as directory:
         copy = Path(directory)
-        for name in ("src", "tests", "services", "policies"):
+        for name in ("src", "tests", "services", "policies", "scripts"):
             shutil.copytree(ROOT / name, copy / name, ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copy2(ROOT / "pyproject.toml", copy / "pyproject.toml")
-        for label, path, original, broken, test in MUTATIONS:
+        for label, path, original, broken, test in mutations:
+            selector = test if "::" in test else f"{test_file}::{test}"
             source_file = copy / path
             source = source_file.read_text()
-            baseline = check(copy, test)
+            baseline = check(copy, selector)
             if baseline.returncode != 0:
                 print(f"FAIL: {label} baseline did not pass\n{baseline.stdout}{baseline.stderr}")
                 return 1
@@ -85,18 +92,22 @@ def main() -> int:
                 return 1
             source_file.write_text(source.replace(original, broken))
             try:
-                result = check(copy, test)
+                result = check(copy, selector)
             finally:
                 source_file.write_text(source)
             if result.returncode != 1 or "1 failed" not in result.stdout:
                 print(f"FAIL: {label} did not fail its test\n{result.stdout}{result.stderr}")
                 return 1
-            restored = check(copy, test)
+            restored = check(copy, selector)
             if restored.returncode != 0:
                 print(f"FAIL: {label} restoration failed\n{restored.stdout}{restored.stderr}")
                 return 1
             print(f"PASS: {label} baseline passed, mutation failed, restoration passed")
     return 0
+
+
+def main() -> int:
+    return run_mutations(MUTATIONS)
 
 
 if __name__ == "__main__":

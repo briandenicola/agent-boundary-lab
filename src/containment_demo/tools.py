@@ -133,6 +133,7 @@ def _result(
     error_detail: str | None = None,
     payload: dict[str, Any] | None = None,
     user_token_forwarded: bool | None = None,
+    transport: str | None = None,
 ) -> dict[str, Any]:
     """Build the bounded, structured result record emitted by both tools.
 
@@ -155,6 +156,8 @@ def _result(
     }
     if user_token_forwarded is not None:
         record["user_token_forwarded"] = user_token_forwarded
+    if transport is not None:
+        record["transport"] = transport
     emit_tool_evidence(settings, record)
     return record
 
@@ -179,6 +182,8 @@ def get_servicing_policy(settings: Settings, user_token: str | None = None) -> d
     make an identity-only decision. The token is never logged or put in the result; only
     ``user_token_forwarded`` (presence) is recorded.
     """
+    if settings.toolbox_endpoint is not None:
+        return _toolbox_policy(settings)
     started = time.monotonic()
     forwarded = bool(user_token)
     headers = _marker_headers(settings)
@@ -202,7 +207,6 @@ def get_servicing_policy(settings: Settings, user_token: str | None = None) -> d
             error_detail=_sanitize(exc),
             user_token_forwarded=forwarded,
         )
-
     if response.status_code >= 400:
         return _result(
             tool_name="get_servicing_policy",
@@ -224,6 +228,49 @@ def get_servicing_policy(settings: Settings, user_token: str | None = None) -> d
         http_status=response.status_code,
         payload=_bounded_json(response),
         user_token_forwarded=forwarded,
+    )
+
+
+def _toolbox_policy(settings: Settings) -> dict[str, Any]:
+    from azure.core.exceptions import ClientAuthenticationError
+
+    from containment_demo.toolbox import ConsentRequired, ToolboxError, call_policy, record_consent
+
+    assert settings.toolbox_endpoint is not None
+    started = time.monotonic()
+    category = ErrorCategory.NONE
+    detail = None
+    payload = None
+    status = None
+    try:
+        with _build_client(settings) as client:
+            payload = call_policy(client, settings)
+    except ConsentRequired as exc:
+        record_consent(exc.link)
+        category, detail = ErrorCategory.CONSENT_REQUIRED, "toolbox_consent_required"
+    except ClientAuthenticationError:
+        category, detail = (
+            ErrorCategory.AUTHENTICATION_ERROR,
+            "toolbox_workload_authentication_failed",
+        )
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        category, detail = ErrorCategory.HTTP_ERROR, f"toolbox HTTP {status}"
+    except httpx.TransportError as exc:
+        category, detail = _classify(exc), type(exc).__name__
+    except (ToolboxError, ValueError, UnicodeError) as exc:
+        category = ErrorCategory.TOOLBOX_ERROR
+        detail = str(exc) if isinstance(exc, ToolboxError) else "toolbox_invalid_response"
+    return _result(
+        tool_name="get_servicing_policy",
+        destination_host=str(settings.toolbox_endpoint.host),
+        settings=settings,
+        started=started,
+        http_status=status,
+        error_category=category,
+        error_detail=detail,
+        payload=payload,
+        transport="toolbox",
     )
 
 

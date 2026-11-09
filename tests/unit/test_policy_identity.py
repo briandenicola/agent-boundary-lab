@@ -51,7 +51,9 @@ def token(key: rsa.RSAPrivateKey, **overrides: Any) -> str:
 
 
 @pytest.fixture
-def protected(signing_key: rsa.RSAPrivateKey) -> Iterator[TestClient]:
+def protected(
+    signing_key: rsa.RSAPrivateKey, request: pytest.FixtureRequest
+) -> Iterator[TestClient]:
     public = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(signing_key.public_key()))
     validator = TokenVerifier(
         CONTRACT,
@@ -60,7 +62,9 @@ def protected(signing_key: rsa.RSAPrivateKey) -> Iterator[TestClient]:
         ),
     )
     guard = AccessGuard(validator, frozenset({USER}))
-    with TestClient(policy.create_app(guard=guard)) as client:
+    with TestClient(
+        policy.create_app(guard=guard, mcp_enabled=getattr(request, "param", False))
+    ) as client:
         yield client
 
 
@@ -158,3 +162,81 @@ def test_legacy_policy_and_receiver_behavior_unchanged() -> None:
         assert client.get("/policy").status_code == 200
     with TestClient(receiver.app) as client:
         assert client.post("/ingest", content=b"synthetic").status_code == 202
+
+
+@pytest.mark.parametrize("protected", [True], indirect=True)
+def test_mcp_reuses_authorized_policy_and_keeps_http_lookup_working(
+    protected: TestClient,
+    signing_key: rsa.RSAPrivateKey,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger=policy.logger.name)
+    headers = {
+        "Authorization": "Bearer " + token(signing_key),
+        "Accept": "application/json, text/event-stream",
+    }
+    listed = protected.post(
+        "/mcp",
+        headers=headers,
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+    )
+    assert listed.status_code == 200
+    assert [tool["name"] for tool in listed.json()["result"]["tools"]] == ["get_servicing_policy"]
+    response = protected.post(
+        "/mcp",
+        headers=headers,
+        json={
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "get_servicing_policy",
+                "arguments": {"demo_run_id": "chat-mcp-synthetic"},
+            },
+        },
+    )
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result.get("isError") is not True
+    assert result["structuredContent"]["demo_run_id"] == "chat-mcp-synthetic"
+    assert result["structuredContent"]["user_object_id"] == USER
+    assert result["structuredContent"]["policy"] == policy.SERVICING_POLICY
+    receipts = [
+        json.loads(record.message) for record in caplog.records if record.name == policy.logger.name
+    ]
+    assert any(
+        record["demo_run_id"] == "chat-mcp-synthetic"
+        and record["transport"] == "mcp"
+        and record["path"] == "/mcp"
+        and record["outcome"] == "served"
+        for record in receipts
+    )
+    assert protected.get("/policy/synthetic-http", headers=headers).status_code == 200
+
+
+@pytest.mark.parametrize("protected", [True], indirect=True)
+@pytest.mark.parametrize("identity", ["missing", "unassigned", "wrong-client", "expired"])
+def test_mcp_enforces_the_same_delegated_authorization(
+    protected: TestClient, signing_key: rsa.RSAPrivateKey, identity: str
+) -> None:
+    overrides = {
+        "unassigned": {"oid": OTHER},
+        "wrong-client": {"azp": OTHER},
+        "expired": {"exp": 1},
+    }.get(identity, {})
+    response = protected.post(
+        "/mcp",
+        headers=(
+            {"Authorization": "Bearer " + token(signing_key, **overrides)}
+            if identity != "missing"
+            else {}
+        ),
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+    )
+    assert response.status_code == (403 if identity in {"unassigned", "wrong-client"} else 401)
+    assert "policy" not in response.json()
+
+
+def test_mcp_cannot_start_without_delegated_authentication() -> None:
+    with pytest.raises(ValueError, match="requires delegated"):
+        policy.create_app(mcp_enabled=True)

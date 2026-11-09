@@ -78,6 +78,10 @@ includes:
     taskfile: ./tasks/Taskfile.copilot.yml
     internal: false
 
+  copilot-toolbox:
+    taskfile: ./tasks/Taskfile.copilot-toolbox.yml
+    internal: false
+
 tasks:
   foundry-agent:plan:
     desc: Server-side dry run of the Foundry publishing helper

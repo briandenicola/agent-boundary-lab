@@ -122,15 +122,20 @@ def _authorize_actor(store: ActorContextStore, request: Request) -> None:
 
 
 def _receipt(request: Request, **extra: Any) -> dict[str, Any]:
+    path = request.url.path
+    if getattr(request.state, "identity_protected", False):
+        path = (
+            "/mcp"
+            if path.rstrip("/") == "/mcp"
+            else ("/policy/{run_id}" if path.startswith("/policy/") else "/policy")
+        )
     return {
         "service": SERVICE_NAME,
         "event": "receipt",
         "received_at": datetime.now(UTC).isoformat(),
         "demo_run_id": _run_marker(request),
         "method": request.method,
-        "path": ("/policy/{run_id}" if request.url.path.startswith("/policy/") else "/policy")
-        if getattr(request.state, "identity_protected", False)
-        else request.url.path,
+        "path": path,
         **extra,
     }
 
@@ -142,23 +147,50 @@ async def healthz() -> dict[str, str]:
 
 async def get_policy(request: Request) -> JSONResponse:
     """Return the fixed synthetic policy and record that the call arrived."""
+    return JSONResponse(serve_policy(request, _run_marker(request)))
+
+
+def serve_policy(request: Request, run_id: str, *, transport: str | None = None) -> dict[str, Any]:
     user = getattr(request.state, "delegated_user", None)
     extra = {"user_object_id": user.object_id} if user is not None else {}
-    logger.info(json.dumps(_receipt(request, outcome="served", **extra)))
-    return JSONResponse(
-        {
-            "demo_run_id": _run_marker(request),
-            "served_at": datetime.now(UTC).isoformat(),
-            "policy": SERVICING_POLICY,
-            **extra,
-        }
+    logger.info(
+        json.dumps(
+            _receipt(
+                request,
+                outcome="served",
+                demo_run_id=run_id,
+                **({"transport": transport} if transport else {}),
+                **extra,
+            )
+        )
     )
+    return {
+        "demo_run_id": run_id,
+        "served_at": datetime.now(UTC).isoformat(),
+        "policy": SERVICING_POLICY,
+        **extra,
+    }
 
 
 def create_app(
-    *, guard: AccessGuard | None = None, actor_store: ActorContextStore | None = None
+    *,
+    guard: AccessGuard | None = None,
+    actor_store: ActorContextStore | None = None,
+    mcp_enabled: bool | None = None,
 ) -> FastAPI:
     guard = guard if guard is not None else configured_guard("POLICY_API")
+    if mcp_enabled is None:
+        value = os.environ.get("POLICY_API_MCP_ENABLED", "false")
+        if value not in {"true", "false"}:
+            raise ValueError("POLICY_API_MCP_ENABLED must be true or false")
+        mcp_enabled = value == "true"
+    mcp_server = mcp_app = None
+    if mcp_enabled:
+        if guard is None or actor_store is not None:
+            raise ValueError("MCP requires delegated authorization without actor-context mode")
+        from services.policy_api.mcp import create_mcp_app
+
+        mcp_server, mcp_app = create_mcp_app()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -179,7 +211,11 @@ def create_app(
                         }
                     )
                 )
-            yield
+            if mcp_server is None:
+                yield
+            else:
+                async with mcp_server.session_manager.run():
+                    yield
         finally:
             if guard is not None:
                 await guard.verifier.close()
@@ -243,6 +279,8 @@ def create_app(
     application.add_api_route("/healthz", healthz, methods=["GET"])
     application.add_api_route("/policy", get_policy, methods=["GET"])
     application.add_api_route("/policy/{run_id}", get_policy, methods=["GET"])
+    if mcp_app is not None:
+        application.mount("/", mcp_app)
     return application
 
 

@@ -118,6 +118,64 @@ Primary publication references, accessed 2026-11-09:
 [portal](https://learn.microsoft.com/azure/foundry/agents/how-to/publish-copilot),
 [REST/private networking](https://learn.microsoft.com/azure/foundry/agents/how-to/publish-copilot-virtual-network).
 
+### G5 follow-on -- isolated toolbox project (owner-selected plan)
+
+The owner selected a **separate Foundry project** on 2026-11-09. Do not enable
+toolbox routing in the existing project or deploy the earlier same-project variant.
+Runtime/MCP code, isolated Terraform, deployment/publication Tasks and offline
+regressions are implemented. The owner has not built or deployed this track.
+Custom OAuth/connection setup and hosted acceptance remain prerequisites, not
+completed results. Follow [the owner sequence](governance-demo.md#8-operator-reference-isolated-toolbox-project).
+
+Read-only Azure discovery found a ready account-level `Agents` capability host,
+with no explicit BYO storage/vector/conversation connections, and **no project-level
+capability host** in the existing project. The documented prerequisite for external
+toolbox calls in a network-isolated project is a project-level capability host.
+Creating one on the existing project would change project-wide routing, so that
+approach is not approved.
+
+Plan, in dependency order:
+
+1. Add a separate Terraform state owning a convention-named Copilot project and its
+   project-level capability host. Reuse the current account's existing managed
+   networking and platform-managed data resources without changing them. Verify
+   this combination's ARM contracts and runtime support before creating resources.
+   If it requires account-wide changes, stop for a separate-account decision.
+2. Deploy a separate protected MCP policy service, using the existing delegated
+   verifier and policy response logic. Give it a dedicated OAuth client; retain
+   the original API audience, scope and synthetic-user authorization requirements.
+   Do not change the existing policy API, UI client, OBO settings or receiver.
+3. Configure an OAuth connection and immutable toolbox version **in the new project**.
+   Keep configuration placeholders until actual connection/toolbox values are
+   supplied or their creation is explicitly requested. Verify downstream network
+   reachability; a toolbox listing is not a successful MCP call.
+4. Deploy a new owned agent in the new project, with exactly the same two ADK tools
+   and ACS-first enforcement. Use dedicated image repositories, version journals,
+   scoped grants and a dedicated RAI policy. Reuse the existing private operator
+   helper only through isolated files/process environment, without rolling out
+   any AKS/UI workload or overwriting its journals.
+5. Create a **separate Microsoft 365 Copilot publication and journal**. The existing
+   publication cannot be repinned to an agent version in another project; leave
+   its endpoint, version pin and catalog entry unchanged.
+6. Owner-run acceptance: consent and authorized lookup; an unauthorized user's
+   lookup denied by the MCP service; external processing ACS-blocked; correlated
+   ACS and dedicated-service receipts. Recheck the existing AKS/UI flow independently.
+   Keep toolbox authorization evidence separate from direct-HTTP containment proof.
+
+The `copilot-toolbox:*` Task workflow covers preflight, offline checks/tampering,
+build, separate provisioning, deploy/publish, status, recovery and owned teardown.
+The new project links the existing Application Insights destination; it does not
+create a new telemetry destination. Connection credentials remain in sensitive
+Terraform state, not plan output or deployment journals.
+The workflow must not call `governance:up`,
+`deploy:tool-apis` or apply the baseline cloud state to enable this feature.
+The owner runs builds, resource changes and hosted calls.
+
+A separate project isolates configuration, agents, connections and publication;
+it does **not** create an independent network or model-capacity boundary inside
+the same account. Account-level network changes remain prohibited by this plan.
+No Azure configuration was changed during discovery.
+
 ## Deferred work
 
 Human approval resolution, ACS A2A authorization, APIM and Agent 365 remain separate

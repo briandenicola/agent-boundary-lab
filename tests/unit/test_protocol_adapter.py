@@ -131,6 +131,39 @@ def fake_genai_types_module() -> Any:
     return module
 
 
+async def test_toolbox_consent_reaches_only_final_reply(
+    offline_sdk: dict[str, Any], monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    from containment_demo.toolbox import record_consent
+
+    link = "https://consent.example.com/authorize?state=synthetic-private-state"
+    settings = Settings.model_validate(
+        {
+            **settings.model_dump(),
+            "toolbox_endpoint": (
+                "https://foundry.example.com/api/projects/demo/toolboxes/policy/mcp?api-version=v1"
+            ),
+            "toolbox_policy_tool": "policy___get_servicing_policy",
+        }
+    )
+    turns = 0
+
+    async def turn(**kwargs: Any) -> str:
+        nonlocal turns
+        assert link not in str(kwargs)
+        if turns == 0:
+            record_consent(link)
+        turns += 1
+        return "Sign-in required."
+
+    monkeypatch.setattr(protocol_adapter, "_run_agent_turn", turn)
+    host = protocol_adapter.build_host(settings)
+    first = await host.handler(object(), FakeResponseContext(), None)
+    second = await host.handler(object(), FakeResponseContext(), None)
+    assert link in first.text
+    assert link not in second.text
+
+
 # --- fixtures -------------------------------------------------------------------------
 
 

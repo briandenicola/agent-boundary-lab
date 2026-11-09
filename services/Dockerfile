@@ -10,6 +10,7 @@
 FROM python:3.12-slim
 
 ARG SERVICE
+ARG POLICY_MCP=false
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -28,6 +29,10 @@ COPY pyproject.toml ./pyproject.toml
 RUN if [ "${SERVICE}" = "policy_api" ]; then \
     python -c 'import subprocess,sys,tomllib; deps=tomllib.load(open("pyproject.toml","rb"))["project"]["optional-dependencies"]["policy-identity"]; subprocess.check_call([sys.executable,"-m","pip","install","--no-cache-dir",*deps])'; \
     fi
+RUN if [ "${POLICY_MCP}" = "true" ]; then \
+    test "${SERVICE}" = "policy_api" && \
+    python -c 'import subprocess,sys,tomllib; deps=tomllib.load(open("pyproject.toml","rb"))["project"]["optional-dependencies"]["policy-mcp"]; subprocess.check_call([sys.executable,"-m","pip","install","--no-cache-dir",*deps])'; \
+    elif [ "${POLICY_MCP}" != "false" ]; then exit 1; fi
 
 COPY services ./services
 COPY src/containment_demo/__init__.py src/containment_demo/delegated_auth.py src/containment_demo/actor_context.py ./containment_demo/

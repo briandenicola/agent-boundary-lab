@@ -18,11 +18,13 @@ the ACS-blocked external-processing action first. The end user opens Microsoft 3
 Copilot, selects **ACS Servicing Demo**, and types a business request. They do not
 clone this repository, run Tasks, manage tokens or configure GitHub Copilot.
 
-The native publication workflow is implemented in `task copilot:*`; owner-run
-publication and an actual channel conversation are still pending. Follow
+The native publication workflow is implemented in `task copilot:*`; the ACS-blocked
+channel path was observed on 2026-11-09. Follow
 [operator setup](#7-operator-reference-publish-to-microsoft-365-copilot), then
-[the end-user test](#4-end-user-testing-in-microsoft-365-copilot). No publication
-or conversation success is claimed from offline checks.
+[the end-user test](#4-end-user-testing-in-microsoft-365-copilot).
+For permitted lookup with delegated OAuth, use the separate, not-yet-deployed
+[toolbox project](#8-operator-reference-isolated-toolbox-project); do not change
+the original publication to enable it.
 
 **Status, 2026-11-09:** all seven isolated agents are deployed as active version `1`,
 with three dedicated policies and seven verified model-access grants. Both real API
@@ -43,14 +45,15 @@ before/after ARM readback. The AKS cluster has been resumed and remains running.
 
 | Interface | What you can do today | Important limit |
 | --- | --- | --- |
-| Microsoft 365 Copilot | After owner publication: select the demo agent and request the prohibited external-processing action | Publication automation is implemented, not yet exercised live; ACS governs this agent's tools, not all Copilot actions |
+| Microsoft 365 Copilot | Select the published demo agent and request the prohibited external-processing action | ACS-blocked chat observed; delegated lookup requires the separate toolbox track; ACS does not govern all Copilot actions |
 | Azure portal / Foundry portal | Inspect deployed agents and policy resources; manually query Azure evidence | A chat response or a policy configuration screen alone cannot prove containment |
 | Existing two-button demo web UI | Run the original Audit/Enforced baseline, if that application and its bridges are deployed | It is not a seven-scenario governance selector |
 | Existing browser chat harness | Exercise the baseline conversational flow, if deployed and authenticated | It is not wired to select the isolated governance agents |
 | Foundry playground | Potential exploratory model-selected invocation, if the deployed hosted protocol and private connectivity are supported by that UI | This repository has not validated the playground's forwarding of the downstream user token and run-correlation headers |
 
-**There is not currently a Microsoft 365 Copilot publication for the isolated agents.**
-Use `copilot:plan` / `copilot:publish` for publication. The comparison runner below
+The original publication targets the ACS governance-denial agent, not the whole
+seven-scenario matrix. Use `copilot:plan` / `copilot:publish` for that publication.
+The separate toolbox publication uses only `copilot-toolbox:*`. The comparison runner below
 is a separate engineering tool, not something an end user asks Copilot to execute.
 Do not silently repoint the baseline UI or bridges at governance agents to make them
 look like an existing feature.
@@ -207,6 +210,8 @@ This is **not the first-release acceptance test**. ACS permits the tool, but the
 protected API separately requires a delegated policy token. Native channel sign-in
 does not supply that token through the direct-HTTP contract. Authorization remains
 enabled; do not describe an unauthenticated lookup as successful.
+The separate toolbox deployment in section 8 is the opt-in implementation for this
+flow, not a change to the original agent.
 
 ### First-release test: prohibited business action
 
@@ -665,7 +670,138 @@ external-processing prompt from section 4. Expect an explanation and a fresh
 **Demo run:** marker. Then correlate the ACS decision. A successful mocked test,
 publication status or chat explanation alone does not establish ACS enforcement.
 
-## 8. Decide the result and retain a safe record
+## 8. Operator reference: isolated toolbox project
+
+**Implemented, not deployed or proven live.** This opt-in path enables the permitted
+lookup through Foundry-managed custom OAuth. It preserves the original publication,
+AKS/Web UI, API/OBO client, seven scenarios and direct-HTTP identity contract.
+Use only `copilot-toolbox:*` for this work, not `governance:up`, `deploy:tool-apis`
+or a baseline Terraform apply.
+
+The owner runs all commands below, including dependency installation, builds,
+resource changes, publication and hosted tests. Start with:
+
+```bash
+task copilot-toolbox:preflight
+task copilot-toolbox:prepare
+task copilot-toolbox:check
+task copilot-toolbox:tamper
+```
+
+Preflight reads the existing account capability host and stops unless its
+platform-managed prerequisite is ready. It does not configure project routing.
+Offline checks and tamper checks are functional evidence only.
+
+With approval to build/publish dedicated images:
+
+```bash
+task copilot-toolbox:build
+```
+
+Create a **dedicated custom-OAuth client**, not the existing Web UI/OBO client.
+Use the existing protected API's tenant, audience and delegated scope, retaining
+its authorized synthetic-user list. Configure this client's delegated permission
+and consent without changing the existing API's audience, scope or client list.
+Use the callback URL supplied by Foundry's custom-OAuth setup; do not guess one.
+Keep its secret only in the protected Foundry connection configuration.
+
+```bash
+export COPILOT_TOOLBOX_OAUTH_CLIENT_ID=REPLACE-dedicated-client-uuid
+task copilot-toolbox:plan
+# Review only convention-named resources in the separate state, then approve:
+task copilot-toolbox:infra-up
+task copilot-toolbox:access
+```
+
+The separate `infra/copilot-toolbox` state owns the new project, project capability
+host, protected MCP Container App, dedicated RAI policy and scoped grants. It
+links the **existing** Application Insights destination. Back up this state and
+`.task/copilot-toolbox` privately alongside the baseline state. Plans/state can
+contain sensitive configuration; do not publish them.
+
+The output identifies `project_name`, `project_id` and `mcp_url`. In **that new
+project only**, complete the documented [custom OAuth connection](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/tool-authentication)
+and [toolbox setup](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/toolbox):
+
+1. Target exactly `mcp_url` with per-user custom OAuth. Use the existing API's
+   delegated scope and `offline_access`, plus the dedicated client's credentials.
+   Microsoft-managed OAuth, project/agent identity and `UserEntraToken` are not
+   substitutes for this custom API's user authorization.
+2. Add only the servicing MCP server/tool to a toolbox with `require_approval: never`.
+   Create an immutable version and obtain its **actual versioned endpoint** and
+   exact `server_label___get_servicing_policy` tool name.
+3. Use supported private-network access for any data-plane setup. If this account's
+   managed network cannot route the new project's downstream MCP call, stop with
+   the real error. Do not enable public Foundry access, alter account-wide routing,
+   provision BYO storage or change the original project's capability host.
+
+Connection/toolbox creation remains an owner prerequisite; the Tasks do not invent
+or silently create them. A toolbox listing is not a successful authorized call.
+
+```bash
+export COPILOT_TOOLBOX_ENDPOINT='https://REPLACE-account.services.ai.azure.com/api/projects/REPLACE-copilot-project/toolboxes/REPLACE-toolbox/versions/REPLACE-version/mcp?api-version=v1'
+export COPILOT_TOOLBOX_POLICY_TOOL=REPLACE-server-label___get_servicing_policy
+task copilot-toolbox:up
+task copilot-toolbox:status
+```
+
+`up` uploads source to an isolated directory in the existing private helper without
+rolling out any AKS workload. It creates/reuses an owned version and grants model
+access on the account plus toolbox-consumer access on the **new project**.
+`status` verifies configuration, readiness, egress rules, the telemetry destination
+and any journaled publication endpoint/version pin, but labels the hosted runtime
+and conversation results **unverified**.
+
+Prepare a separate public metadata file, replacing all placeholders with approved
+developer, privacy and terms URLs. Do not reuse the original publication's journal.
+
+```bash
+cp deploy/copilot/toolbox-publish-request.example.json .task/copilot-toolbox/publish-request.json
+# Edit this new copy; preserve the original .task/copilot files.
+export COPILOT_TOOLBOX_METADATA_FILE="$PWD/.task/copilot-toolbox/publish-request.json"
+task copilot-toolbox:publish-plan
+# Review the separate version pin and Activity endpoint exposure, then approve:
+task copilot-toolbox:publish
+task copilot-toolbox:status
+```
+
+Open **ACS Toolbox Demo** in Microsoft 365 Copilot in a new conversation. Request
+the synthetic servicing policy, open the returned consent URL privately, complete
+consent, and request the policy again. Then request external processing: ACS must
+block it before any outbound dispatch. Repeat lookup as an unauthorized synthetic
+user; the MCP service must deny access, not serve another user's cached result.
+Neither end user pastes tokens or custom HTTP headers into chat.
+
+Require a `served` receipt with `transport: mcp` and verified delegated identity,
+correlated by the reply's Demo run marker. Inspect the **new** Container App name
+from deployment output in the existing receipt queries. Check unauthorized-user
+rejections in the bounded test window; pre-authorization rejections may have no run
+marker. Require correlated ACS blocked evidence and mature receipt controls for
+the send. Separately recheck the unchanged AKS/UI path. Missing evidence is
+**inconclusive**; this toolbox path is not the original direct-HTTP containment proof.
+
+Run publication/recovery operations serially. After a helper restart,
+`task copilot-toolbox:restore-journals` restores only missing isolated journals
+from private local backups. An uncertain create/PATCH/POST or foreign journal
+stops automatic retries; inspect Azure and the saved record rather than deleting it.
+A readiness timeout with a known, unchanged version can be resumed with `up`
+without creating another version.
+
+With separate cleanup approval:
+
+```bash
+task copilot-toolbox:disable
+task copilot-toolbox:down
+```
+
+Disable can restore publication even if the agent or capability host is unhealthy.
+Teardown checks ownership, requires publication to be disabled, removes only
+recorded grants, deletes owned versions and applies a guarded destroy of this
+track's state. It does not remove the Microsoft 365 catalog entry or dedicated
+Entra OAuth application; remove those separately after review. Preserve the
+original publication and do not destroy the baseline/helper to clean up this track.
+
+## 9. Decide the result and retain a safe record
 
 | Observation | Conclusion |
 | --- | --- |
@@ -685,7 +821,7 @@ If evidence is late, repeat **verify**, not **run**. If configuration changed, s
 investigate before drawing conclusions. Never reconcile the main Terraform policy
 drift merely to make a demonstration proceed.
 
-## 9. Cleanup is separate from testing
+## 10. Cleanup is separate from testing
 
 Only after reviewing and preserving reports, and with cleanup approval:
 

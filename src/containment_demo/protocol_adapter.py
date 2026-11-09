@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from contextlib import ExitStack
 from typing import Any
 
 from containment_demo.agent import USER_TOKEN_STATE_KEY
@@ -111,13 +112,26 @@ def build_host(settings: Settings) -> Any:
         run_runner = InMemoryRunner(
             agent=build_agent(run_settings), app_name=run_settings.agent_name
         )
-        reply = await _run_agent_turn(
-            runner=run_runner,
-            settings=run_settings,
-            user_text=user_text,
-            cancellation_signal=cancellation_signal,
-            user_token=user_token,
-        )
+        with ExitStack() as stack:
+            authorization = None
+            if run_settings.toolbox_endpoint is not None:
+                from containment_demo.toolbox import capture_consent
+
+                authorization = stack.enter_context(capture_consent())
+            reply = await _run_agent_turn(
+                runner=run_runner,
+                settings=run_settings,
+                user_text=user_text,
+                cancellation_signal=cancellation_signal,
+                user_token=user_token,
+            )
+            for link in authorization.consent_links if authorization is not None else ():
+                # OAuth state goes directly to the user, never through the model or logs.
+                reply += (
+                    "\n\nAuthorize servicing-policy access in your browser:\n"
+                    f"{link}\n"
+                    "After sign-in confirms success, return here and request the policy again."
+                )
         if run_id is None:
             reply += f"\n\nDemo run: {run_settings.demo_run_id}"
         return TextResponse(context, request, text=reply)

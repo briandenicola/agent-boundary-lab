@@ -242,3 +242,64 @@ Primary publication references accessed 2026-11-09:
 [REST/private networking](https://learn.microsoft.com/azure/foundry/agents/how-to/publish-copilot-virtual-network).
 The implementation must verify Activity delivery, downstream delegation and
 correlation for the actual hosted agent; direct Responses headers are not proof.
+
+## Copilot toolbox isolation planning -- 2026-11-09
+
+Read-only discovery: the existing account has a `Succeeded` account-level `Agents`
+capability host with no explicit BYO data connections; its existing project has an
+empty project capability-host list. No capability host or Azure setting was changed.
+The owner selected a separate project; see [the current plan](PLAN.md#g5-follow-on----isolated-toolbox-project-owner-selected-plan).
+
+Primary references accessed 2026-11-09:
+
+- [Toolbox authentication](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/tool-authentication):
+  OAuth is connection-managed; hosted calls must carry request-scoped
+  `x-agent-foundry-call-id` for per-user resolution.
+- [Toolbox network isolation](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/toolbox-network-isolation):
+  external toolbox tools in an isolated project require a project-level capability
+  host; an account-level host alone is insufficient.
+- [Capability hosts](https://learn.microsoft.com/azure/foundry/agents/concepts/capability-hosts):
+  account and project hosts are distinct; project host changes affect the project's
+  agents. The documented list API is `2025-06-01` at each scope.
+- [Managed virtual network](https://learn.microsoft.com/azure/foundry/how-to/managed-virtual-network):
+  projects in an account share the managed network. A new project is not a separate
+  network boundary.
+
+MCP SDK 2.3.0 source and offline execution confirm `MCPServer`, two-parameter
+`Context[Any, Any]`, stateless JSON HTTP transport and the session-manager lifespan.
+The API's MCP surface remains opt-in and requires the existing delegated guard.
+Toolbox transport requires trusted hosted caller context and never falls back to
+an application identity for downstream policy access. OAuth consent links are
+returned directly to the user, outside model input and tool telemetry.
+These are local implementation contracts, not a successful hosted OAuth result.
+
+The separate module uses project API `2025-10-01-preview`, capability hosts
+`2025-06-01`, RAI policies and AppInsights connections `2026-05-15-preview`, Container
+Apps `2025-01-01` and role assignments `2022-04-01`. The AppInsights connection
+reuses the baseline's verified category/authentication/target contract and its
+existing connection string; there is no new telemetry destination. Terraform
+schema validation is not live proof that the project's platform-managed host can
+route downstream MCP calls in this existing managed network. If creation or
+reachability requires account-wide changes, stop; that scope is not approved.
+
+The hosted ADK integration uses a small MCP client rather than registering tools
+from Microsoft Agent Framework. It preserves exactly two business tools, obtains
+only a workload token for `https://ai.azure.com/.default`, and forwards only the
+trusted request's opaque call ID. The servicing destination and exact tool name
+are startup configuration, not model input. Both JSON and SSE replies are bounded.
+`require_approval` must be `never`; approval-bearing tools fail closed.
+The immutable version endpoint is intentional for this isolated experiment.
+
+Additional primary references accessed 2026-11-09:
+
+- [Hosted-agent toolbox contract](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/use-toolbox-hosted-agent):
+  versioned developer endpoint, workload scope, request caller context and
+  runtime enforcement of approval metadata.
+- [Container Apps ARM schema](https://learn.microsoft.com/azure/templates/microsoft.app/2025-01-01/containerapps).
+
+OAuth setup requires a dedicated custom client using the existing API's audience
+and delegated scope, plus `offline_access` for refresh. Native channel sign-in is
+not the downstream authorization grant. Microsoft-managed OAuth and
+`UserEntraToken` are not generic custom-API authentication substitutes.
+No connection creation API or toolbox get-version API is assumed by the Tasks:
+the owner supplies the new project's actual connection/toolbox configuration.

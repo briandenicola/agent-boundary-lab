@@ -45,6 +45,143 @@ def task_body(file: str, name: str) -> str:
     return match[1]
 
 
+@pytest.mark.parametrize("action", ["up", "status", "publish-plan", "publish", "disable"])
+def test_toolbox_commands_use_isolated_helper_files_and_never_roll_out_baseline(
+    dry_task,
+    action: str,
+) -> None:
+    command = dry_task(f"copilot-toolbox:{action}")
+    assert "cloud:target-check" in command
+    assert "/home/agent/.copilot-toolbox/source" in command
+    assert "-m containment_demo.copilot_toolbox" in command
+    assert ".task/copilot-toolbox/" in command
+    assert "kubectl apply" not in command
+    assert "rollout" not in command
+    assert "governance.hosted up" not in command
+    assert "/home/agent/.copilot/publication.json" not in command
+    assert "terraform apply" not in command
+
+
+@pytest.mark.parametrize(
+    ("readback", "create_exit", "principal_count", "success", "writes"),
+    [
+        ("0", 0, 1, True, 2),
+        ("1", 0, 1, True, 0),
+        ("", 0, 1, False, 0),
+        ("invalid", 0, 1, False, 0),
+        ("0", 23, 1, False, 1),
+        ("0", 0, 2, False, 0),
+    ],
+)
+def test_toolbox_grants_are_scoped_journaled_before_writes_and_fail_closed(
+    tmp_path: Path,
+    readback: str,
+    create_exit: int,
+    principal_count: int,
+    success: bool,
+    writes: int,
+) -> None:
+    runner = shutil.which("task")
+    if runner is None:
+        pytest.skip("Go Task is required to exercise isolated grants")
+    shutil.copytree(ROOT / "tasks", tmp_path / "tasks")
+    (tmp_path / "scripts").mkdir()
+    shutil.copy2(ROOT / "scripts/copilot_toolbox_plan.py", tmp_path / "scripts")
+    (tmp_path / ".venv/bin").mkdir(parents=True)
+    (tmp_path / ".venv/bin/python").symlink_to(sys.executable)
+    (tmp_path / "Taskfile.yml").write_text(
+        "version: '3'\nsilent: true\nincludes:\n"
+        "  toolbox:\n    taskfile: ./tasks/Taskfile.copilot-toolbox.yml\n"
+        "tasks:\n  grant:\n    cmds:\n      - task: toolbox:_grants\n"
+    )
+    account = (
+        "/subscriptions/synthetic/resourceGroups/lab"
+        "/providers/Microsoft.CognitiveServices/accounts/foundry"
+    )
+    directory = tmp_path / ".task/copilot-toolbox"
+    directory.mkdir(parents=True)
+    (directory / "config.json").write_text(
+        json.dumps(
+            {
+                "project_name": "isolated-copilot",
+                "project_id": account + "/projects/isolated-copilot",
+                "agent_name": "isolated-agent",
+                "rai_policy_id": account + "/raiPolicies/isolated",
+            }
+        )
+    )
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    scripts = {
+        "terraform": f"""
+            import sys
+            print({{
+                "foundry_account_id": {account!r},
+                "foundry_account_name": "foundry",
+                "project_name": "baseline",
+            }}[sys.argv[-1]])
+        """,
+        "az": """
+            import json, os, sys
+            from pathlib import Path
+            args = sys.argv[1:]
+            principal = "00000000-0000-4000-8000-000000000001"
+            if args[:3] == ["ad", "sp", "list"]:
+                print("\\n".join([principal] * int(os.environ["FAKE_PRINCIPALS"])))
+            elif args[:3] == ["role", "assignment", "list"]:
+                print(os.environ["FAKE_READBACK"])
+            elif args[:3] == ["role", "assignment", "create"]:
+                journal = Path(".task/copilot-toolbox/grants.json")
+                assert journal.stat().st_mode & 0o777 == 0o600
+                scope = args[args.index("--scope") + 1]
+                role = args[args.index("--role") + 1]
+                name = args[args.index("--name") + 1]
+                assignment = scope + "/providers/Microsoft.Authorization/roleAssignments/" + name
+                records = json.loads(journal.read_text())
+                assert any(row["id"] == assignment and row["principal"] == principal
+                           and row["role"] == role and row["agent"] == "isolated-agent"
+                           for row in records)
+                config = json.loads(Path(".task/copilot-toolbox/config.json").read_text())
+                expected = (config["project_id"] if role.startswith("eed3")
+                            else config["rai_policy_id"].rsplit("/raiPolicies/", 1)[0])
+                assert scope == expected
+                with Path("writes").open("a") as log:
+                    log.write(assignment + "\\n")
+                sys.exit(int(os.environ["FAKE_CREATE_EXIT"]))
+            else:
+                raise AssertionError(args)
+        """,
+    }
+    for name, source in scripts.items():
+        path = bin_dir / name
+        path.write_text(f"#!{sys.executable}\n" + textwrap.dedent(source))
+        path.chmod(0o755)
+    result = subprocess.run(  # noqa: S603
+        [runner, "grant"],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "FAKE_READBACK": readback,
+            "FAKE_CREATE_EXIT": str(create_exit),
+            "FAKE_PRINCIPALS": str(principal_count),
+        },
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert (result.returncode == 0) is success, result.stdout + result.stderr
+    actual = (tmp_path / "writes").read_text().splitlines() if writes else []
+    assert len(actual) == writes
+    if not writes:
+        assert not (tmp_path / "writes").exists()
+    else:
+        journal = directory / "grants.json"
+        assert len(json.loads(journal.read_text())) == writes
+        assert journal.stat().st_mode & 0o777 == 0o600
+
+
 @pytest.mark.parametrize(
     ("login", "have", "list_exit", "state_subscription", "success", "created"),
     [

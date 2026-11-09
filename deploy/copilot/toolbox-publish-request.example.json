@@ -1,0 +1,13 @@
+{
+  "agentDisplayName": "ACS Toolbox Demo",
+  "performBotRegistration": true,
+  "publishScope": "Shared",
+  "publishAsAutopilot": false,
+  "appVersion": "1.0.0",
+  "shortDescription": "Synthetic servicing with delegated toolbox access and ACS.",
+  "fullDescription": "A separate-project demo of user-authorized servicing lookup and ACS-blocked external processing. Uses synthetic data only. Complete the servicing connection's consent flow when prompted.",
+  "developerName": "REPLACE-owner",
+  "developerWebsiteUrl": "https://REPLACE-owner.example.com",
+  "privacyUrl": "https://REPLACE-owner.example.com/privacy",
+  "termsOfUseUrl": "https://REPLACE-owner.example.com/terms"
+}

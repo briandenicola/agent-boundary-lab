@@ -16,9 +16,9 @@ import re
 import uuid
 from enum import StrEnum
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
-from pydantic import Field, HttpUrl, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, HttpUrl, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -51,6 +51,9 @@ class ErrorCategory(StrEnum):
     TIMEOUT = "timeout"
     CONNECTION_ERROR = "connection_error"
     UNEXPECTED = "unexpected"
+    AUTHENTICATION_ERROR = "authentication_error"
+    CONSENT_REQUIRED = "consent_required"
+    TOOLBOX_ERROR = "toolbox_error"
 
 
 class GovernanceErrorCategory(StrEnum):
@@ -69,6 +72,30 @@ def _host_of(url: str) -> str:
     if not parsed.hostname:
         raise ValueError(f"URL has no host: {url!r}")
     return parsed.hostname.lower()
+
+
+def validate_toolbox(endpoint: HttpUrl | None, tool_name: str | None) -> None:
+    if endpoint is None and tool_name is None:
+        return
+    if endpoint is None or tool_name is None:
+        raise ValueError("toolbox endpoint and policy tool name must be configured together")
+    parsed = urlparse(str(endpoint))
+    if (
+        parsed.scheme != "https"
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+        or parse_qs(parsed.query, keep_blank_values=True) != {"api-version": ["v1"]}
+        or re.fullmatch(
+            r"/api/projects/[A-Za-z0-9_-]+/toolboxes/[A-Za-z0-9_-]+"
+            r"(?:/versions/[A-Za-z0-9_.-]+)?/mcp",
+            parsed.path,
+        )
+        is None
+    ):
+        raise ValueError("expected an HTTPS Foundry toolbox MCP endpoint with api-version=v1")
+    if re.fullmatch(r"[A-Za-z0-9_-]+___get_servicing_policy", tool_name) is None:
+        raise ValueError("expected server_label___get_servicing_policy")
 
 
 class Settings(BaseSettings):
@@ -97,6 +124,15 @@ class Settings(BaseSettings):
         description="Destination deliberately omitted from the allowlist. "
         "Expected to be denied by the platform under Enforced.",
     )
+    toolbox_endpoint: HttpUrl | None = Field(
+        default=None, validation_alias=AliasChoices("TOOLBOX_ENDPOINT", "toolbox_endpoint")
+    )
+    toolbox_policy_tool: str | None = None
+
+    @model_validator(mode="after")
+    def _toolbox_configuration(self) -> Settings:
+        validate_toolbox(self.toolbox_endpoint, self.toolbox_policy_tool)
+        return self
 
     # --- HTTP behaviour ----------------------------------------------------------------
 

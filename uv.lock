@@ -570,6 +570,9 @@ policy-identity = [
     { name = "httpx" },
     { name = "pyjwt", extra = ["crypto"] },
 ]
+policy-mcp = [
+    { name = "mcp" },
+]
 services = [
     { name = "fastapi" },
     { name = "uvicorn", extra = ["standard"] },
@@ -612,6 +615,7 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'policy-identity'", specifier = "==0.28.1" },
     { name = "litellm", specifier = ">=1.0" },
     { name = "mcp", specifier = ">=2.2.0,<3" },
+    { name = "mcp", marker = "extra == 'policy-mcp'", specifier = "==2.3.0" },
     { name = "msal", marker = "extra == 'dev'", specifier = ">=1.39,<2" },
     { name = "msal", marker = "extra == 'harness'", specifier = ">=1.39,<2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13" },
@@ -642,7 +646,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'dev'", specifier = ">=0.32" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'services'", specifier = ">=0.32" },
 ]
-provides-extras = ["governance", "deploy", "demo-ui", "a2a", "a2a-facade", "harness", "services", "policy-identity", "telemetry", "verify", "identity-probe", "dev"]
+provides-extras = ["governance", "deploy", "demo-ui", "a2a", "a2a-facade", "harness", "services", "policy-identity", "policy-mcp", "telemetry", "verify", "identity-probe", "dev"]
 
 [[package]]
 name = "cryptography"

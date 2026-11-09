@@ -1,0 +1,407 @@
+version: '3'
+silent: true
+
+includes:
+  arm:
+    taskfile: ./Taskfile.arm.yml
+    internal: true
+
+tasks:
+  preflight:
+    desc: READ-ONLY AZURE. Verify the existing account capability host; never change baseline project/networking
+    vars:
+      ACCOUNT:
+        sh: terraform -chdir=infra/cloud output -raw foundry_account_id
+    cmds:
+      - task: :cloud:target-check
+      - mkdir -p .task/copilot-toolbox
+      - task: arm:_arm-get
+        vars:
+          URL: 'https://management.azure.com{{.ACCOUNT}}/capabilityHosts?api-version=2025-06-01'
+          QUERY: '@'
+          OUT: '{{.ROOT_DIR}}/.task/copilot-toolbox/account-hosts.json'
+      - |
+        set -eu
+        jq -e '
+          (.nextLink // "") == "" and (.value | type == "array" and length == 1) and
+          all(.value[];
+            .properties.provisioningState == "Succeeded" and
+            .properties.capabilityHostKind == "Agents" and
+            ((.properties.storageConnections // []) | length == 0) and
+            ((.properties.threadStorageConnections // []) | length == 0) and
+            ((.properties.vectorStoreConnections // []) | length == 0))
+        ' .task/copilot-toolbox/account-hosts.json >/dev/null || {
+          echo "BLOCKED: require the existing ready platform-managed account host. Do not change account-wide routing." >&2
+          exit 1
+        }
+        echo "Account prerequisite ready; the separate project and downstream OAuth path remain unverified."
+
+  prepare:
+    desc: INSTALLS LOCAL DEPENDENCIES. Restore pinned OPA and locked development/MCP profiles
+    cmds:
+      - task: :governance:opa
+      - uv sync --locked --extra dev --extra deploy --extra services --extra policy-identity --extra policy-mcp --extra governance --no-build-package agent-control-specification
+
+  check:
+    desc: OFFLINE. Toolbox/MCP, HTTP/UI and isolated-deployment regressions, lint and types
+    cmds:
+      - |
+        env -u POLICY_API_AUTH_MODE -u POLICY_API_AUTHORIZED_USER_IDS \
+          -u POLICY_API_TENANT_ID -u POLICY_API_AUDIENCE -u POLICY_API_SCOPE \
+          -u POLICY_API_CLIENT_IDS -u POLICY_API_MCP_ENABLED \
+          .venv/bin/python -m pytest tests/unit/test_toolbox.py \
+          tests/unit/test_copilot_toolbox.py tests/unit/test_policy_identity.py \
+          tests/unit/test_copilot.py tests/unit/test_protocol_adapter.py tests/unit/test_governance.py \
+          tests/unit/test_tools.py tests/unit/test_settings.py tests/unit/test_services.py tests/unit/test_harness.py \
+          tests/unit/test_a2a_facade.py tests/unit/test_task_commands.py -q
+      - task: :lint:format
+      - task: :lint:ruff
+      - task: :lint:types
+      - terraform -chdir=infra/copilot-toolbox fmt -check
+
+  tamper:
+    desc: OFFLINE. Prove toolbox guards fail when bypassed in disposable copies
+    cmds:
+      - .venv/bin/python -m scripts.verify_toolbox_guards
+
+  build:
+    desc: BUILDS/PUBLISHES IN AZURE. Dedicated Copilot agent and MCP repositories only
+    cmds:
+      - task: preflight
+      - task: :build:_foundry-image
+        vars: {REPOSITORY: containment-demo-copilot-toolbox-agent}
+      - |
+        set -eu
+        . "{{.ROOT_DIR}}/scripts/image-tag.sh"
+        ACR=$(terraform -chdir=infra/cloud output -raw acr_name)
+        REPOSITORY=containment-demo-copilot-policy-mcp
+        TAG=$(image_tag_new "$REPOSITORY" "${IMAGE_TAG:-}")
+        az acr build --registry "$ACR" --image "$REPOSITORY:$TAG" \
+          --build-arg SERVICE=policy_api --build-arg POLICY_MCP=true \
+          --file services/Dockerfile .
+        image_tag_record "$REPOSITORY" "$TAG"
+
+  plan:
+    desc: READ-ONLY AZURE. Plan the separate project/host, existing telemetry link, MCP service, grants and RAI policy
+    cmds:
+      - task: preflight
+      - task: _mcp-image
+      - |
+        /bin/sh -eu <<'SH'
+        set -eu
+        : "${COPILOT_TOOLBOX_OAUTH_CLIENT_ID:?Set the dedicated custom-OAuth application's client ID, not the Web UI client.}"
+        umask 077
+        SERVER=$(terraform -chdir=infra/cloud output -raw acr_login_server)
+        jq -n --arg image "$SERVER/containment-demo-copilot-policy-mcp@$(cat .task/copilot-toolbox/mcp-digest)" \
+          --arg client "$COPILOT_TOOLBOX_OAUTH_CLIENT_ID" \
+          '{mcp_image:$image,oauth_client_id:$client}' > .task/copilot-toolbox/infra.tfvars.json
+        terraform -chdir=infra/copilot-toolbox init -input=false
+        terraform -chdir=infra/copilot-toolbox plan -input=false -compact-warnings \
+          -var-file="{{.ROOT_DIR}}/.task/copilot-toolbox/infra.tfvars.json" \
+          -out="{{.ROOT_DIR}}/.task/copilot-toolbox/infra.tfplan"
+        terraform -chdir=infra/copilot-toolbox show -json \
+          "{{.ROOT_DIR}}/.task/copilot-toolbox/infra.tfplan" \
+          | .venv/bin/python scripts/copilot_toolbox_plan.py
+        SH
+
+  infra-up:
+    desc: CHANGES AZURE. Apply isolated infrastructure only; reuse existing telemetry, no baseline or AKS rollout
+    cmds:
+      - task: plan
+      - terraform -chdir=infra/copilot-toolbox apply -input=false -compact-warnings "{{.ROOT_DIR}}/.task/copilot-toolbox/infra.tfplan"
+      - terraform -chdir=infra/copilot-toolbox output -json deployment
+
+  access:
+    desc: CHANGES PROJECT RBAC. Grant the signed-in publishing user Foundry User on the isolated project only
+    cmds:
+      - task: :cloud:target-check
+      - |
+        set -eu
+        [ "$(az account show --query user.type -o tsv --only-show-errors)" = user ]
+        PROJECT=$(terraform -chdir=infra/copilot-toolbox output -json deployment | jq -er .project_id)
+        ACCOUNT=$(terraform -chdir=infra/cloud output -raw foundry_account_id)
+        BASELINE=$(terraform -chdir=infra/cloud output -raw project_name)
+        case "$PROJECT" in "$ACCOUNT"/projects/*) ;; *) exit 1 ;; esac
+        [ "$PROJECT" != "$ACCOUNT/projects/$BASELINE" ]
+        USER_ID=$(az ad signed-in-user show --query id -o tsv --only-show-errors)
+        printf '%s\n' "$USER_ID" | grep -qE '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$'
+        ROLE=53ca6127-db72-4b80-b1b0-d745d6d5456d
+        HAVE=$(az role assignment list --assignee "$USER_ID" --role "$ROLE" \
+          --scope "$PROJECT" --query 'length(@)' -o tsv --only-show-errors)
+        case "$HAVE" in
+          0) az role assignment create --assignee-object-id "$USER_ID" \
+            --assignee-principal-type User --role "$ROLE" --scope "$PROJECT" --only-show-errors -o none ;;
+          ''|*[!0-9]*) echo "Invalid role readback; no grant attempted." >&2; exit 1 ;;
+          *) echo "Publishing user already has Foundry User on the isolated project." ;;
+        esac
+
+  up:
+    desc: CHANGES FOUNDRY/RBAC. Deploy the isolated toolbox agent and its scoped grants; no automatic publication
+    cmds:
+      - task: _config
+      - task: _source
+      - task: _run
+        vars: {ACTION: up}
+      - task: _grants
+
+  status:
+    desc: READ-ONLY AZURE. Read back the isolated version, capability host and policy; not an OAuth chat test
+    cmds:
+      - task: _source
+      - task: _run
+        vars: {ACTION: status}
+
+  publish-plan:
+    desc: READ-ONLY AZURE. Plan a separate M365 publication, preserving the original catalog entry and journal
+    cmds:
+      - task: _source
+      - task: _run
+        vars: {ACTION: plan}
+
+  publish:
+    desc: CHANGES FOUNDRY/M365. Publish the reviewed isolated agent to Just you; original publication unchanged
+    cmds:
+      - task: _source
+      - task: _run
+        vars: {ACTION: publish}
+
+  disable:
+    desc: CHANGES FOUNDRY. Restore only the isolated publication endpoint; catalog removal is a separate M365 action
+    cmds:
+      - task: _source
+      - task: _run
+        vars: {ACTION: disable}
+
+  down:
+    desc: CHANGES AZURE. Delete only owned isolated versions, recorded grants and this track's Terraform resources
+    cmds:
+      - task: _source
+      - task: _run
+        vars: {ACTION: check-down}
+      - task: _grants-down
+      - task: _run
+        vars: {ACTION: down}
+      - |
+        /bin/sh -eu <<'SH'
+        set -eu
+        umask 077
+        terraform -chdir=infra/copilot-toolbox plan -destroy -input=false -compact-warnings \
+          -var-file="{{.ROOT_DIR}}/.task/copilot-toolbox/infra.tfvars.json" \
+          -out="{{.ROOT_DIR}}/.task/copilot-toolbox/down.tfplan"
+        terraform -chdir=infra/copilot-toolbox show -json \
+          "{{.ROOT_DIR}}/.task/copilot-toolbox/down.tfplan" \
+          | .venv/bin/python scripts/copilot_toolbox_plan.py --destroy
+        terraform -chdir=infra/copilot-toolbox apply -input=false -compact-warnings \
+          "{{.ROOT_DIR}}/.task/copilot-toolbox/down.tfplan"
+        SH
+
+  restore-journals:
+    desc: CHANGES HELPER FILES ONLY. Restore missing isolated journals; never overwrite existing remote journals
+    cmds:
+      - task: _source
+      - |
+        set -eu
+        NS=$(terraform -chdir=infra/cloud output -raw kubernetes_namespace)
+        POD=$(cat .task/copilot-toolbox/pod)
+        for FILE in deployment.json publication.json; do
+          test -s ".task/copilot-toolbox/$FILE" || continue
+          kubectl -n "$NS" exec "$POD" -- test ! -e "/home/agent/.copilot-toolbox/$FILE"
+          kubectl -n "$NS" cp ".task/copilot-toolbox/$FILE" "$POD:/home/agent/.copilot-toolbox/$FILE"
+          kubectl -n "$NS" exec "$POD" -- chmod 600 "/home/agent/.copilot-toolbox/$FILE"
+        done
+
+  _mcp-image:
+    internal: true
+    vars:
+      ACR:
+        sh: terraform -chdir=infra/cloud output -raw acr_name
+    cmds:
+      - task: arm:_acr-digest
+        vars:
+          ACR: '{{.ACR}}'
+          REPOSITORY: containment-demo-copilot-policy-mcp
+          TAG_OVERRIDE: '${COPILOT_MCP_IMAGE_TAG:-}'
+          EXPLICIT: '${COPILOT_MCP_IMAGE_DIGEST:-}'
+          BUILD_HINT: task copilot-toolbox:build
+          OUT: '{{.ROOT_DIR}}/.task/copilot-toolbox/mcp-digest'
+
+  _config:
+    internal: true
+    vars:
+      ACR:
+        sh: terraform -chdir=infra/cloud output -raw acr_name
+    cmds:
+      - task: :governance:_context
+      - mkdir -p .task/copilot-toolbox
+      - task: arm:_acr-digest
+        vars:
+          ACR: '{{.ACR}}'
+          REPOSITORY: containment-demo-copilot-toolbox-agent
+          TAG_OVERRIDE: '${COPILOT_TOOLBOX_IMAGE_TAG:-}'
+          EXPLICIT: '${COPILOT_TOOLBOX_IMAGE_DIGEST:-}'
+          BUILD_HINT: task copilot-toolbox:build
+          OUT: '{{.ROOT_DIR}}/.task/copilot-toolbox/agent-digest'
+      - |
+        /bin/sh -eu <<'SH'
+        set -eu
+        : "${COPILOT_TOOLBOX_ENDPOINT:?Set the versioned endpoint of the toolbox in the new project.}"
+        : "${COPILOT_TOOLBOX_POLICY_TOOL:?Set the exact server_label___get_servicing_policy name.}"
+        umask 077
+        SERVER=$(terraform -chdir=infra/cloud output -raw acr_login_server)
+        DEPLOYMENT=$(terraform -chdir=infra/copilot-toolbox output -json deployment)
+        TMP=$(mktemp .task/copilot-toolbox/config.XXXXXX)
+        trap 'rm -f "$TMP"' EXIT
+        printf '%s' "$DEPLOYMENT" \
+          | jq -e --arg image "$SERVER/containment-demo-copilot-toolbox-agent@$(cat .task/copilot-toolbox/agent-digest)" \
+            --arg endpoint "$COPILOT_TOOLBOX_ENDPOINT" --arg tool "$COPILOT_TOOLBOX_POLICY_TOOL" \
+            '. + {agent_image:$image,toolbox_endpoint:$endpoint,toolbox_policy_tool:$tool}' \
+            > "$TMP"
+        mv "$TMP" .task/copilot-toolbox/config.json
+        SH
+
+  _source:
+    internal: true
+    cmds:
+      - task: :governance:_context
+      - |
+        /bin/sh -eu <<'SH'
+        set -eu
+        umask 077
+        mkdir -p .task/copilot-toolbox
+        chmod 700 .task/copilot-toolbox
+        NS=$(terraform -chdir=infra/cloud output -raw kubernetes_namespace)
+        POD=$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=agent-governance \
+          -o jsonpath='{.items[0].metadata.name}')
+        test -n "$POD"
+        kubectl -n "$NS" exec "$POD" -- /bin/sh -c \
+          'mkdir -p /home/agent/.copilot-toolbox/source && chmod 700 /home/agent/.copilot-toolbox'
+        kubectl -n "$NS" cp src/containment_demo "$POD:/home/agent/.copilot-toolbox/source/"
+        printf '%s\n' "$POD" > .task/copilot-toolbox/pod
+        SH
+
+  _run:
+    internal: true
+    cmds:
+      - |
+        /bin/sh -eu <<'SH'
+        set -eu
+        umask 077
+        NS=$(terraform -chdir=infra/cloud output -raw kubernetes_namespace)
+        POD=$(cat .task/copilot-toolbox/pod)
+        CONFIG=$(cat .task/copilot-toolbox/config.json)
+        TOKEN=$(mktemp .task/copilot-toolbox/token.XXXXXX)
+        JOURNAL=$(mktemp .task/copilot-toolbox/journal.XXXXXX)
+        trap 'rm -f "$TOKEN" "$JOURNAL"' EXIT
+        METADATA=''
+        case "{{.ACTION}}" in
+          plan|publish|disable)
+            [ "$(az account show --query user.type -o tsv --only-show-errors)" = user ] || {
+              echo "Publication requires an Azure CLI user login." >&2; exit 1; }
+            az account get-access-token --resource https://ai.azure.com \
+              --query accessToken -o tsv --only-show-errors > "$TOKEN"
+            if [ "{{.ACTION}}" != disable ]; then
+              : "${COPILOT_TOOLBOX_METADATA_FILE:?Set separate public metadata for the toolbox publication.}"
+              METADATA=$(cat "$COPILOT_TOOLBOX_METADATA_FILE")
+            fi
+            ;;
+        esac
+        CODE=0
+        kubectl -n "$NS" exec -i "$POD" -- \
+          env PYTHONPATH=/home/agent/.copilot-toolbox/source \
+          /opt/deploy-venv/bin/python -m containment_demo.copilot_toolbox \
+          {{.ACTION}} --config "$CONFIG" --metadata "$METADATA" < "$TOKEN" || CODE=$?
+        for FILE in deployment.json publication.json; do
+          kubectl -n "$NS" exec "$POD" -- /bin/sh -c \
+            'if [ -f "/home/agent/.copilot-toolbox/$1" ]; then cat "/home/agent/.copilot-toolbox/$1"; fi' \
+            sh "$FILE" > "$JOURNAL"
+          if [ -s "$JOURNAL" ]; then
+            cp "$JOURNAL" ".task/copilot-toolbox/$FILE"
+            chmod 600 ".task/copilot-toolbox/$FILE"
+          fi
+        done
+        exit "$CODE"
+        SH
+
+  _grants:
+    internal: true
+    cmds:
+      - |
+        /bin/sh -eu <<'SH'
+        set -eu
+        umask 077
+        ACCOUNT=$(terraform -chdir=infra/cloud output -raw foundry_account_name)
+        SCOPE=$(terraform -chdir=infra/cloud output -raw foundry_account_id)
+        PROJECT=$(jq -er .project_name .task/copilot-toolbox/config.json)
+        PROJECT_ID=$(jq -er .project_id .task/copilot-toolbox/config.json)
+        AGENT=$(jq -er .agent_name .task/copilot-toolbox/config.json)
+        BASELINE=$(terraform -chdir=infra/cloud output -raw project_name)
+        [ "$PROJECT_ID" = "$SCOPE/projects/$PROJECT" ] && [ "$PROJECT" != "$BASELINE" ] || {
+          echo "Refusing grants outside the isolated project." >&2; exit 1; }
+        PRINCIPAL=$(az ad sp list \
+          --filter "tags/any(t:t eq 'agentName:$AGENT') and tags/any(t:t eq 'accountName:$ACCOUNT') and tags/any(t:t eq 'projectName:$PROJECT')" \
+          --query "[?ends_with(displayName,'-AgentIdentity')].id" -o tsv --only-show-errors)
+        [ "$(printf '%s\n' "$PRINCIPAL" | wc -l)" -eq 1 ] || {
+          echo "Multiple isolated agent identities; refusing grants." >&2; exit 1; }
+        printf '%s\n' "$PRINCIPAL" | grep -qE '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$' || {
+          echo "Expected exactly one isolated agent identity." >&2; exit 1; }
+        JOURNAL=.task/copilot-toolbox/grants.json
+        if [ ! -f "$JOURNAL" ]; then printf '[]\n' > "$JOURNAL"; fi
+        .venv/bin/python scripts/copilot_toolbox_plan.py --grants \
+          --config .task/copilot-toolbox/config.json < "$JOURNAL"
+        for ROLE in 5e0bd9bd-7b93-4f28-af87-19fc36ad61bd eed3b665-ab3a-47b6-8f48-c9382fb1dad6; do
+          TARGET="$SCOPE"
+          if [ "$ROLE" = eed3b665-ab3a-47b6-8f48-c9382fb1dad6 ]; then TARGET="$PROJECT_ID"; fi
+          HAVE=$(az role assignment list --assignee "$PRINCIPAL" --role "$ROLE" \
+            --scope "$TARGET" --query 'length(@)' -o tsv --only-show-errors)
+          case "$HAVE" in
+            0) ;;
+            ''|*[!0-9]*) echo "Invalid role readback; refusing grants." >&2; exit 1 ;;
+            *) continue ;;
+          esac
+          NAME=$(.venv/bin/python -c 'import sys,uuid; print(uuid.uuid5(uuid.NAMESPACE_URL,sys.argv[1]))' "$TARGET/$PRINCIPAL/$ROLE")
+          ID="$TARGET/providers/Microsoft.Authorization/roleAssignments/$NAME"
+          TMP=$(mktemp .task/copilot-toolbox/grants.XXXXXX)
+          jq --arg id "$ID" --arg scope "$TARGET" --arg role "$ROLE" \
+            --arg principal "$PRINCIPAL" --arg agent "$AGENT" \
+            'if any(.[]; .id == $id) then . else . + [{id:$id,scope:$scope,role:$role,principal:$principal,agent:$agent}] end' \
+            "$JOURNAL" > "$TMP"
+          mv "$TMP" "$JOURNAL"
+          az role assignment create --name "$NAME" --assignee-object-id "$PRINCIPAL" \
+            --assignee-principal-type ServicePrincipal --role "$ROLE" --scope "$TARGET" --only-show-errors -o none
+        done
+        SH
+
+  _grants-down:
+    internal: true
+    cmds:
+      - |
+        /bin/sh -eu <<'SH'
+        set -eu
+        umask 077
+        JOURNAL=.task/copilot-toolbox/grants.json
+        test -f "$JOURNAL" || { echo "No recorded isolated grants to remove."; exit 0; }
+        .venv/bin/python scripts/copilot_toolbox_plan.py --grants \
+          --config .task/copilot-toolbox/config.json < "$JOURNAL"
+        ACCOUNT=$(terraform -chdir=infra/cloud output -raw foundry_account_name)
+        PROJECT=$(jq -er .project_name .task/copilot-toolbox/config.json)
+        AGENT=$(jq -er .agent_name .task/copilot-toolbox/config.json)
+        ACTUAL=$(az ad sp list \
+          --filter "tags/any(t:t eq 'agentName:$AGENT') and tags/any(t:t eq 'accountName:$ACCOUNT') and tags/any(t:t eq 'projectName:$PROJECT')" \
+          --query "[?ends_with(displayName,'-AgentIdentity')].id" -o tsv --only-show-errors)
+        for ROW in $(jq -r '.[] | @base64' "$JOURNAL"); do
+          RECORD=$(printf '%s' "$ROW" | base64 --decode)
+          ID=$(printf '%s' "$RECORD" | jq -er .id)
+          SCOPE=$(printf '%s' "$RECORD" | jq -er .scope)
+          PRINCIPAL=$(printf '%s' "$RECORD" | jq -er .principal)
+          [ "$PRINCIPAL" = "$ACTUAL" ] || {
+            echo "Grant principal does not match the isolated agent; refusing deletion." >&2; exit 1; }
+          ROLE=$(printf '%s' "$RECORD" | jq -er .role)
+          RAW=$(az role assignment list --scope "$SCOPE" --only-show-errors -o json)
+          MATCH=$(printf '%s\n' "$RAW" | sed -n '/^\[/,$p' | jq --arg id "$ID" '[.[] | select(.id == $id)]')
+          [ "$(printf '%s' "$MATCH" | jq length)" != 0 ] || continue
+          printf '%s' "$MATCH" | jq -e --arg principal "$PRINCIPAL" --arg role "$ROLE" --arg scope "$SCOPE" \
+            'length == 1 and all(.[]; .principalId == $principal and .scope == $scope and (.roleDefinitionId | endswith($role)))' >/dev/null
+          az role assignment delete --ids "$ID" --only-show-errors
+        done
+        printf '[]\n' > "$JOURNAL"
+        SH
