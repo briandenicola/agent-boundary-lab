@@ -50,7 +50,8 @@ tasks:
           -u POLICY_API_TENANT_ID -u POLICY_API_AUDIENCE -u POLICY_API_SCOPE \
           -u POLICY_API_CLIENT_IDS -u POLICY_API_MCP_ENABLED \
           .venv/bin/python -m pytest tests/unit/test_toolbox.py \
-          tests/unit/test_copilot_toolbox.py tests/unit/test_policy_identity.py \
+          tests/unit/test_copilot_toolbox.py tests/unit/test_copilot_toolbox_oauth.py \
+          tests/unit/test_policy_identity.py \
           tests/unit/test_copilot.py tests/unit/test_protocol_adapter.py tests/unit/test_governance.py \
           tests/unit/test_tools.py tests/unit/test_settings.py tests/unit/test_services.py tests/unit/test_harness.py \
           tests/unit/test_a2a_facade.py tests/unit/test_task_commands.py -q
@@ -81,6 +82,12 @@ tasks:
           --file services/Dockerfile .
         image_tag_record "$REPOSITORY" "$TAG"
 
+  oauth-setup:
+    desc: CHANGES ENTRA. Register the dedicated client with only the existing API's delegated permission; no secret or guessed callback
+    cmds:
+      - task: preflight
+      - .venv/bin/python -m containment_demo.copilot_toolbox_oauth up
+
   plan:
     desc: READ-ONLY AZURE. Plan the separate project/host, existing telemetry link, MCP service, grants and RAI policy
     cmds:
@@ -89,11 +96,11 @@ tasks:
       - |
         /bin/sh -eu <<'SH'
         set -eu
-        : "${COPILOT_TOOLBOX_OAUTH_CLIENT_ID:?Set the dedicated custom-OAuth application's client ID, not the Web UI client.}"
+        CLIENT=$(.venv/bin/python -m containment_demo.copilot_toolbox_oauth client-id)
         umask 077
         SERVER=$(terraform -chdir=infra/cloud output -raw acr_login_server)
         jq -n --arg image "$SERVER/containment-demo-copilot-policy-mcp@$(cat .task/copilot-toolbox/mcp-digest)" \
-          --arg client "$COPILOT_TOOLBOX_OAUTH_CLIENT_ID" \
+          --arg client "$CLIENT" \
           '{mcp_image:$image,oauth_client_id:$client}' > .task/copilot-toolbox/infra.tfvars.json
         terraform -chdir=infra/copilot-toolbox init -input=false
         terraform -chdir=infra/copilot-toolbox plan -input=false -compact-warnings \
@@ -194,6 +201,7 @@ tasks:
         terraform -chdir=infra/copilot-toolbox apply -input=false -compact-warnings \
           "{{.ROOT_DIR}}/.task/copilot-toolbox/down.tfplan"
         SH
+      - .venv/bin/python -m containment_demo.copilot_toolbox_oauth down
 
   restore-journals:
     desc: CHANGES HELPER FILES ONLY. Restore missing isolated journals; never overwrite existing remote journals

@@ -698,20 +698,37 @@ With approval to build/publish dedicated images:
 task copilot-toolbox:build
 ```
 
-Create a **dedicated custom-OAuth client**, not the existing Web UI/OBO client.
-Use the existing protected API's tenant, audience and delegated scope, retaining
-its authorized synthetic-user list. Configure this client's delegated permission
-and consent without changing the existing API's audience, scope or client list.
-Use the callback URL supplied by Foundry's custom-OAuth setup; do not guess one.
-Keep its secret only in the protected Foundry connection configuration.
+Register the **dedicated custom-OAuth client** using the owner-run Task below;
+there is no manual application-registration or client-ID export step. It discovers
+the existing API's tenant, audience and enabled delegated scope, then creates a
+single-tenant confidential client requesting only that permission. The API, its
+authorized synthetic-user list and the Web UI/OBO client remain unchanged.
+This uses Azure CLI and Microsoft Graph, not GitHub source access.
 
 ```bash
-export COPILOT_TOOLBOX_OAUTH_CLIENT_ID=REPLACE-dedicated-client-uuid
+task copilot-toolbox:oauth-setup
 task copilot-toolbox:plan
 # Review only convention-named resources in the separate state, then approve:
 task copilot-toolbox:infra-up
 task copilot-toolbox:access
 ```
+
+The plan reads and verifies the recorded client automatically. Registration
+requires Entra permission to create applications; Azure subscription Owner alone
+does not guarantee it. No client secret, guessed redirect URI or tenant-wide
+admin-consent grant is created by this Task. Foundry connection/callback/credential
+automation remains **blocked pending a verified custom-OAuth provisioning contract**;
+registration and an infrastructure plan do not unblock hosted lookup acceptance.
+The owner reported both dedicated images built on 2026-11-09; this setup-only change
+does not require another image build.
+
+Keep `.task/copilot-toolbox/oauth-application.json` with the isolated state.
+Setup is idempotent, refuses same-named foreign applications and journals intent
+before creation. After a lost response it can recover the single matching owned
+application, but never blindly repeats creation. Retain the journal on errors;
+do not delete it to bypass an uncertain outcome. A stale
+`COPILOT_TOOLBOX_OAUTH_CLIENT_ID` that conflicts with the recorded client must be
+unset. `down` deletes the owned client only after isolated infrastructure destruction.
 
 The separate `infra/copilot-toolbox` state owns the new project, project capability
 host, protected MCP Container App, dedicated RAI policy and scoped grants. It
@@ -720,13 +737,17 @@ links the **existing** Application Insights destination. Back up this state and
 contain sensitive configuration; do not publish them.
 
 The output identifies `project_name`, `project_id` and `mcp_url`. In **that new
-project only**, complete the documented [custom OAuth connection](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/tool-authentication)
+project only**, the remaining configuration contract is described by
+[custom OAuth connection](https://learn.microsoft.com/azure/foundry/agents/how-to/mcp-authentication)
 and [toolbox setup](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/toolbox):
 
 1. Target exactly `mcp_url` with per-user custom OAuth. Use the existing API's
    delegated scope and `offline_access`, plus the dedicated client's credentials.
    Microsoft-managed OAuth, project/agent identity and `UserEntraToken` are not
    substitutes for this custom API's user authorization.
+   Register the actual callback returned by Foundry on the dedicated client only;
+   never guess it. Keep the client's secret in protected connection configuration,
+   not the registration journal. User/browser consent remains a separate gate.
 2. Add only the servicing MCP server/tool to a toolbox with `require_approval: never`.
    Create an immutable version and obtain its **actual versioned endpoint** and
    exact `server_label___get_servicing_policy` tool name.

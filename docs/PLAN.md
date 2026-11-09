@@ -123,9 +123,15 @@ Primary publication references, accessed 2026-11-09:
 The owner selected a **separate Foundry project** on 2026-11-09. Do not enable
 toolbox routing in the existing project or deploy the earlier same-project variant.
 Runtime/MCP code, isolated Terraform, deployment/publication Tasks and offline
-regressions are implemented. The owner has not built or deployed this track.
-Custom OAuth/connection setup and hosted acceptance remain prerequisites, not
-completed results. Follow [the owner sequence](governance-demo.md#8-operator-reference-isolated-toolbox-project).
+regressions are implemented. The owner reported the dedicated images built on
+2026-11-09; deployment and hosted acceptance remain unverified. A guarded owner-run
+`oauth-setup` Task now registers the dedicated Entra client and supplies its ID to
+the read-only plan automatically. The new registration Task has not been run
+against Entra by the assistant. Foundry custom-OAuth connection/callback/credential
+automation remains blocked pending its verified provisioning contract; GitHub
+source access was denied by organization SAML enforcement. This does not block
+the separately documented Entra registration API.
+Follow [the owner sequence](governance-demo.md#8-operator-reference-isolated-toolbox-project).
 
 Read-only Azure discovery found a ready account-level `Agents` capability host,
 with no explicit BYO storage/vector/conversation connections, and **no project-level
@@ -146,9 +152,10 @@ Plan, in dependency order:
    the original API audience, scope and synthetic-user authorization requirements.
    Do not change the existing policy API, UI client, OBO settings or receiver.
 3. Configure an OAuth connection and immutable toolbox version **in the new project**.
-   Keep configuration placeholders until actual connection/toolbox values are
-   supplied or their creation is explicitly requested. Verify downstream network
-   reachability; a toolbox listing is not a successful MCP call.
+   The owner requested creation automation. Keep placeholders while the custom
+   OAuth provisioning/callback contract remains unverified; do not guess fields
+   or treat the dedicated client's registration as completed connection setup.
+   Verify downstream network reachability; a toolbox listing is not a successful MCP call.
 4. Deploy a new owned agent in the new project, with exactly the same two ADK tools
    and ACS-first enforcement. Use dedicated image repositories, version journals,
    scoped grants and a dedicated RAI policy. Reuse the existing private operator

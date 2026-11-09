@@ -303,3 +303,26 @@ not the downstream authorization grant. Microsoft-managed OAuth and
 `UserEntraToken` are not generic custom-API authentication substitutes.
 No connection creation API or toolbox get-version API is assumed by the Tasks:
 the owner supplies the new project's actual connection/toolbox configuration.
+
+### Dedicated Entra registration automation -- 2026-11-09
+
+Primary references accessed 2026-11-09:
+[create application](https://learn.microsoft.com/graph/api/application-post-applications?view=graph-rest-1.0),
+[application properties](https://learn.microsoft.com/graph/api/resources/application?view=graph-rest-1.0),
+[Azure CLI application commands](https://learn.microsoft.com/cli/azure/ad/app).
+Installed Azure CLI 2.92.0 help confirms application lookup by identifier URI and
+the `requiredResourceAccess` delegated-permission contract.
+
+The owner-run registration Task uses Azure CLI's authenticated `az rest` with
+Microsoft Graph v1.0 `POST /applications`. It atomically requests
+`signInAudience: AzureADMyOrg`, `isFallbackPublicClient: false`, an ownership tag
+and only the existing API's enabled delegated scope (`type: Scope`). Its private
+journal contains identifiers and intent only; no credentials are created or
+captured. Plan resolution is read-only and revalidates application ownership and
+permissions. Cleanup uses the recorded object ID only after separate infrastructure
+destruction. No baseline registration is modified.
+
+This verified Graph contract is independent of the still-unverified Foundry
+custom-OAuth connection/callback provisioning contract. Registration does not
+grant admin consent, create a Foundry connection or establish a successful user
+lookup. The callback must come from Foundry's actual configuration response.

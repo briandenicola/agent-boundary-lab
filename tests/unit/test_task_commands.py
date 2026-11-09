@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -60,6 +61,144 @@ def test_toolbox_commands_use_isolated_helper_files_and_never_roll_out_baseline(
     assert "governance.hosted up" not in command
     assert "/home/agent/.copilot/publication.json" not in command
     assert "terraform apply" not in command
+
+
+def test_toolbox_registration_is_explicit_and_plan_only_reads_its_client(dry_task) -> None:
+    setup = dry_task("copilot-toolbox:oauth-setup")
+    assert "cloud:target-check" in setup
+    assert "-m containment_demo.copilot_toolbox_oauth up" in setup
+    plan = dry_task("copilot-toolbox:plan")
+    assert "-m containment_demo.copilot_toolbox_oauth client-id" in plan
+    assert "copilot_toolbox_oauth up" not in plan
+    assert "${COPILOT_TOOLBOX_OAUTH_CLIENT_ID:?" not in plan
+    down = dry_task("copilot-toolbox:down")
+    assert down.index("down.tfplan") < down.index("copilot_toolbox_oauth down")
+
+
+def test_toolbox_registration_task_runs_idempotently_and_resolves_the_recorded_id(
+    tmp_path: Path,
+) -> None:
+    runner = shutil.which("task")
+    if runner is None:
+        pytest.skip("Go Task is required to exercise registration")
+    shutil.copytree(ROOT / "tasks", tmp_path / "tasks")
+    (tmp_path / "Taskfile.yml").write_text(
+        "version: '3'\nsilent: true\nincludes:\n"
+        "  copilot-toolbox:\n    taskfile: ./tasks/Taskfile.copilot-toolbox.yml\n"
+        "  cloud:\n    taskfile: ./tasks/Taskfile.cloud.yml\n"
+        "tasks:\n  resolve:\n    cmds:\n"
+        "      - .venv/bin/python -m containment_demo.copilot_toolbox_oauth client-id\n"
+    )
+    (tmp_path / ".venv/bin").mkdir(parents=True)
+    python = tmp_path / ".venv/bin/python"
+    python.write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n')
+    python.chmod(0o755)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    prefix = "00000000-0000-4000-8000-"
+    tenant, subscription, api, scope, client, object_id = (
+        prefix + f"{index:012d}" for index in range(1, 7)
+    )
+    account = (
+        f"/subscriptions/{subscription}/resourceGroups/lab"
+        "/providers/Microsoft.CognitiveServices/accounts/foundry"
+    )
+    scripts = {
+        "terraform": f"""
+            import sys
+            print({{
+                "foundry_account_id": {account!r},
+                "resource_name": "lab",
+                "policy_api_app_name": "baseline-policy",
+            }}[sys.argv[-1]])
+        """,
+        "az": f"""
+            import json, sys
+            from pathlib import Path
+            args = sys.argv[1:]
+            store = Path("application.json")
+            def emit(value):
+                print(json.dumps(value))
+            if args[:2] == ["account", "show"]:
+                emit({{"tenantId": {tenant!r}, "id": {subscription!r}, "state": "Enabled"}})
+            elif args[:2] == ["containerapp", "show"]:
+                emit([{{"name": key, "value": value}} for key, value in {{
+                    "POLICY_API_AUTH_MODE": "delegated",
+                    "POLICY_API_TENANT_ID": {tenant!r},
+                    "POLICY_API_AUDIENCE": "api://" + {api!r},
+                    "POLICY_API_SCOPE": "Policy.Read",
+                    "POLICY_API_CLIENT_IDS": "baseline-client",
+                }}.items()])
+            elif args[:3] == ["ad", "app", "list"]:
+                emit([json.loads(store.read_text())] if store.exists() else [])
+            elif args[:3] == ["ad", "app", "show"]:
+                target = args[args.index("--id") + 1]
+                if target == "api://" + {api!r}:
+                    emit({{
+                        "appId": {api!r}, "identifierUris": ["api://" + {api!r}],
+                        "api": {{"oauth2PermissionScopes": [
+                            {{"id": {scope!r}, "value": "Policy.Read", "isEnabled": True}}
+                        ]}},
+                    }})
+                else:
+                    assert target == {object_id!r}
+                    emit(json.loads(store.read_text()))
+            elif args[0] == "rest":
+                method = args[args.index("--method") + 1].lower()
+                if method == "get":
+                    emit({{"value": [{{"properties": {{
+                        "provisioningState": "Succeeded", "capabilityHostKind": "Agents"
+                    }}}}]}})
+                else:
+                    assert method == "post"
+                    assert not store.exists(), "Duplicate app creation"
+                    journal = Path(".task/copilot-toolbox/oauth-application.json")
+                    assert journal.stat().st_mode & 0o777 == 0o600
+                    assert json.loads(journal.read_text())["phase"] == "create_requested"
+                    request = Path(args[args.index("--body") + 1][1:])
+                    body = json.loads(request.read_text())
+                    assert body["requiredResourceAccess"] == [{{
+                        "resourceAppId": {api!r},
+                        "resourceAccess": [{{"id": {scope!r}, "type": "Scope"}}],
+                    }}]
+                    app = {{**body, "id": {object_id!r}, "appId": {client!r}}}
+                    store.write_text(json.dumps(app))
+                    emit(app)
+            else:
+                raise AssertionError(args)
+        """,
+    }
+    for name, source in scripts.items():
+        path = bin_dir / name
+        path.write_text(f"#!{sys.executable}\n" + textwrap.dedent(source))
+        path.chmod(0o755)
+    environment = {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "PYTHONPATH": str(ROOT / "src"),
+        "ARM_TENANT_ID": tenant,
+        "ARM_SUBSCRIPTION_ID": subscription,
+    }
+    environment.pop("COPILOT_TOOLBOX_OAUTH_CLIENT_ID", None)
+    for action in ("copilot-toolbox:oauth-setup", "copilot-toolbox:oauth-setup", "resolve"):
+        result = subprocess.run(  # noqa: S603
+            [runner, action],
+            cwd=tmp_path,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        if action == "resolve":
+            assert result.stdout.strip() == client
+    assert (
+        json.loads((tmp_path / ".task/copilot-toolbox/oauth-application.json").read_text())[
+            "client_id"
+        ]
+        == client
+    )
 
 
 @pytest.mark.parametrize(
