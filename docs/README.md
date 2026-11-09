@@ -44,7 +44,11 @@ results for a later deployment.
 On 2026-11-09 the real controlled APIs were deployed and healthy, and seven isolated
 governance agents were active on one image digest, with three dedicated RAI policies
 and verified model-access grants. No hosted governance comparison was invoked.
-Microsoft 365 Copilot integration is the active implementation track.
+The Microsoft 365 Copilot ACS-first path was then observed working on version 3:
+the external-processing prompt returned `governance_denied` and its Demo run marker
+matched a real ACS `deny` / `blocked` event. See the
+[dated observation and limits](telemetry-map.md#microsoft-365-copilot-blocked-action-observation).
+Protected lookup and the full hosted comparison remain separate work.
 
 ## Operating rules
 

@@ -21,10 +21,10 @@ Microsoft 365 Copilot integration
   -> Foundry Activity channel -> same hosted ADK runtime
 ```
 
-Microsoft 365 publication is accepted. A chat request reached the hosted ADK runtime
-on 2026-11-09, but failed during model authentication. A successful reply and correlated
-ACS denial are still acceptance gates. This path does not replace ADK or move the
-business tools outside Foundry.
+Microsoft 365 publication and the ACS-first chat path were observed working on
+2026-11-09 with version 3. The reply's run marker matched an ACS `deny` / `blocked`
+event for external processing; see the [dated observation](telemetry-map.md#microsoft-365-copilot-blocked-action-observation).
+This path does not replace ADK or move the business tools outside Foundry.
 
 The baseline agent versions share an immutable image digest. The attached RAI
 network policy is the experimental variable; `DEMO_POLICY_MODE` is an evidence
@@ -140,8 +140,9 @@ No platform row is expected for a tool ACS prevented from executing. A model's
 explanation, HTTP 403, DNS error or timeout alone is not proof of either control.
 
 The platform injects its reserved Application Insights connection setting.
-Prompt/response/payload/token capture stays disabled. New hosted ACS event mappings
-still need real-row validation.
+Prompt/response/payload/token capture stays disabled. The version 3 governance
+logger mapping was observed in `AppTraces`; other event mappings and the full
+hosted comparison remain separate validation gates.
 
 ## Operations and deferred components
 

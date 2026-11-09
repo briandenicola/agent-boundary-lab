@@ -47,8 +47,9 @@ Neither path introduces static tokens, API keys or anonymous fallback.
 
 Offline mocked-HTTP regressions exercise the real locked clients, including the
 v1 Responses tool bridge and refreshed bearer headers. They do not prove a hosted
-call succeeded. Owner rebuild, deployment, version repinning and chat verification
-are still required.
+call succeeded. The owner subsequently deployed and pinned version 3; its successful
+chat reply and correlated ACS decision are recorded in the
+[dated observation](telemetry-map.md#microsoft-365-copilot-blocked-action-observation).
 
 Primary reference, accessed 2026-11-09:
 [Azure OpenAI v1 Entra authentication](https://learn.microsoft.com/azure/foundry/openai/api-version-lifecycle#code-changes).
@@ -148,8 +149,10 @@ The updated Responses handler generates a fresh `chat-<uuid>` per headerless tur
 isolates its runner and appends the marker to the reply. Explicit direct-client
 markers and diagnostic responses retain their existing contract.
 
-Native channel delivery and hosted ACS evidence still require owner validation.
-Microsoft 365 sign-in is not a delegated policy API token. The documented managed
+Native channel delivery, a visible reply and the matching ACS deny/blocked event
+were observed for version 3 on 2026-11-09. This does not establish receiver absence
+or a platform egress denial. Microsoft 365 sign-in is not a delegated policy API
+token. The documented managed
 delegation/toolbox flows do not establish token forwarding into this agent's
 existing direct-HTTP tool; lookup and combined-prompt acceptance are deferred.
 No app-only or operator-token fallback is introduced.

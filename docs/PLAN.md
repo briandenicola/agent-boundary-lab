@@ -13,7 +13,7 @@ Superseded phase checklists and issue-specific squad plans are retained in Git h
 | Issue #10: ACS G0-G3 | Implemented; real ACS/Rego and offline ADK boundary checks passed |
 | Issue #10: ACS G4 deployment | Seven isolated agents active, three policies and seven model grants verified 2026-11-09 |
 | Issue #10: hosted comparison | Awaiting owner-run tests; deployment health is not a runtime result |
-| Microsoft 365 Copilot | Active work: publish the hosted agent and validate the end-user conversation |
+| Microsoft 365 Copilot | ACS-first chat and correlated deny/blocked event observed on version 3, 2026-11-09; destination evidence and delegated lookup remain separate |
 | Phases 8-9: Dapr Workflow | Deferred; no dependency of the Copilot demo |
 | Phase 10: messaging and portability | Deferred |
 
@@ -53,8 +53,10 @@ hosted and integration checks are opt-in.
 
 ### G4 -- isolated hosted scenarios and owner-run Task automation
 
-Deployment completed 2026-11-09. All seven scenario agents are active version `1`
-on the same image digest. Existing baseline policy properties were preserved.
+Initial deployment completed 2026-11-09 with all seven scenario agents active as
+version `1` on the same image digest. Later owner deployments updated the image;
+use `governance:status` for current versions. The published Copilot run below used
+version `3`. Existing baseline policy properties were preserved.
 
 | Scenario | ACS / host | Foundry network | Required runtime evidence |
 | --- | --- | --- | --- |
@@ -88,8 +90,8 @@ Successful policy lookup and the combined prompt are deferred until downstream
 user delegation is available; API authentication remains unchanged.
 
 - [x] Implement Foundry's native publication API for the owned governance-denial agent.
-- [x] Observe channel delivery into the hosted ADK runtime. The 2026-11-09 chat
-      failed at model authentication; a successful reply is not yet demonstrated.
+- [x] Observe channel delivery into the hosted ADK runtime and a successful reply.
+      The initial model-authentication failure was corrected in version 3.
 - [x] Preserve existing endpoint protocols and authorization schemes when enabling
       scoped Activity access. Do not enable account-wide public network access.
 - [x] Automate metadata, publication and readback through a small Task workflow.
@@ -98,15 +100,16 @@ user delegation is available; API authentication remains unchanged.
       direct-client header contract. Include the marker in the chat reply.
 - [x] Owner deployed the chat-capable image and published Shared/Just you, pinned
       to version 2. Authorization and endpoint readback succeeded.
-- [ ] Owner deploys the v1 model-authentication correction, updates the published
-      version pin and verifies a fresh chat reply. Code/offline checks are not a
-      hosted execution result.
+- [x] Owner deployed the v1 model-authentication correction, pinned version 3 and
+      obtained a fresh chat reply with its Demo run marker.
 - [ ] Validate downstream delegated API authorization for the channel. Microsoft 365
       sign-in alone is not a policy API token; never substitute app credentials.
 - [ ] Correlate a natural-language turn, model-selected tool and ACS outcome with
       destination evidence. Do not require direct-client headers from an end user.
-- [ ] Demonstrate the model-selected blocked send in Copilot. A model refusal
-      without ACS evidence does not satisfy this gate.
+- [x] Demonstrate the model-selected blocked send in Copilot. The 2026-11-09
+      [chat and matching ACS event](telemetry-map.md#microsoft-365-copilot-blocked-action-observation)
+      record `send_to_external_processor`, `deny`, `blocked` and
+      `external_processor_prohibited`; this is not just a model refusal.
 - [ ] Later: demonstrate permitted lookup and the combined prompt with delegated auth.
 - [x] Published entry point: Microsoft 365 Copilot -> Your agents ->
       **ACS Servicing Demo**. No AKS ingress or browser harness is used.

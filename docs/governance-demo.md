@@ -229,6 +229,10 @@ by the configured governance policy.
 
 This is an illustrative paraphrase, not an exact response assertion.
 
+This ACS-first path was observed working in Microsoft 365 Copilot on 2026-11-09,
+version 3, with a matching hosted ACS deny/blocked event. See the
+[dated evidence and its limits](telemetry-map.md#microsoft-365-copilot-blocked-action-observation).
+
 ### Deferred: one request containing allowed and prohibited actions
 
 ```text
@@ -356,19 +360,26 @@ this rebuilt environment still needs confirmation. Missing rows are inconclusive
 
 ```kusto
 let run_id = "<RUN_ID>";
-union AppTraces, AppEvents, AppDependencies
+AppTraces
 | where TimeGenerated > ago(2h)
-| where tostring(Properties["demo.run_id"]) == run_id
-    or tostring(column_ifexists("Message", "")) contains run_id
-| project TimeGenerated,
-    Name = tostring(column_ifexists("Name", "")),
-    Message = tostring(column_ifexists("Message", "")),
-    Properties
+| where AppRoleName endswith "-gov-governance-denial"
+| where Message startswith "governance decision "
+| extend g = parse_json(substring(Message, strlen("governance decision ")))
+| where tostring(g["demo.run_id"]) == run_id
+| project TimeGenerated, OperationId,
+    version = tostring(g["demo.agent_version"]),
+    tool = tostring(g["demo.governance.tool_name"]),
+    verdict = tostring(g["demo.governance.acs_verdict"]),
+    action = tostring(g["demo.governance.enforcement_action"]),
+    reason = tostring(g["demo.governance.reason_code"]),
+    policy_id = tostring(g["demo.governance.policy_id"]),
+    trace_id = tostring(g["demo.governance.trace_id"])
 | order by TimeGenerated asc
 ```
 
-Locate `demo.governance_decision` or the structured `governance decision` message.
-Inspect only the demo evidence fields:
+This is the logger mapping observed for the published governance-denial agent on
+2026-11-09. For other scenario agents, change the role filter. Inspect only the
+demo evidence fields in the parsed JSON:
 
 ```text
 demo.run_id
@@ -382,9 +393,9 @@ demo.governance.policy_id / demo.governance.policy_version
 demo.governance.session_id / invocation_id / tool_call_id / trace_id / timestamp
 ```
 
-The hosted governance event mapping is a **candidate until actual rows validate it**.
-In particular, structured JSON may be inside the message rather than individual
-properties. Do not manufacture a table/field mapping to make an empty result pass.
+The logger's dotted keys are inside `Message` JSON, not assumed individual
+properties. Other span/event mappings remain candidates until actual rows validate
+them. Do not manufacture a table/field mapping to make an empty result pass.
 Do not export unrelated SDK attributes, raw prompts or response content.
 
 For the receiver, expect `deny` + `audit_continue` in `audit-control`, and `deny` +
@@ -591,8 +602,10 @@ Primary references:
 - [Application-managed downstream delegation](https://learn.microsoft.com/azure/foundry/agents/how-to/use-on-behalf-of-flow)
 - [Foundry RBAC and the distinction from subscription Owner](https://learn.microsoft.com/azure/foundry/concepts/rbac-foundry)
 
-References accessed **2026-11-09**. Native channel delivery remains a live acceptance
-gate, not a claim established by unit tests.
+References accessed **2026-11-09**. Native channel delivery and the ACS-first
+blocked-action reply were subsequently observed on version 3; see the
+[dated record](telemetry-map.md#microsoft-365-copilot-blocked-action-observation).
+Destination evidence and downstream delegation remain separate gates.
 
 ### Copilot runtime failure and image updates
 
