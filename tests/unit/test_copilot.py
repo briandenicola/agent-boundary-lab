@@ -222,3 +222,35 @@ def test_rejected_endpoint_patch_never_reaches_publish(
             pub.publish(metadata, FACTS)
         assert pub.load()["phase"] == "patch_requested"
     assert calls == ["GET", "GET", "PATCH"]
+
+
+def test_missing_foundry_data_action_is_actionable_without_exposing_identity(
+    tmp_path: Path, metadata: PublishRequest
+) -> None:
+    action = "Microsoft.CognitiveServices/accounts/AIServices/agents/read"
+    identity = "00000000-0000-4000-8000-000000000001"
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        return httpx.Response(
+            403,
+            json={
+                "error": {
+                    "code": "UserError",
+                    "message": f"Identity(object id: {identity}) does not have permissions for "
+                    f"{action} actions. See the RBAC documentation.",
+                }
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        pub = Publisher(
+            client, SecretStr("synthetic-token"), ENDPOINT, NAME, tmp_path / "publication.json"
+        )
+        with pytest.raises(httpx.HTTPStatusError) as error:
+            pub.plan(metadata, FACTS)
+    assert action in str(error.value)
+    assert "task copilot:access" in str(error.value)
+    assert identity not in str(error.value)
+    assert "synthetic-token" not in str(error.value)
+    assert not pub.journal.exists()

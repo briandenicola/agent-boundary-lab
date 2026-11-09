@@ -45,6 +45,93 @@ def task_body(file: str, name: str) -> str:
     return match[1]
 
 
+@pytest.mark.parametrize(
+    ("login", "have", "list_exit", "state_subscription", "success", "created"),
+    [
+        ("user", "0", "0", "approved", True, True),
+        ("user", "1", "0", "approved", True, False),
+        ("servicePrincipal", "0", "0", "approved", False, False),
+        ("user", "0", "1", "approved", False, False),
+        ("user", "", "0", "approved", False, False),
+        ("user", "0", "0", "foreign", False, False),
+    ],
+)
+def test_copilot_access_is_user_only_project_scoped_and_idempotent(
+    tmp_path: Path,
+    login: str,
+    have: str,
+    list_exit: str,
+    state_subscription: str,
+    success: bool,
+    created: bool,
+) -> None:
+    runner = shutil.which("task")
+    if runner is None:
+        pytest.skip("Go Task is required to exercise the access command")
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    shutil.copyfile(ROOT / "tasks/Taskfile.copilot.yml", tasks / "Taskfile.copilot.yml")
+    (tasks / "cloud.yml").write_text("version: '3'\ntasks:\n  target-check:\n    cmds: ['true']\n")
+    (tmp_path / "Taskfile.yml").write_text(
+        "version: '3'\nsilent: true\nincludes:\n"
+        "  copilot:\n    taskfile: ./tasks/Taskfile.copilot.yml\n"
+        "  cloud:\n    taskfile: ./tasks/cloud.yml\n"
+    )
+    account = (
+        f"/subscriptions/{state_subscription}/resourceGroups/lab"
+        "/providers/Microsoft.CognitiveServices/accounts/foundry"
+    )
+    scope = f"{account}/projects/project"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    scripts = {
+        "terraform": (
+            '#!/bin/sh\ncase "$*" in\n'
+            f' *foundry_account_id) echo "{account}" ;;\n'
+            " *project_name) echo project ;;\n"
+            " *) exit 1 ;;\nesac\n"
+        ),
+        "az": (
+            '#!/bin/sh\ncase "$*" in\n'
+            ' "account show "*) printf "%s" "$FAKE_LOGIN" ;;\n'
+            ' "ad signed-in-user show "*) echo 00000000-0000-4000-8000-000000000001 ;;\n'
+            f' "resource show "*) echo "{scope}" ;;\n'
+            ' "role assignment list "*) printf "%s" "$FAKE_HAVE"; exit "$FAKE_LIST_EXIT" ;;\n'
+            ' "role assignment create "*) printf "%s\\n" "$@" > "$FAKE_CREATED" ;;\n'
+            " *) exit 1 ;;\nesac\n"
+        ),
+    }
+    for name, script in scripts.items():
+        path = bin_dir / name
+        path.write_text(script)
+        path.chmod(0o755)
+    grant = tmp_path / "created.txt"
+    result = subprocess.run(  # noqa: S603
+        [runner, "--yes", "copilot:access"],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "ARM_SUBSCRIPTION_ID": "approved",
+            "FAKE_LOGIN": login,
+            "FAKE_HAVE": have,
+            "FAKE_LIST_EXIT": list_exit,
+            "FAKE_CREATED": str(grant),
+        },
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert (result.returncode == 0) is success, result.stdout + result.stderr
+    assert grant.exists() is created
+    if created:
+        args = grant.read_text().splitlines()
+        assert args[args.index("--scope") + 1] == scope
+        assert args[args.index("--assignee-principal-type") + 1] == "User"
+        assert args[args.index("--role") + 1] == "53ca6127-db72-4b80-b1b0-d745d6d5456d"
+
+
 def shell_body(name: str) -> str:
     body = task_body("Taskfile.deploy.yml", name)
     match = re.search(r"(?ms)^      - \|\n(.*?)(?=^      - task:|\Z)", body)

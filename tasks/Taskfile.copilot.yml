@@ -2,6 +2,47 @@ version: '3'
 silent: true
 
 tasks:
+  access:
+    desc: CHANGES PROJECT RBAC. Grant the signed-in publishing user Foundry User on this project only
+    prompt: Grant your signed-in Azure CLI user the Foundry User role on this lab's project only? No subscription role, policy or public-network setting is changed.
+    cmds:
+      - task: :cloud:target-check
+      - |
+        set -eu
+        [ "$(az account show --query user.type -o tsv --only-show-errors)" = user ] || {
+          echo "Publishing access requires your Azure CLI user login, not a service principal." >&2
+          exit 1
+        }
+        ACCOUNT=$(terraform -chdir=infra/cloud output -raw foundry_account_id)
+        PROJECT=$(terraform -chdir=infra/cloud output -raw project_name)
+        case "$ACCOUNT" in
+          /subscriptions/"$ARM_SUBSCRIPTION_ID"/resourceGroups/*/providers/Microsoft.CognitiveServices/accounts/*) ;;
+          *) echo "Foundry state is outside the approved subscription." >&2; exit 1 ;;
+        esac
+        SCOPE="$ACCOUNT/projects/$PROJECT"
+        ACTUAL=$(az resource show --ids "$SCOPE" --query id -o tsv --only-show-errors)
+        [ "$ACTUAL" = "$SCOPE" ] || {
+          echo "Foundry project scope did not match state; refusing access changes." >&2
+          exit 1
+        }
+        USER_ID=$(az ad signed-in-user show --query id -o tsv --only-show-errors)
+        printf '%s\n' "$USER_ID" | grep -qE '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$' || {
+          echo "Could not resolve a single signed-in user object ID." >&2; exit 1
+        }
+        ROLE_ID=53ca6127-db72-4b80-b1b0-d745d6d5456d
+        HAVE=$(az role assignment list --assignee "$USER_ID" --role "$ROLE_ID" \
+          --scope "$SCOPE" --query "length(@)" -o tsv --only-show-errors)
+        case "$HAVE" in
+          0)
+            az role assignment create --assignee-object-id "$USER_ID" \
+              --assignee-principal-type User --role "$ROLE_ID" --scope "$SCOPE" \
+              --only-show-errors -o none
+            echo "Granted Foundry User on the lab project. Allow RBAC propagation, then retry copilot:plan."
+            ;;
+          ''|*[!0-9]*) echo "Unrecognized role-assignment readback; refusing access changes." >&2; exit 1 ;;
+          *) echo "Foundry User is already assigned on the project. Allow propagation before retrying copilot:plan." ;;
+        esac
+
   check:
     desc: OFFLINE. Check Microsoft 365 publication guards and request-scoped chat correlation
     cmds:

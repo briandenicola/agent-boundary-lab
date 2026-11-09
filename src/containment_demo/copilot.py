@@ -6,6 +6,7 @@ import argparse
 import copy
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -135,6 +136,36 @@ class Publisher:
             },
             json=body,
         )
+        if response.status_code == 403:
+            message = (
+                "Foundry returned HTTP 403. Verify the publishing user's Foundry project "
+                "permissions and private connectivity. No automatic retry was performed."
+            )
+            try:
+                payload = response.json()
+            except json.JSONDecodeError:
+                message += " The service error body was not JSON."
+            else:
+                error = payload.get("error", payload) if isinstance(payload, dict) else {}
+                detail = error.get("message") if isinstance(error, dict) else None
+                missing = (
+                    re.search(
+                        r"does not have permissions for "
+                        r"(Microsoft\.CognitiveServices/[A-Za-z0-9_/*.-]+) actions",
+                        detail,
+                    )
+                    if isinstance(detail, str)
+                    else None
+                )
+                if missing:
+                    message = (
+                        f"Foundry returned HTTP 403: the publishing user lacks {missing[1]}. "
+                        "Subscription Owner does not supply Foundry data-plane access. "
+                        "Run task copilot:access to grant project-scoped Foundry User. "
+                        "After propagation, retry copilot:plan; if a publish was already "
+                        "attempted, inspect copilot:status before taking further action."
+                    )
+            raise httpx.HTTPStatusError(message, request=response.request, response=response)
         response.raise_for_status()
         if not response.content:
             return {}

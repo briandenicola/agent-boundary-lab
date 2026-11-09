@@ -530,6 +530,24 @@ This ensures Shared publication runs as the owner, not as the helper's managed
 identity. The helper's existing identity remains responsible for configuration checks.
 The owner needs the documented Foundry User permissions.
 
+If the publishing user has only subscription Owner, that is not sufficient for
+Foundry's data plane. A GET can fail with missing
+`Microsoft.CognitiveServices/accounts/AIServices/agents/read` even though the
+helper's identity and ARM policy reads work. With role-assignment approval, run:
+
+```bash
+task copilot:access
+# Allow RBAC propagation, then:
+task copilot:plan
+```
+
+`copilot:access` grants the signed-in user **Foundry User**
+(`53ca6127-db72-4b80-b1b0-d745d6d5456d`) only on this lab's project.
+It requires role-assignment permission, rejects service-principal logins, and does
+not modify Terraform, existing assignments, policies or account networking.
+It does not publish or invoke an agent. The existing Terraform operator role named
+`Cognitive Services User` is not the Foundry User role.
+
 Review the plan, then explicitly approve the source-IP-filtered Activity exception
 and Microsoft 365 processing of metadata and replies:
 
@@ -567,6 +585,7 @@ Primary references:
 - [Publish agents through REST, including private-network projects](https://learn.microsoft.com/azure/foundry/agents/how-to/publish-copilot-virtual-network)
 - [Troubleshoot publication](https://learn.microsoft.com/azure/foundry/agents/how-to/troubleshoot-publish-copilot)
 - [Application-managed downstream delegation](https://learn.microsoft.com/azure/foundry/agents/how-to/use-on-behalf-of-flow)
+- [Foundry RBAC and the distinction from subscription Owner](https://learn.microsoft.com/azure/foundry/concepts/rbac-foundry)
 
 References accessed **2026-11-09**. Native channel delivery remains a live acceptance
 gate, not a claim established by unit tests.
