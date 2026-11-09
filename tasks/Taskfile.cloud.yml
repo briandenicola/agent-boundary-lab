@@ -128,7 +128,6 @@ tasks:
 
   bootstrap:
     desc: CREATES BILLABLE RESOURCES. Create the Foundry account and import its platform-created managed network before the first full apply
-    prompt: Create the Foundry account and its dependencies, then import its default managed network into local Terraform state?
     cmds:
       - task: target-check
       - task: _init-once
@@ -139,7 +138,6 @@ tasks:
 
   network-import:
     desc: CHANGES LOCAL STATE ONLY. Import this state's Foundry account's platform-created default managed network; does not change Azure
-    prompt: Import the default managed network belonging to the Foundry account in this Terraform state?
     cmds:
       - task: _init-once
       - |
@@ -166,7 +164,6 @@ tasks:
 
   acr-network-import:
     desc: CHANGES LOCAL STATE ONLY. Adopt the owner-approved ACR managed-network endpoint and its two role grants; does not change Azure
-    prompt: Import the existing ACR managed-network endpoint and its approval/Reader grants for this Terraform environment?
     cmds:
       - task: _init-once
       - |
@@ -234,7 +231,6 @@ tasks:
 
   workbook-up:
     desc: CREATES the evidence workbook only (one Azure resource, no compute). Prompts first
-    prompt: Create the egress evidence workbook in Azure (only that resource)?
     cmds:
       - task: _init-once
       - terraform -chdir=./{{.CLOUD_DIR}} apply -auto-approve -compact-warnings -target=azurerm_application_insights_workbook.egress_evidence -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" -var "endpoint_image_tag=${ENDPOINT_IMAGE_TAG:-}"
@@ -253,7 +249,6 @@ tasks:
 
   network-up:
     desc: IRREVERSIBLE + BILLABLE. Apply the managed network, private endpoints, their permission grants and FQDN rules. cloud:up does the same
-    prompt: This is ONE-WAY and billable. Apply the managed network, Foundry/ACR private endpoints, required permission grants and FQDN rules?
     cmds:
       - task: _init-once
       - task: arm:_managed-network-imported
@@ -264,7 +259,6 @@ tasks:
 
   network-probe:
     desc: MANUAL FALLBACK. cloud:up already declares the managed network with isolationMode (azapi_resource.managed_network). One PATCH to AllowOnlyApprovedOutbound; IRREVERSIBLE. Prints the raw response or error
-    prompt: Send ONE PATCH setting managednetworks/default to AllowOnlyApprovedOutbound? One-way if accepted.
     cmds:
       - task: arm:_account-id
         vars: {TAG: '{{.TITLE}}', OUT: /tmp/abl-account-id}
@@ -633,7 +627,6 @@ tasks:
 
   a2a-enable:
     desc: CHANGES AZURE. PATCH the audit agent to enable incoming A2A, then fetch its card
-    prompt: This sends a merge-patch to the audit agent on the Foundry data plane. Continue?
     cmds:
       - task: _a2a-spike
         vars:
@@ -641,7 +634,6 @@ tasks:
 
   a2a-disable:
     desc: CHANGES AZURE. Turn native A2A OFF on the audit agent (merge-patch). Then run cloud:a2a-card, expect endpoint-protocol-not-enabled
-    prompt: This PATCHes the audit agent to remove its A2A endpoint configuration. Continue?
     cmds:
       - task: _a2a-spike
         vars:
@@ -649,7 +641,6 @@ tasks:
 
   a2a-send:
     desc: CALLS THE AGENT. Send one A2A message to the audit agent (A2A-Version 1.0)
-    prompt: This invokes the audit agent once over A2A. Continue?
     cmds:
       - task: _a2a-spike
         vars:
@@ -657,7 +648,6 @@ tasks:
 
   a2a-send-options:
     desc: CALLS THE AUDIT AGENT 3 times. Try each advertised A2A binding/version once, no retries
-    prompt: This invokes the audit agent once per advertised option (JSONRPC 1.0, JSONRPC 0.3, HTTP+JSON 0.3). Continue?
     cmds:
       - task: _a2a-spike
         vars:
@@ -814,7 +804,6 @@ tasks:
 
   harness-down:
     desc: Removes the harness pod and its namespace. Leaves the cluster and the agent versions alone.
-    prompt: This deletes the harness namespace. Agent versions already published stay published. Continue?
     cmds:
       # Deleting the namespace removes the Deployment, the Secret and the ServiceAccount
       # with it. There is no state file to clean up afterwards, which is the point.
@@ -980,7 +969,6 @@ tasks:
 
   down:
     desc: DELETES EVERYTHING this module created, and removes local state
-    prompt: This deletes the entire demo environment including the AKS cluster and the Foundry account. Continue?
     dir: '{{.CLOUD_DIR}}'
     cmds:
       # Deleted by tag rather than by terraform destroy, so a partial or failed apply

@@ -311,13 +311,11 @@ def test_full_apply_checks_images_and_network_before_applying(
         assert "image_tag_read" in body and "latest" not in body
 
 
-def test_bootstrap_and_import_are_explicit_and_state_scoped() -> None:
+def test_bootstrap_and_import_remain_state_scoped() -> None:
     bootstrap = task_body("Taskfile.cloud.yml", "bootstrap")
-    assert "prompt:" in bootstrap
     assert "-target=azapi_resource.foundry" in bootstrap
     assert bootstrap.index(" apply ") < bootstrap.index("- task: network-import")
     recovery = task_body("Taskfile.cloud.yml", "network-import")
-    assert "prompt:" in recovery
     assert "show -json" in recovery
     assert '.address == "azapi_resource.foundry"' in recovery
     assert "/managednetworks/default?api-version=2025-10-01-preview" in recovery

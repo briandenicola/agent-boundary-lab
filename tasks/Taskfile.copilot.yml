@@ -4,7 +4,6 @@ silent: true
 tasks:
   access:
     desc: CHANGES PROJECT RBAC. Grant the signed-in publishing user Foundry User on this project only
-    prompt: Grant your signed-in Azure CLI user the Foundry User role on this lab's project only? No subscription role, policy or public-network setting is changed.
     cmds:
       - task: :cloud:target-check
       - |
@@ -59,7 +58,6 @@ tasks:
 
   publish:
     desc: CHANGES FOUNDRY + M365. Publish to Just you, or update the existing publication's reviewed version pin
-    prompt: Apply the reviewed ACS-denial publication plan? First publication registers the Shared/Just you app and enables its authenticated Activity route; a version update only changes the existing endpoint pin. Microsoft 365 will process agent metadata and replies.
     cmds:
       - task: _run
         vars: {ACTION: publish}
@@ -72,7 +70,6 @@ tasks:
 
   disable:
     desc: CHANGES FOUNDRY. Restore only this publication's endpoint settings; catalog removal is a separate M365 admin action
-    prompt: Restore the recorded pre-publication endpoint settings? The Microsoft 365 catalog entry is not deleted.
     cmds:
       - task: _run
         vars: {ACTION: disable}
@@ -122,7 +119,6 @@ tasks:
 
   restore-journal:
     desc: CHANGES AKS HELPER ONLY. Restore the private publication journal after a helper restart; never overwrite an existing journal
-    prompt: Restore .task/copilot/publication.json to the lab helper? This does not publish or change Foundry.
     cmds:
       - task: :governance:_context
       - |

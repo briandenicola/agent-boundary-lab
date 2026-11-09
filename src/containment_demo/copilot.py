@@ -222,6 +222,18 @@ class Publisher:
 
     def publish(self, request: PublishRequest, facts: dict[str, Any]) -> dict[str, Any]:
         record = self.load()
+        if record["phase"] == "published":
+            published_version = record["facts"]["version"]
+            if facts["version"] != published_version:
+                raise DeploymentError(
+                    f"Version {published_version} is already published; deployed version "
+                    f"{facts['version']} has not been planned. Run task copilot:plan, "
+                    "review the upgrade, then run task copilot:publish."
+                )
+            raise DeploymentError(
+                f"Version {published_version} is already published. "
+                "Run task copilot:status; no new publication is needed."
+            )
         upgrading = record["phase"] == "upgrade_planned"
         if record["phase"] not in {"planned", "upgrade_planned"}:
             raise DeploymentError(

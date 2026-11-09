@@ -7,8 +7,8 @@ silent: true
 # task elsewhere in the repo. It only orders them into a single sequence an operator
 # can run without re-deriving it from docs/demo-runbook.md each time.
 #
-# No Istio, no hidden fallbacks: every destructive step still carries its own
-# confirmation prompt (see cloud/identity Taskfiles); this file never bypasses one.
+# No Istio, no hidden fallbacks: underlying tasks retain their target and ownership
+# guards without duplicate confirmation prompts.
 
 tasks:
   deploy:

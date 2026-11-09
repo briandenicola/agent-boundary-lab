@@ -176,6 +176,22 @@ def test_version_upgrade_plan_preserves_published_state_on_rejection(
     assert all(call.method == "GET" for call in service.calls[count:])
 
 
+@pytest.mark.parametrize(
+    ("version", "guidance"), [("2", "task copilot:status"), ("3", "task copilot:plan")]
+)
+def test_published_agent_reports_the_required_next_step_without_republishing(
+    publisher: Any, metadata: PublishRequest, version: str, guidance: str
+) -> None:
+    pub, service = publisher
+    pub.plan(metadata, FACTS)
+    original = pub.publish(metadata, FACTS)
+    count = len(service.calls)
+    with pytest.raises(DeploymentError, match=guidance):
+        pub.publish(metadata, {**FACTS, "version": version})
+    assert len(service.calls) == count
+    assert pub.load() == original
+
+
 @pytest.mark.parametrize("change", ["endpoint", "version", "metadata"])
 def test_version_upgrade_refuses_drift_before_writing(
     publisher: Any, metadata: PublishRequest, change: str

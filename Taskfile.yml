@@ -5,6 +5,7 @@ version: '3'
 # watching a demo, so the command itself is noise.
 silent: true
 
+# Tasks are deliberately noninteractive; retain target, ownership and drift guards.
 dotenv: ['.env']
 
 env:

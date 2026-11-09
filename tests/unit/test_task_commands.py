@@ -107,7 +107,7 @@ def test_copilot_access_is_user_only_project_scoped_and_idempotent(
         path.chmod(0o755)
     grant = tmp_path / "created.txt"
     result = subprocess.run(  # noqa: S603
-        [runner, "--yes", "copilot:access"],
+        [runner, "copilot:access"],
         cwd=tmp_path,
         env={
             **os.environ,
@@ -501,31 +501,12 @@ def test_deploy_all_is_sequential_and_builds_nothing(dry_task) -> None:
 
 
 @pytest.mark.parametrize(
-    ("file", "name"),
-    [
-        *(("Taskfile.deploy.yml", name) for name in ("all", *COMPONENTS)),
-        ("Taskfile.cloud.yml", "harness-up"),
-        ("Taskfile.local-model.yml", "up"),
-        ("Taskfile.ui.yml", "up"),
-        ("Taskfile.a2a.yml", "up"),
-        ("Taskfile.harness.yml", "up"),
-    ],
+    "taskfile",
+    [ROOT / "Taskfile.yml", *sorted((ROOT / "tasks").glob("Taskfile*.yml"))],
+    ids=lambda path: path.name,
 )
-def test_deployment_chain_has_no_confirmation_prompts(file: str, name: str) -> None:
-    assert "prompt:" not in task_body(file, name)
-
-
-@pytest.mark.parametrize(
-    ("file", "name"),
-    [
-        ("Taskfile.cloud.yml", "down"),
-        ("Taskfile.cloud.yml", "bootstrap"),
-        ("Taskfile.cloud.yml", "network-up"),
-        ("Taskfile.local-model.yml", "build"),
-    ],
-)
-def test_separate_operations_keep_their_confirmations(file: str, name: str) -> None:
-    assert "prompt:" in task_body(file, name)
+def test_all_tasks_have_no_confirmation_prompts(taskfile: Path) -> None:
+    assert not re.search(r"(?m)^\s*prompt:", taskfile.read_text())
 
 
 @pytest.mark.parametrize("component", COMPONENTS)

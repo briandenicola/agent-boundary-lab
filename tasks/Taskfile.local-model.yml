@@ -22,7 +22,6 @@ env:
 tasks:
   build:
     desc: BUILDS IN AZURE. Build and push the local model image to ACR (pins above; override LLAMA_CPP_IMAGE, MODEL_URL, MODEL_SHA256 together), print its digest
-    prompt: This builds a ~2.5 GB image in ACR (billable). Continue?
     cmds:
       - |
         set -eu

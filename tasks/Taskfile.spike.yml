@@ -96,7 +96,6 @@ tasks:
 
   up:
     desc: CREATES BILLABLE RESOURCES. Apply the stage 1 probe, then show the result
-    prompt: This creates a Foundry account and two RAI policies in Azure. Continue?
     cmds:
       - task: init
       - terraform -chdir=./{{.SPIKE_DIR}} apply -auto-approve -compact-warnings -var "region={{.REGION}}" -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}"

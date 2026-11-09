@@ -58,7 +58,6 @@ tasks:
 
   build:
     desc: BUILDS AND PUBLISHES IN AZURE. Build the governed image separately from the baseline image
-    prompt: Build and publish containment-demo-governed-agent in the existing ACR?
     cmds:
       - task: :cloud:target-check
       - task: :build:_foundry-image
@@ -74,7 +73,6 @@ tasks:
 
   up:
     desc: CHANGES AZURE + AKS. Create three isolated policies, seven same-digest scenario agents and model-access grants
-    prompt: Create the isolated governance policies, publisher, seven hosted agents and their model-access grants? The existing baseline is not redeployed.
     cmds:
       - task: _context
       - task: _prerequisites
@@ -113,7 +111,6 @@ tasks:
 
   run:
     desc: INVOKES FOUNDRY 14 TIMES. Both deterministic and model-selected calls for all seven scenarios; private token JSON required
-    prompt: Invoke the isolated Foundry agents fourteen times using the authorized synthetic user's supplied tokens?
     cmds:
       - task: _context
       - |
@@ -148,7 +145,6 @@ tasks:
 
   down:
     desc: CHANGES AZURE + AKS. Delete only owned scenario versions, recorded model grants, three dedicated policies and the helper
-    prompt: Remove only this governance track's hosted versions, recorded grants, policies, Deployment and Secret? Keep the baseline and namespace.
     cmds:
       - task: _context
       - |
