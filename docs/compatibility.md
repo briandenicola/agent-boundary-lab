@@ -1,7 +1,7 @@
 # Compatibility and verified contracts
 
 Consolidated 2026-11-09. Runtime pins are in `pyproject.toml`, `uv.lock` and
-`Dockerfile.governed`; use those instead of an old spike's installed versions.
+`Dockerfile`; use those instead of an old spike's installed versions.
 Superseded deployment experiments remain in Git history, not in the current runbook.
 
 ## Runtime
@@ -10,6 +10,7 @@ Superseded deployment experiments remain in Git history, not in the current runb
 | --- | --- |
 | Python | Repository target 3.12 |
 | Google ADK | Lock resolves 2.12.0; supported async `before_tool_callback` |
+| Model clients | LiteLLM 1.83.0, OpenAI 3.31.0; explicit Entra-authenticated async client |
 | Foundry Responses server/core | 2.2.0; hosted protocol **2.0.0**, not `v1` |
 | Azure AI Projects | 2.8.0 lifecycle contract |
 | ACS Python | `agent-control-specification==0.3.1b1` |
@@ -28,6 +29,29 @@ library dependency, not an additional business tool or MCP endpoint.
 
 The governed image has separate `/opt/agent-venv` and `/opt/deploy-venv` profiles.
 This keeps deployment SDK dependencies out of the agent interpreter.
+
+### Model authentication: Azure OpenAI v1
+
+The deployed model configuration uses `api_version="v1"`. LiteLLM 1.83.0 constructs
+a standard OpenAI client for this API, but drops `azure_ad_token_provider` in that
+branch. On 2026-11-09 the published agent reached ADK and then raised
+`Missing credentials` before tool selection; this was not ACS or an egress denial.
+
+The application now passes an explicitly constructed async SDK client to LiteLLM.
+For v1 (including its `latest` / `preview` aliases), the SDK's `api_key` argument
+receives an **async bearer-token provider**, not an API key. The provider uses
+`DefaultAzureCredential` and the existing Cognitive Services audience, refreshing
+through Azure Identity on model requests. Dated APIs retain the Azure SDK client
+and its `azure_ad_token_provider`. SDK calls have a 60-second timeout and no retries.
+Neither path introduces static tokens, API keys or anonymous fallback.
+
+Offline mocked-HTTP regressions exercise the real locked clients, including the
+v1 Responses tool bridge and refreshed bearer headers. They do not prove a hosted
+call succeeded. Owner rebuild, deployment, version repinning and chat verification
+are still required.
+
+Primary reference, accessed 2026-11-09:
+[Azure OpenAI v1 Entra authentication](https://learn.microsoft.com/azure/foundry/openai/api-version-lifecycle#code-changes).
 
 ## Issue #10 -- published ACS contract (2026-11-06)
 
@@ -129,6 +153,12 @@ Microsoft 365 sign-in is not a delegated policy API token. The documented manage
 delegation/toolbox flows do not establish token forwarding into this agent's
 existing direct-HTTP tool; lookup and combined-prompt acceptance are deferred.
 No app-only or operator-token fallback is introduced.
+
+Once published, planning a new owned hosted version produces `upgrade_planned`.
+Publishing that plan changes only the stable endpoint's version pin; it preserves
+the catalog title, metadata, protocols and authorization without another catalog
+POST. The original pre-publication endpoint remains the disable restore point.
+Uncertain updates remain `patch_requested` and are not retried automatically.
 
 Primary references, accessed 2026-11-09:
 

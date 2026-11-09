@@ -46,6 +46,7 @@ class Service:
         self.endpoint = copy.deepcopy(BEFORE)
         self.calls: list[httpx.Request] = []
         self.timeout_publish = False
+        self.timeout_patch = False
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.calls.append(request)
@@ -54,6 +55,8 @@ class Service:
         if request.method == "PATCH":
             assert request.headers["content-type"] == "application/merge-patch+json"
             self.endpoint = json.loads(request.content)["agent_endpoint"]
+            if self.timeout_patch:
+                raise httpx.ReadTimeout("patch response lost", request=request)
         elif request.method == "POST":
             assert request.url.path.endswith("/microsoft365/publish")
             if self.timeout_publish:
@@ -123,6 +126,97 @@ def test_uncertain_publication_is_never_retried(publisher: Any, metadata: Publis
     assert sum(call.method == "POST" for call in service.calls) == 1
     with pytest.raises(DeploymentError, match="already started"):
         pub.plan(metadata, FACTS)
+
+
+def test_owned_version_upgrade_preserves_the_catalog_and_original_restore_point(
+    publisher: Any, metadata: PublishRequest
+) -> None:
+    pub, service = publisher
+    pub.plan(metadata, FACTS)
+    original = pub.publish(metadata, FACTS)
+    previous_endpoint = copy.deepcopy(service.endpoint)
+    facts = {**FACTS, "version": "3", "image": "example.azurecr.io/demo@sha256:" + "b" * 64}
+    count = len(service.calls)
+
+    planned = pub.plan(metadata, facts)
+    assert planned["phase"] == "upgrade_planned"
+    assert planned["upgrade_before"] == service.endpoint == previous_endpoint
+    assert planned["before"] == BEFORE
+    assert [call.method for call in service.calls[count:]] == ["GET"]
+
+    published = pub.publish(metadata, facts)
+    expected_endpoint = copy.deepcopy(previous_endpoint)
+    expected_endpoint["version_selector"]["version_selection_rules"][0]["agent_version"] = "3"
+    assert service.endpoint == expected_endpoint
+    assert published["title_id"] == original["title_id"]
+    assert published["phase"] == "published"
+    assert sum(call.method == "POST" for call in service.calls) == 1
+    pub.disable()
+    assert service.endpoint == BEFORE
+
+
+@pytest.mark.parametrize("change", ["endpoint", "version", "metadata"])
+def test_version_upgrade_plan_preserves_published_state_on_rejection(
+    publisher: Any, metadata: PublishRequest, change: str
+) -> None:
+    pub, service = publisher
+    pub.plan(metadata, FACTS)
+    original = pub.publish(metadata, FACTS)
+    facts = {**FACTS, "version": "3"}
+    if change == "endpoint":
+        service.endpoint["protocol_configuration"]["mcp"] = {}
+    elif change == "version":
+        facts = FACTS
+    else:
+        metadata = metadata.model_copy(update={"agentDisplayName": "Another name"})
+    count = len(service.calls)
+    with pytest.raises((DriftError, DeploymentError)):
+        pub.plan(metadata, facts)
+    assert pub.load() == original
+    assert all(call.method == "GET" for call in service.calls[count:])
+
+
+@pytest.mark.parametrize("change", ["endpoint", "version", "metadata"])
+def test_version_upgrade_refuses_drift_before_writing(
+    publisher: Any, metadata: PublishRequest, change: str
+) -> None:
+    pub, service = publisher
+    pub.plan(metadata, FACTS)
+    pub.publish(metadata, FACTS)
+    facts = {**FACTS, "version": "3"}
+    pub.plan(metadata, facts)
+    if change == "endpoint":
+        service.endpoint["protocol_configuration"]["mcp"] = {}
+    elif change == "version":
+        facts = {**FACTS, "version": "4"}
+    else:
+        metadata = metadata.model_copy(update={"agentDisplayName": "Another name"})
+    count = len(service.calls)
+    with pytest.raises(DriftError):
+        pub.publish(metadata, facts)
+    assert all(call.method == "GET" for call in service.calls[count:])
+
+
+def test_uncertain_version_upgrade_is_not_retried_and_can_be_disabled(
+    publisher: Any, metadata: PublishRequest
+) -> None:
+    pub, service = publisher
+    pub.plan(metadata, FACTS)
+    pub.publish(metadata, FACTS)
+    facts = {**FACTS, "version": "3"}
+    pub.plan(metadata, facts)
+    service.timeout_patch = True
+    with pytest.raises(httpx.ReadTimeout):
+        pub.publish(metadata, facts)
+    assert pub.load()["phase"] == "patch_requested"
+    count = len(service.calls)
+    with pytest.raises(DeploymentError, match="never blindly retry"):
+        pub.publish(metadata, facts)
+    assert len(service.calls) == count
+    service.timeout_patch = False
+    pub.disable()
+    assert service.endpoint == BEFORE
+    assert sum(call.method == "POST" for call in service.calls) == 1
 
 
 @pytest.mark.parametrize("change", ["endpoint", "version", "metadata"])

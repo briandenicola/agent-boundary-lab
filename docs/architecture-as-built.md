@@ -21,8 +21,10 @@ Microsoft 365 Copilot integration
   -> Foundry Activity channel -> same hosted ADK runtime
 ```
 
-The Microsoft 365 path is the current integration work, not a validated deployed
-channel. It does not replace ADK or move the business tools outside Foundry.
+Microsoft 365 publication is accepted. A chat request reached the hosted ADK runtime
+on 2026-11-09, but failed during model authentication. A successful reply and correlated
+ACS denial are still acceptance gates. This path does not replace ADK or move the
+business tools outside Foundry.
 
 The baseline agent versions share an immutable image digest. The attached RAI
 network policy is the experimental variable; `DEMO_POLICY_MODE` is an evidence
@@ -31,6 +33,45 @@ label, never a tool implementation branch.
 Exactly two business tools are registered in every mode. Both use fixed startup
 destinations, verified TLS, bounded timeouts and disabled redirects. The
 authenticated diagnostic route reuses those implementations.
+
+## Microsoft 365 Copilot runtime path
+
+```text
+End user: Microsoft 365 Copilot -> Your agents -> ACS Servicing Demo
+  -> Microsoft's channel infrastructure
+  -> Foundry's authenticated Activity endpoint
+  -> stable agent endpoint, pinned to the reviewed hosted version
+  -> Responses adapter in the Foundry-hosted Python container
+  -> Google ADK runner
+       -> Azure-hosted model, authenticated as the agent using Entra
+       -> model proposes a registered business tool
+       -> ACS pre-tool callback evaluates the Rego policy through OPA
+            allow -> tool's HTTPS call -> API on Azure Container Apps
+            deny  -> structured blocked result; no business HTTP call
+       -> model explains the actual tool result
+  -> Responses text -> Foundry channel -> reply in Microsoft 365 Copilot
+```
+
+**No AKS endpoint is in this chat request path.** The AKS web UI, A2A facade and
+optional local model are separate baseline clients. The private AKS helper runs
+operator deployment/publication commands because it can reach Foundry's private
+management endpoint; it does not relay Copilot messages. No AKS ingress or
+port-forward is needed to chat with the published agent.
+
+The Activity exception permits authenticated Microsoft channel traffic through
+Foundry's service-source-IP filter. Responses and management access remain private;
+account-wide public network access remains disabled.
+
+Copilot sign-in authorizes channel access, not the agent's model call or a protected
+downstream API call. The hosted agent uses its own Entra credential for the model.
+Successful policy lookup additionally requires delegated user authorization, which
+is deferred for this channel. The first demo prompt requests external processing:
+ACS should block it before contacting the ACA receiver.
+
+The Responses handler creates a fresh `chat-<uuid>` marker and appends **Demo run:**
+to its reply. A missing reply or marker is not an ACS result. Correlate application
+exceptions first; only a model-selected tool and recorded ACS decision establish
+that governance was exercised. See [Copilot failure diagnosis and recovery](governance-demo.md#copilot-runtime-failure-and-image-updates).
 
 ## Components
 

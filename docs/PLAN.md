@@ -88,14 +88,19 @@ Successful policy lookup and the combined prompt are deferred until downstream
 user delegation is available; API authentication remains unchanged.
 
 - [x] Implement Foundry's native publication API for the owned governance-denial agent.
-- [ ] Verify hosted Responses/Activity compatibility against primary references.
+- [x] Observe channel delivery into the hosted ADK runtime. The 2026-11-09 chat
+      failed at model authentication; a successful reply is not yet demonstrated.
 - [x] Preserve existing endpoint protocols and authorization schemes when enabling
       scoped Activity access. Do not enable account-wide public network access.
 - [x] Automate metadata, publication and readback through a small Task workflow.
       Choose publication scope explicitly; do not silently publish tenant-wide.
 - [x] Generate request-scoped chat markers without end-user headers, retaining the
       direct-client header contract. Include the marker in the chat reply.
-- [ ] Owner builds/deploys the updated governed image and runs publication.
+- [x] Owner deployed the chat-capable image and published Shared/Just you, pinned
+      to version 2. Authorization and endpoint readback succeeded.
+- [ ] Owner deploys the v1 model-authentication correction, updates the published
+      version pin and verifies a fresh chat reply. Code/offline checks are not a
+      hosted execution result.
 - [ ] Validate downstream delegated API authorization for the channel. Microsoft 365
       sign-in alone is not a policy API token; never substitute app credentials.
 - [ ] Correlate a natural-language turn, model-selected tool and ACS outcome with
@@ -103,7 +108,8 @@ user delegation is available; API authentication remains unchanged.
 - [ ] Demonstrate the model-selected blocked send in Copilot. A model refusal
       without ACS evidence does not satisfy this gate.
 - [ ] Later: demonstrate permitted lookup and the combined prompt with delegated auth.
-- [ ] Record the actual agent display name and user entry point after publication.
+- [x] Published entry point: Microsoft 365 Copilot -> Your agents ->
+      **ACS Servicing Demo**. No AKS ingress or browser harness is used.
 
 Primary publication references, accessed 2026-11-09:
 [portal](https://learn.microsoft.com/azure/foundry/agents/how-to/publish-copilot),

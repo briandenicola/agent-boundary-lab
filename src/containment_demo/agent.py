@@ -80,10 +80,11 @@ def build_model(settings: Settings) -> Any:
 
     Authentication uses a bearer token *provider* callback rather than a static token:
     a hosted agent is long-running, and a token captured at startup would expire
-    mid-session. No API key is used. See docs/compatibility.md E2.
+    mid-session. No API key is used. See docs/compatibility.md.
     """
     from azure.identity import DefaultAzureCredential, get_bearer_token_provider
     from google.adk.models.lite_llm import LiteLlm
+    from openai import AsyncAzureOpenAI, AsyncOpenAI
 
     if not settings.azure_openai_endpoint:
         raise ValueError(
@@ -96,11 +97,36 @@ def build_model(settings: Settings) -> Any:
         "https://cognitiveservices.azure.com/.default",
     )
 
+    client: AsyncOpenAI
+    if settings.azure_openai_api_version in {"v1", "latest", "preview"}:
+
+        async def async_token_provider() -> str:
+            return token_provider()
+
+        # LiteLLM 1.83 drops azure_ad_token_provider when constructing its v1 client.
+        client = AsyncOpenAI(
+            base_url=f"{settings.azure_openai_endpoint.rstrip('/')}/openai/v1/",
+            api_key=async_token_provider,
+            timeout=60.0,
+            max_retries=0,
+        )
+    else:
+        client = AsyncAzureOpenAI(
+            azure_endpoint=settings.azure_openai_endpoint,
+            api_version=settings.azure_openai_api_version,
+            azure_ad_token_provider=token_provider,
+            timeout=60.0,
+            max_retries=0,
+        )
+
     return LiteLlm(
         model=f"azure/{settings.model_deployment}",
         api_base=settings.azure_openai_endpoint,
         api_version=settings.azure_openai_api_version,
         azure_ad_token_provider=token_provider,
+        client=client,
+        timeout=60.0,
+        num_retries=0,
     )
 
 

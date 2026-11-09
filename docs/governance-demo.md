@@ -188,6 +188,10 @@ End user types a business request
   -> chat explains the actual result
 ```
 
+There is **no AKS web UI, A2A bridge or AKS ingress** in this path. AKS hosts the
+private operator helper, not the Copilot chat service. See the
+[complete runtime and identity flow](architecture-as-built.md#microsoft-365-copilot-runtime-path).
+
 The host generates a fresh `chat-<uuid>` marker per turn and appends **Demo run:**
 to the reply; no client headers are required. This needs the updated governed image
 described in section 7. Copy that marker for evidence inspection. No setup commands
@@ -589,6 +593,64 @@ Primary references:
 
 References accessed **2026-11-09**. Native channel delivery remains a live acceptance
 gate, not a claim established by unit tests.
+
+### Copilot runtime failure and image updates
+
+Publication and discovery do not establish that the hosted model or tools work.
+On 2026-11-09, chat reached the hosted ADK runtime, but LiteLLM raised
+`Missing credentials` at 19:48:02 and 19:48:59 UTC. The v1 client construction
+dropped the Entra token provider. No ACS denial can be claimed from that failed turn.
+The [model authentication correction](compatibility.md#model-authentication-azure-openai-v1)
+requires a new governed image, not another role grant or an AKS ingress change.
+
+For an empty reply or `server_error` without a Demo run marker, use the existing
+workspace's **Logs** to inspect failures around the chat time:
+
+```kusto
+AppExceptions
+| where TimeGenerated > ago(1h)
+| where AppRoleName endswith "-gov-governance-denial"
+| project TimeGenerated, ProblemId, InnermostMessage, OperationId
+| order by TimeGenerated desc
+```
+
+These table/column names were read from actual hosted errors on 2026-11-09.
+Keep the Copilot error's `ConversationId`, `activityId` and `ms-cv` for Microsoft
+support if needed; they are not the application's `chat-<uuid>` marker.
+Do not enable prompt, response or token capture to troubleshoot.
+
+For an **already published** agent, the owner deploys the corrected image and
+updates the existing stable endpoint's version pin:
+
+```bash
+git pull --ff-only
+task governance:build
+task governance:up
+task governance:status
+export COPILOT_METADATA_FILE="$PWD/.task/copilot/publish-request.json"
+# After the helper rollout, restore the saved publication journal if it is missing:
+task copilot:restore-journal
+task copilot:plan
+# Review upgrade_planned, the new version and image, then approve:
+task copilot:publish
+task copilot:status
+```
+
+Do not overwrite the existing metadata file or increment `appVersion` for an
+agent-image update. The upgrade reuses the existing title/catalog entry and changes
+only the reviewed version pin. A successful readback must show the new version;
+otherwise Copilot continues to invoke the old, pinned image even after deployment.
+The original baseline is not redeployed; do not run `cloud:up`.
+
+The helper journal must not already exist when restoring; a refusal protects
+existing state, rather than authorizing its deletion. If it survived the rollout,
+use that journal instead. Never rerun publication after an uncertain PATCH/POST:
+inspect status first.
+
+After readback, open a **new conversation** with ACS Servicing Demo and send the
+external-processing prompt from section 4. Expect an explanation and a fresh
+**Demo run:** marker. Then correlate the ACS decision. A successful mocked test,
+publication status or chat explanation alone does not establish ACS enforcement.
 
 ## 8. Decide the result and retain a safe record
 

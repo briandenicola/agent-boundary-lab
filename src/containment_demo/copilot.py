@@ -183,10 +183,25 @@ class Publisher:
         return record
 
     def plan(self, request: PublishRequest, facts: dict[str, Any]) -> dict[str, Any]:
-        if self.journal.exists() and self.load()["phase"] not in {"planned", "disabled"}:
-            raise DeploymentError(
-                "Publication already started; inspect status, do not overwrite it"
-            )
+        if self.journal.exists():
+            record = self.load()
+            if record["phase"] == "published":
+                if request.payload() != record["request"]:
+                    raise DriftError("An agent version update cannot change catalog metadata")
+                if endpoint_settings(self.request("GET")) != record["after"]:
+                    raise DriftError("Published endpoint changed; refusing to plan over it")
+                if facts["version"] == record["facts"]["version"]:
+                    raise DeploymentError("This agent version is already published; inspect status")
+                record["upgrade_before"] = record["after"]
+                record["after"] = publication_endpoint(record["after"], facts["version"])
+                record["facts"] = facts
+                record["phase"] = "upgrade_planned"
+                save_journal(self.journal, record)
+                return record
+            if record["phase"] not in {"planned", "disabled"}:
+                raise DeploymentError(
+                    "Publication already started; inspect status, do not overwrite it"
+                )
         before = endpoint_settings(self.request("GET"))
         if "activity" in before["protocol_configuration"] or any(
             item.get("type", "").startswith("BotService")
@@ -207,27 +222,31 @@ class Publisher:
 
     def publish(self, request: PublishRequest, facts: dict[str, Any]) -> dict[str, Any]:
         record = self.load()
-        if record["phase"] != "planned":
+        upgrading = record["phase"] == "upgrade_planned"
+        if record["phase"] not in {"planned", "upgrade_planned"}:
             raise DeploymentError(
                 "Publication has already been attempted. Inspect status; never blindly retry POST."
             )
         if facts != record["facts"] or request.payload() != record["request"]:
             raise DriftError("Agent or public metadata changed since the approved plan")
-        if endpoint_settings(self.request("GET")) != record["before"]:
+        before = record["upgrade_before"] if upgrading else record["before"]
+        if endpoint_settings(self.request("GET")) != before:
             raise DriftError("Endpoint changed since planning; refusing to overwrite it")
         record["phase"] = "patch_requested"
         save_journal(self.journal, record)
         self.request("PATCH", body={"agent_endpoint": record["after"]})
         if endpoint_settings(self.request("GET")) != record["after"]:
             raise DriftError("Endpoint readback differs from the planned publication")
-        record["phase"] = "publish_requested"
-        save_journal(self.journal, record)
-        result = self.request("POST", "/microsoft365/publish", record["request"])
-        if not isinstance(result.get("titleId"), str) or not result["titleId"]:
-            raise DeploymentError(
-                "Publish returned no titleId; inspect before taking further action"
-            )
-        record["title_id"] = result["titleId"]
+        if not upgrading:
+            record["phase"] = "publish_requested"
+            save_journal(self.journal, record)
+            result = self.request("POST", "/microsoft365/publish", record["request"])
+            if not isinstance(result.get("titleId"), str) or not result["titleId"]:
+                raise DeploymentError(
+                    "Publish returned no titleId; inspect before taking further action"
+                )
+            record["title_id"] = result["titleId"]
+        record.pop("upgrade_before", None)
         record["phase"] = "published"
         save_journal(self.journal, record)
         if endpoint_settings(self.request("GET")) != record["after"]:
@@ -239,7 +258,7 @@ class Publisher:
         if record["phase"] in {"planned", "disabled"}:
             raise DeploymentError("No active publication change to restore")
         current = endpoint_settings(self.request("GET"))
-        if current not in (record["after"], record["before"]):
+        if current not in (record["after"], record["before"], record.get("upgrade_before")):
             raise DriftError(
                 "Endpoint changed outside this publication; refusing to restore over it"
             )
@@ -313,7 +332,11 @@ def main(argv: list[str] | None = None) -> int:
         }
         print(
             json.dumps(
-                {key: value for key, value in record.items() if key not in {"before", "after"}},
+                {
+                    key: value
+                    for key, value in record.items()
+                    if key not in {"before", "after", "upgrade_before"}
+                },
                 indent=2,
             )
         )

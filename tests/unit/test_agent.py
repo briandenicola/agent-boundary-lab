@@ -15,7 +15,10 @@ import ast
 import inspect
 import re
 from pathlib import Path
+from typing import Any
 
+import httpx
+import httpx2
 import pytest
 
 from containment_demo import agent, tools
@@ -171,3 +174,144 @@ class TestInstruction:
 
     def test_instruction_forbids_the_model_claiming_a_policy_decision(self) -> None:
         assert "network policy blocked" in agent.AGENT_INSTRUCTION.lower()
+
+
+@pytest.mark.parametrize(
+    ("api_version", "with_tools"),
+    [("v1", False), ("v1", True), ("latest", False), ("preview", False), ("2024-10-21", False)],
+)
+async def test_model_refreshes_entra_bearer_without_an_api_key(
+    monkeypatch: pytest.MonkeyPatch, api_version: str, with_tools: bool
+) -> None:
+    import azure.identity
+    from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
+    from openai import AsyncOpenAI
+
+    for name in (
+        "OPENAI_API_KEY",
+        "OPENAI_ADMIN_KEY",
+        "AZURE_API_KEY",
+        "AZURE_OPENAI_API_KEY",
+        "AZURE_OPENAI_AD_TOKEN",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    tokens = iter(["offline-first-token", "offline-refreshed-token"])
+    provider_calls: list[bool] = []
+    requests: list[httpx2.Request] = []
+
+    def token_provider() -> str:
+        provider_calls.append(True)
+        return next(tokens)
+
+    monkeypatch.setattr(azure.identity, "DefaultAzureCredential", lambda: object())
+    monkeypatch.setattr(azure.identity, "get_bearer_token_provider", lambda *_args: token_provider)
+
+    async def respond(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if request.url.path.endswith("/responses"):
+            return httpx2.Response(
+                200,
+                json={
+                    "id": "resp_offline",
+                    "object": "response",
+                    "created_at": 0,
+                    "model": "gpt-5.4-mini",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "id": "msg_offline",
+                            "type": "message",
+                            "role": "assistant",
+                            "status": "completed",
+                            "content": [
+                                {"type": "output_text", "text": "Offline reply", "annotations": []}
+                            ],
+                        }
+                    ],
+                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                },
+            )
+        return httpx2.Response(
+            200,
+            json={
+                "id": "offline-completion",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "offline-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "Offline reply"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        )
+
+    original_init = AsyncOpenAI.__init__
+
+    async def post_with_mock_transport(
+        self: AsyncHTTPHandler, url: str, **kwargs: Any
+    ) -> httpx.Response:
+        request = httpx2.Request("POST", url, headers=kwargs.get("headers"))
+        response = await respond(request)
+        return httpx.Response(
+            response.status_code,
+            content=response.content,
+            headers=response.headers,
+            request=httpx.Request("POST", url),
+        )
+
+    def init_with_mock_transport(self: AsyncOpenAI, **kwargs: Any) -> None:
+        kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
+        original_init(self, **kwargs)
+
+    monkeypatch.setattr(AsyncOpenAI, "__init__", init_with_mock_transport)
+    monkeypatch.setattr(AsyncHTTPHandler, "post", post_with_mock_transport)
+    settings = _settings().model_copy(
+        update={
+            "azure_openai_endpoint": "https://model.example.com/",
+            "azure_openai_api_version": api_version,
+        }
+    )
+    model = agent.build_model(settings)
+    if with_tools:
+        model._additional_args["reasoning_effort"] = "low"
+    assert not provider_calls
+    client = model._additional_args["client"]
+    tools = (
+        [
+            {
+                "type": "function",
+                "function": {
+                    "name": "send_to_external_processor",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+        if with_tools
+        else None
+    )
+    try:
+        for _ in range(2):
+            result = await model.llm_client.acompletion(
+                model=model.model,
+                messages=[{"role": "user", "content": "Offline authentication test"}],
+                tools=tools,
+                **model._additional_args,
+            )
+            assert result.choices[0].message.content == "Offline reply"
+    finally:
+        await client.close()
+
+    assert len(provider_calls) == len(requests) == 2
+    assert [request.headers["authorization"] for request in requests] == [
+        "Bearer offline-first-token",
+        "Bearer offline-refreshed-token",
+    ]
+    assert all("api-key" not in request.headers for request in requests)
+    if api_version == "2024-10-21":
+        expected_path = f"/openai/deployments/{settings.model_deployment}/chat/completions"
+    else:
+        expected_path = "/openai/v1/responses" if with_tools else "/openai/v1/chat/completions"
+    assert all(request.url.path == expected_path for request in requests)

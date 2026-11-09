@@ -50,6 +50,21 @@ is not yet a new hosted event-ingestion result.
 
 ## ACS decision evidence
 
+### Hosted model failure observed 2026-11-09
+
+`AppExceptions` contained the published agent's model-authentication failure.
+Observed columns: `TimeGenerated`, `AppRoleName`, `ProblemId`, `OuterMessage`,
+`InnermostMessage`, `OperationId`. The role was the governance-denial agent and
+the error was `litellm.APIError: AzureException APIError - Missing credentials`.
+ADK and Responses handler errors followed in the same operation.
+
+This proves execution reached the application, not that ACS evaluated a tool.
+No join between the application's `OperationId` and Copilot's `ConversationId`,
+`activityId` or `ms-cv` was validated. See the
+[runtime recovery instructions](governance-demo.md#copilot-runtime-failure-and-image-updates).
+
+### Governance record
+
 The source-defined governance record contains run/trace/session/tool-call identifiers,
 agent/version, mode, policy ID/version, verdict, host action, reason, duration and
 timestamp. It contains no token, tool arguments, prompt, payload or raw ACS snapshot.

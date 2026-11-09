@@ -45,18 +45,15 @@ RUN echo "66fa66f3b730b2fb086003863428b382b2898d343adb4b5dfab5598b4d739eed  /tmp
 # The agent-version deployer lives in its own interpreter, in this same image.
 #
 # Parker's init container runs the same digest-pinned image as the agent, so the deploy
-# module has to be here. But azure-ai-projects requires openai>=3, and resolving it
-# alongside the agent's dependencies drags litellm from 1.104 down to 1.83 and openai from
-# 2.54 up to 3.26. That would change the agent's own model stack as a side effect of the
-# deployer gaining a dependency, which is exactly the kind of uncontrolled variable this
-# demo exists to avoid.
-#
-# So it goes in a separate venv. One image, one digest, two isolated dependency sets. The
+# module has to be here. Keep deployment-only packages out of the agent interpreter.
+# Both profiles share uv.lock; separate venvs do not isolate dependency resolution.
+# The agent now explicitly uses the locked OpenAI 3 client for refreshable v1 Entra auth.
+# One image, one digest, two installed profiles. The
 # init container overrides the entrypoint to use this interpreter:
 #   command: ["/opt/deploy-venv/bin/python", "-m", "containment_demo.deploy"]
 # The A2A spike (containment_demo.a2a_spike) runs in this same venv, exec'd into the
-# harness pod. The a2a extra resolves alongside azure-ai-projects here, and never touches
-# the agent's own interpreter, so the agent's model stack is unchanged.
+# harness pod. The a2a extra installs alongside azure-ai-projects here, without adding
+# these deployment-only packages to the agent's interpreter.
 RUN UV_PROJECT_ENVIRONMENT=/opt/deploy-venv uv sync --no-cache --locked --no-dev \
         --extra deploy --extra a2a --extra verify --no-editable \
     && /opt/deploy-venv/bin/python -c "import azure.ai.projects; import azure.monitor.query; import containment_demo.governance.hosted"

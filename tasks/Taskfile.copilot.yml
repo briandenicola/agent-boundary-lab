@@ -52,14 +52,14 @@ tasks:
       - task: :lint:types
 
   plan:
-    desc: READ-ONLY AZURE. Plan Shared publication of the owned ACS-denial agent; save a private journal in the existing helper
+    desc: READ-ONLY AZURE. Plan first publication or an owned agent-version update; save a private journal
     cmds:
       - task: _run
         vars: {ACTION: plan}
 
   publish:
-    desc: CHANGES FOUNDRY + M365. Enable scoped Activity ingress, pin the owned version, register and publish to Just you
-    prompt: Publish the reviewed ACS-denial agent and public metadata to Microsoft 365 (Shared/Just you), enabling only its authenticated Activity route? Microsoft 365 will process agent metadata and replies.
+    desc: CHANGES FOUNDRY + M365. Publish to Just you, or update the existing publication's reviewed version pin
+    prompt: Apply the reviewed ACS-denial publication plan? First publication registers the Shared/Just you app and enables its authenticated Activity route; a version update only changes the existing endpoint pin. Microsoft 365 will process agent metadata and replies.
     cmds:
       - task: _run
         vars: {ACTION: publish}
