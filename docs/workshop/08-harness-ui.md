@@ -102,7 +102,7 @@ Expected shape (abridged; synthetic data only):
 
 Open `/` to chat and `/flow` for a diagram of the hop-by-hop flow. In `ingress_oidc` mode both pages show a **Logout** chip pointing at `/oauth2/sign_out?rd=%2F`.
 
-### 6. Read the identity panel (issue #4; code written, **never run live**)
+### 6. Read the identity panel
 
 In `ingress_oidc` mode with OBO configured, each turn first exchanges the user's access token for a token for the policy API (MSAL on-behalf-of). If that fails the turn is **not run** and the UI shows `on-behalf-of exchange failed: <code>` (HTTP 401, `source: identity`). The result page then has two separate cards:
 
@@ -117,7 +117,12 @@ In `ingress_oidc` mode with OBO configured, each turn first exchanges the user's
 
 - **Egress / containment**, separate: stays `inconclusive` without platform evidence. An identity denial never changes it.
 
-The "display label" is the ingress user name, shown for the presenter; it is not authorization. `user_token_forwarded=false` is the expected signature if Foundry does not deliver the header (UNVERIFIED until the first live run). Each entry also offers copyable KQL (receipt and tool-result queries; text in [kql-queries.md](../kql-queries.md) section 10; **not run as written**). The receipt query matches either an `authorization_decision` (denied) or a `served` (allowed) policy API line for the run id. Two earlier defects (`invoke.outcome_from_record` dropping `user_object_id` on a 200, and a denial-only receipt query) are fixed in code but UNVERIFIED live; `HARNESS_OBO_*` reaching the harness pod is also UNVERIFIED live (see [token-flow-documented.md](../token-flow-documented.md) section 6). The two-button `demo_ui.py` still shows the old `status_from_http` badge (out of scope).
+The display label is not authorization. `user_token_forwarded=false` means the tool
+did not receive its downstream user token. Each entry offers receipt/tool-result KQL;
+query errors and missing rows are not passes. The identity baseline was tested
+(owner-confirmed 2026-11-06). See [token flow](../token-flow-documented.md) for the
+current contract. The two-button UI's HTTP-status badge is not verified identity
+or containment evidence.
 
 ## Code tour
 

@@ -8,7 +8,7 @@ receipts for one `run-…` id; see [`../architecture-as-built.md`](../architectu
 
 | File | Use it for | Status |
 | --- | --- | --- |
-| [`environment.excalidraw`](environment.excalidraw) (source) and `environment.svg` (export) | **The current, whole system:** laptop, AKS pods, Foundry, Container Apps, evidence plane, ACR, with flows F1 to F11. Use this one. | Current (2026-10-09) |
+| [`environment.excalidraw`](environment.excalidraw) (source) and `environment.svg` (export) | October baseline: laptop, AKS, Foundry, Container Apps, evidence and ACR. Does not include ACS or Microsoft 365 integration. | Baseline snapshot (2026-10-09) |
 | [`azure-environment.excalidraw`](azure-environment.excalidraw) / [`.svg`](azure-environment.svg) | Earlier Azure-resource-only view. Kept for history. | Superseded |
 
 ![Whole environment](environment.svg)
@@ -62,12 +62,13 @@ Two things the arrows do not mean:
 
 ## Verified vs proposed vs assumed
 
-- **Verified:** F1 to F3, F5 to F8 and F10 (`verify_demo.py`), and the run-id join. See `telemetry-map.md` §0.12 to §0.14 (small n). The
+- **Verified baseline:** F1 to F3, F5 to F8 and F10 (`verify_demo.py`), and the run-id join. See [dated evidence](../telemetry-map.md#dated-baseline-results) (small n). The
   same image digest on both agents and the policy attachment were read back by the deployer.
 - **Assumed:** the network path of F4. Calls succeed, but how the managed VNet and the egress policy layer is an open documentation gap
   (`compatibility.md` D). The model deployment name and the `foundry-account-pe` rule come from `infra/cloud` and B9g.
-- **Proposed / unverified:** the evidence workbook (not applied), Entra Agent ID auth (issue #4), F9's link to missing app spans, and
-  anything drawn dashed orange.
+- **Snapshot limits:** dashed styles reflect the October drawing, not current
+  rollout status. The identity baseline was subsequently tested. Use
+  [architecture](../architecture-as-built.md) for current boundaries.
 - **Blocked:** native inbound A2A on hosted agents (`HOSTED_AGENT_NOT_SUPPORTED`). The façades exist because of this.
 
 Digests and version numbers drift. Re-read them with the `*:digest` tasks rather than trusting the diagram.

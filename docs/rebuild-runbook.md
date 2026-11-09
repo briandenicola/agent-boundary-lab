@@ -2,12 +2,11 @@
 
 Written 2026-10-09 from the Taskfiles and the tasks' own prerequisite checks.
 
-**Status: clean rebuild attempted 2026-10-15; not yet verified end to end.** Infrastructure
-creation exposed image/state/order failures, then hosted-agent provisioning failed until
-an ACR private endpoint was added to Foundry's managed network (recovery below). Both
-hosted versions subsequently reported `active`. The corrected Terraform has not yet been
-tested through another full teardown/rebuild, nor has the aggregate application deployment
-and containment verification completed on this environment.
+**Current baseline:** identity and egress were tested (owner-confirmed 2026-11-06).
+The Azure lab was recreated in Sweden Central on 2026-11-06; real API images and the
+isolated ACS backend were deployed on 2026-11-09. Historical recoveries below are
+conditional repair procedures, not prerequisites to rerun on a healthy environment.
+The new hosted governance comparison still needs owner-run validation.
 
 Brian runs every step that changes Azure or the cluster. All commands run from the repo root.
 Add `--yes` to any task that prompts when you are not on a terminal.
@@ -87,10 +86,9 @@ For the owner's redeployment, run `task lint:tasks`, `task lint:cloud`, then
 resources remain in this state, the region change can replace them: review those changes
 before applying. This update does not delete resources, remove state, or migrate anything.
 
-This rebuild establishes the private containment baseline, not completion of issue #4.
-Next prove the delegated Foundry bearer in the same tenant (I0), then implement the
-owner-selected HTTPS/login architecture and downstream policy-token transport.
-Public ingress, identity grants and enabling policy authentication need separate review.
+This establishes infrastructure, not a fresh identity or containment result.
+Use the [identity flow](token-flow-documented.md) and [demo runbook](demo-runbook.md)
+to validate a rebuilt environment. Public ingress and identity changes require review.
 
 ## Steps
 
@@ -180,7 +178,7 @@ Provider references checked **2026-10-15** (configuration guidance, not deployed
 
 | # | Command | Notes |
 | --- | --- | --- |
-| 2.1 | `task cloud:plan` | Must report no changes after `cloud:up`. |
+| 2.1 | `task cloud:plan` | Review drift; do not reconcile externally managed policy properties automatically. |
 | 2.2 | Read back `managednetworks/default` | `isolationMode` must read `AllowOnlyApprovedOutbound`; trust the readback over any timeout message. |
 | 2.3 | Check the `foundry-account-pe` and `acr-pe` outbound rules | Both must be `Active`; ACR must show the managed-network private-endpoint connection `Approved`. The ACR endpoint in our AKS VNet is a different connection. |
 
@@ -328,7 +326,7 @@ it stops **without applying**. Review `task cloud:plan` and reconcile that separ
 `deploy:foundry-agent` includes the existing `cloud:agent-access-up` operation, after the
 publisher is ready. It grants Cognitive Services OpenAI User to both agent identities at
 the same scope. These are workload model-access grants, **not** the user OBO extension in
-#4. That identity extension remains planning-only.
+#4. The tested user-delegation path is documented separately in [token flow](token-flow-documented.md).
 
 **UNVERIFIED:** whether newly granted model access needs propagation time, a restart or a
 new version. A successful grant alone does not prove a model call succeeds (B9f).
@@ -354,7 +352,7 @@ without modifying the separate governance settings. Managed-identity AKS monitor
 an explicit DCR and its cluster binding collect container stdout/stderr, events and pod
 inventory. Environment inventory and application content capture remain disabled.
 Raw traffic logging for Foundry's managed firewall is not exposed by the service.
-See [`telemetry-map.md` section 0.15](telemetry-map.md#015-sweden-central-rebuild-runtime-failure-and-logging-gaps-2026-10-19)
+See [the monitoring record](telemetry-map.md#monitoring-configuration)
 for observations, collection limits and primary references.
 
 For the owner's recovery, retain the deployed tool API tag in `ENDPOINT_IMAGE_TAG` and
@@ -382,7 +380,7 @@ Run the bridge verification/calls below, allow ingestion time, then run
 proof that records arrived. The post-apply read-only inventory subsequently confirmed
 both diagnostic destinations, the AKS collection binding, and new container/diagnostic
 records. The owner reported Audit and Enforced verifier PASS; details and provenance
-are recorded in telemetry-map §0.15.
+are recorded in the [dated baseline results](telemetry-map.md#dated-baseline-results).
 
 #### Functional checks and containment evidence
 
@@ -401,17 +399,18 @@ Wait at least 3 minutes, then confirm with the platform evidence (the `run-…` 
 .venv/bin/python scripts/verify_demo.py --section c --enforced-run-id <run-…> --enforced-called-at <UTC ISO>
 ```
 
-Exit 0 is PASS, 1 FAIL, 2 INCONCLUSIVE. Then re-check `task cloud:plan` shows no changes.
+Exit 0 is PASS, 1 FAIL, 2 INCONCLUSIVE. Review any `cloud:plan` drift separately;
+do not apply unrelated policy changes to manufacture a clean plan.
 
 ## Known rough edges
 
-- **Aggregate deployment is not yet run end to end.** The 2026-10-15 clean attempt recovered
-  hosted-agent provisioning after adding the missing managed-network ACR path. A complete
-  teardown/rebuild of the corrected configuration and a containment result remain unverified.
+- **A rebuild needs fresh validation.** Historical baseline passes do not prove a new
+  deployment or the isolated ACS comparison.
 - **`cloud:plan` showed the two RAI policies updating in place on 2026-10-10** (contentFilters),
   with no policy change on our side; `task cloud:policies` showed them still identical apart from
   `egressPolicy.mode`. Unexplained. Read the plan before any `cloud:up`; do not apply it blind.
 - **Secrets** are created by `*:secret` and never stored in the repo; a rebuild makes new ones.
   Anything holding an old token (a saved browser login) must use the new one.
-- **Tear-down** is `docs/demo-runbook.md` §12. `task cloud:down` deletes everything the module
-  created and the local state.
+- **Teardown** follows [the demo runbook](demo-runbook.md#teardown-and-cost).
+  `cloud:down` guards exact-state destruction and retains local state and journals;
+  never remove them to hide failed cleanup.

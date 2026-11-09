@@ -44,14 +44,16 @@ The two tools are controlled by different things, so a failure means something d
 | Denied user, Audit and Enforced (expected) | HTTP 403 `user_not_authorized` | Same as the allowed user; identity is irrelevant to this tool. |
 | What a failure means | An **identity** result. Not a network or containment result. | A **network/platform** result. It counts as containment only when the platform evidence rows and the missing receipt confirm it. |
 
-> **Status.** The user-token plumbing is **implemented in code (SOURCE-VERIFIED) and unit-tested with mocks (VERIFIED: 953 passed / 5 skipped)**. The "expected" rows are the design; **nothing has been run live**. Whether Foundry delivers the user token to the hosted agent is **UNVERIFIED** until the first live run.
+> The existing identity/egress baseline is tested, owner-confirmed 2026-11-06.
+> Rebuilt environments still need their own identity and containment verification.
+> These baseline results do not establish Microsoft 365 channel token delivery.
 
 How the token reaches `get_servicing_policy` (SOURCE-VERIFIED; full path in [token-flow-documented.md](../token-flow-documented.md)):
 
 - The facade sends it to Foundry as the header `x-client-policy-access-token`. `protocol_adapter.py` reads it from `context.client_headers` (lowercase `x-client-*` keys only; checked in the installed `azure-ai-agentserver-responses` 2.2.0) and puts it in the **ADK session state** (`user_token`) when it creates the per-call session. This side uses session state, not a ContextVar. (The harness side, before the facade, carries it in a ContextVar.)
 - Both tool functions in `agent.py` accept an ADK `tool_context` that ADK injects. `get_servicing_policy` reads `tool_context.state["user_token"]` and sends `Authorization: Bearer ...` to the policy API. The code comment records that the model-visible declaration stays parameterless (checked against google-adk 2.11.0). `send_to_external_processor` does not use the token.
 - The tool result records only `user_token_forwarded` (a boolean) and, for HTTP >= 400, the policy API's `error` and `user_object_id`. The token is never logged or recorded.
-- That a live ADK run passes the session state to the tool is **UNVERIFIED** (mocks only).
+- Keep the token request-scoped; never include it in model-visible tool arguments or ACS input.
 
 ### Why both tools are always registered
 
@@ -95,14 +97,15 @@ task tool-apis:check           # confirm both endpoints are live (run BEFORE a d
 
 Checking before a run matters: an endpoint that was already down makes a failed call unattributable.
 
-### 4. Invoke the allowed and denied tools
+### 4. Run offline actor-authorization regressions
 
 ```bash
 task app:run-allowed
 task app:run-denied
 ```
 
-(See [tasks/Taskfile.app.yml](../../tasks/Taskfile.app.yml) lines 46–57.) Judge results using the telemetry fields in [telemetry-map.md](../telemetry-map.md), not the model's prose.
+These are offline tests, not live tool invocations. Use [Module 09](09-run-and-verify.md)
+for the hosted demo and judge platform evidence separately from authorization.
 
 ## Code tour
 

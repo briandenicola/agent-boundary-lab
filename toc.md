@@ -28,7 +28,9 @@ Table of contents
     * [Rebuild Runbook](./docs/rebuild-runbook.md)
     * [KQL Queries](./docs/kql-queries.md)
     * [Evidence Template](./docs/evidence-template.md)
-    * [Scope and Architecture Spec](./docs/README.md)
+    * [Governance Demo](./docs/governance-demo.md)
+    * [Delegated Identity](./docs/token-flow-documented.md)
+    * [Documentation Index](./docs/README.md)
     * [Implementation Plan](./docs/PLAN.md)
 * [License](./LICENSE)
 <!--te-->

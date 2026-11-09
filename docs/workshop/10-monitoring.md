@@ -18,7 +18,7 @@ One Log Analytics workspace holds everything ([`monitoring.tf`](../../infra/clou
 | Receipts at the controlled services | `ContainerAppConsoleLogs_CL` | `Log_s` JSON with `event == "receipt"` |
 | Application / tool spans | Application Insights (see below) | privacy limited; not the proof |
 
-**Real field names only** (from [`../telemetry-map.md`](../telemetry-map.md) §0.6.3 and §3.1):
+**Real field names only** (from the [telemetry map](../telemetry-map.md)):
 
 - Egress decision `Properties` keys (observed 2026-10-09): `decisionResultCode` (`Allow` or `AuditWouldDeny`), `decision` (`Allow` or `Deny`), `enforcement`, `decisionReasonCode` (`MatchedAllowRule`, `AuditWouldDefaultDeny`, and `DefaultDeny` under Enforced), `denyReasonCode`, `matchedRule`, `host`, `path`, `egressDecisionId`, `operationId`.
 - Receipt fields: `service` (`policy-api` or `test-receiver`), `event` (`receipt`), `received_at`, `demo_run_id`, plus `outcome` (policy API) or `content_length_bytes` (receiver).
@@ -27,7 +27,8 @@ One Log Analytics workspace holds everything ([`monitoring.tf`](../../infra/clou
 
 Caveats you must repeat when presenting:
 
-- Under Enforced, the platform also denies the agent's own Application Insights export. App spans from the enforced slot may never arrive, so absence there is inconclusive.
+- The historical Enforced policy denied application telemetry export. New dedicated
+  governance policies allow the existing ingestion host; validate real ingestion.
 - `AMLManagedNetworkEvent` has returned zero rows and is not verified to carry decisions.
 - Never project the `gcp.vertex.agent.*` keys of `Properties`; they can hold prompt content.
 - Prompt, response, payload and authorization-header capture stays disabled.
@@ -56,7 +57,7 @@ Open the workspace Logs blade and use the queries in [`../kql-queries.md`](../kq
 | 5 | Receipts for one run id |
 | 6 | **Proof for one run**: decisions and receipts side by side |
 | 8 | The agent's own telemetry being denied |
-| 10 | Issue #4 identity decisions (`authorization_decision` receipts and the tool-result record) for one tool run id; the same two queries the harness UI copies. **UNVERIFIED live.** The receipt query matches a denied/unavailable `authorization_decision` line or a served `event=receipt outcome=served user_object_id` line for the run id. See [token-flow-documented.md](../token-flow-documented.md) section 6. |
+| 10 | Policy API authorization decisions and served receipts for one tool run marker; identity evidence only. See [token flow](../token-flow-documented.md). |
 
 Set `let run = "run-...";` to your id. Read query 6 like this: a `Deny / DefaultDeny / Enforced` row for the external host with no `test-receiver` receipt after it is the platform block. An `Allow` row then a `policy-api` receipt is the positive control. Wait at least 180 s after the call before counting an absence. The queries' own status note applies: they were written from verified columns but not all run as written, so report any error.
 
@@ -95,7 +96,7 @@ task chat-agent:secret
 | Diagnostics link settings | [`src/containment_demo/harness/settings.py` L58-L64](../../src/containment_demo/harness/settings.py#L58-L64) |
 | Secret creation with optional links | [`tasks/Taskfile.harness.yml` L60-L91](../../tasks/Taskfile.harness.yml#L60-L91) |
 | Receipt emitters | `services/policy_api/main.py`, `services/test_receiver/main.py` |
-| Telemetry privacy controls | [`../telemetry-map.md`](../telemetry-map.md) §1.4 |
+| Telemetry privacy controls | [Telemetry map](../telemetry-map.md#privacy-and-run-checklist) |
 
 ## Checkpoint
 

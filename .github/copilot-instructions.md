@@ -2,18 +2,18 @@
 
 ## What this repository currently is
 
-A **build specification**, not a working deployment. The only tracked content is
-`docs/README.md` (scope, architecture, acceptance criteria) and `docs/PLAN.md`
-(phased implementation plan). `src/`, `infra/`, and `.github/` are empty
-placeholders. There is no `pyproject.toml`, no test suite, and no CI yet.
+A deployed Azure demo with a tested Foundry egress/identity baseline and an isolated
+ACS governance track. `docs/README.md` is the documentation index, and
+`docs/PLAN.md` describes current delivery work. Source, Terraform, Taskfiles and
+offline tests are implemented; do not restart the original scaffold phases.
 
-Read both documents before generating code. `docs/PLAN.md` phases are the unit of
-work; implement them in order and do not skip Phase 0.
+Read both documents before generating code. Preserve the tested baseline while
+implementing the current plan; verify new platform contracts before using them.
 
 ## Build, test, and lint
 
-No commands exist yet. When Phase 1 creates the scaffold, use this toolchain and
-record the pinned versions in `docs/compatibility.md`:
+Use existing Task targets and record runtime contracts in `docs/compatibility.md`.
+The owner runs builds, deployments, hosted calls and teardown.
 
 - Python packaging via `pyproject.toml` with dependency locking.
 - Tests via `pytest`, split into `tests/unit/` and `tests/integration/`

@@ -26,11 +26,9 @@ shouldn't":
 | Application-side allowlist in tool code | what the code *chooses* to do | **No** — it is the thing being bypassed |
 | Prompt instructions / model refusal | what the model *tends* to do | **No** — non-deterministic, not a control |
 
-The only platform mechanism that governs outbound traffic from a Foundry hosted agent is
-the **network egress policy**, carried as a nested property on an RAI policy resource and
-bound to an individual agent version. This document describes how that works, what it does
-not cover, and how to tell a real platform denial from something that merely looks like
-one.
+This lab attributes tool-call denials using the **RAI network egress policy**, bound
+to an individual agent version. Managed-network outbound rules are an independent
+platform layer. Both API hosts are allowed there so the RAI comparison stays isolated.
 
 ---
 
@@ -73,8 +71,9 @@ properties called `mode` at different depths:
 
 If you are running an A/B experiment where the egress mode is the independent variable,
 changing the wrong `mode` produces a result that looks valid and means nothing. In this
-lab `properties.mode` is pinned to `Blocking` in *both* policies specifically so it cannot
-drift and cannot be mistaken for the variable under test.
+lab Terraform declares `Blocking` in both policies. Live baseline content-filter
+properties have externally managed drift and are deliberately preserved. Read back
+the full live policies; `cloud:policies` compares only their network projection.
 
 ---
 
@@ -360,18 +359,18 @@ Operational guidance from Microsoft, which matches the inconclusive-not-pass rul
 
 ## 9. Evidence: where egress decisions surface
 
-Platform decisions land in the project's **Application Insights**, in the `traces` table,
-identified by a literal message string:
+Platform decisions were observed in workspace-scoped **`AppDependencies`**:
 
 ```kusto
-traces
-| where timestamp > ago(1h)
-| where message == "Network egress decision"
+AppDependencies
+| where TimeGenerated > ago(1h)
+| where DependencyType == "NetworkEgressDecision"
+| project TimeGenerated, Data, Properties
 ```
 
-Each event is documented to include the destination host, matched rule, decision, and
-enforcement mode. **The sub-field names are NOT documented.** Do not assume
-`customDimensions` key names until you have observed real rows.
+Observed properties include `decision`, `decisionResultCode`, `enforcement`,
+`decisionReasonCode`, `host` and `path`. See the [telemetry map](telemetry-map.md)
+for real fields and dated observations, rather than deriving names from portal labels.
 
 The Foundry portal shows the same data as a "Network egress decision" span in the
 **Trajectories** trace view, with UI labels Decision, Reason, Matched rule, Rule source,
@@ -382,17 +381,12 @@ Log Analytics column names.**
 for egress decisions separate from this Application Insights mechanism. Enable
 project-linked Application Insights; do not assume a diagnostic setting will do.
 
-### 9.1 Correlation — NOT FOUND
+### 9.1 Correlation
 
-There is **no documented correlation key** joining an egress decision to the application
-trace of the tool call that caused it. The portal nests the span in the same invocation
-timeline, implying association by construction, and App Insights rows normally carry
-`operation_Id` / `operation_ParentId` — but that is generic App Insights behaviour, not a
-documented Foundry guarantee.
-
-If you need defensible correlation, carry your own key (this lab uses `demo_run_id`)
-through the tool call and into the destination's receipt log. It is the only correlation
-under your control.
+The run marker in `/policy/{run_id}` and `/ingest/{run_id}` was observed in platform
+`Data` / `Properties.path`, matching API receipt JSON `demo_run_id`.
+Application `OperationId` did not join the platform layer. This observed path join
+depends on this application's URL design; it is not a general platform tracing guarantee.
 
 ### 9.2 OTLP export probably does not carry this
 
@@ -415,19 +409,11 @@ private the rest of the environment looks.
 its own environment's controls. Containment attaches to the runtime the code executes in,
 never to the logical agent, and never follows a tool call back across a protocol boundary.
 
-**Interaction with a managed VNet — undocumented.** Both features are independently
-documented as applicable to hosted agents, but the egress-control documentation never
-mentions VNets, `networkInjections`, `publicNetworkAccess`, or isolation modes. **No source
-states the two are compatible, incompatible, or layered.** With isolation mode
-`AllowInternetOutbound` it is unresolved whether outbound traffic is governed by the egress
-policy, by managed-VNet outbound rules, or by both; and whether managed-VNet FQDN rules
-(which force a managed Azure Firewall, ports 80/443 only) stack with or conflict with the
-egress allowlist. This is a confirmed documentation gap, not a failed search — tracked as
-Blocker 1 in `compatibility.md`.
-
-Until that is resolved empirically, an observed denial in an environment with both features
-active **cannot be attributed to the egress policy specifically**. It can only be reported
-as "the platform denied it."
+**Managed network is independent.** The baseline was exercised with both API hosts
+allowed by the managed network and the receiver omitted from the Enforced RAI policy.
+The matching RAI decision row supplies attribution. No unlisted third-host experiment
+established a separate managed-firewall denial, and raw managed-firewall traffic logs
+are not the evidence source used here.
 
 ---
 
@@ -498,16 +484,16 @@ az rest --method get \
 
 ---
 
-## 12. Current state in this lab
+## 12. Baseline configuration and current ownership
 
-Read back from Azure on **2026-10-08**, subscription `ccfc5dda-…`, region canadacentral:
+The baseline network comparison uses:
 
 | | `egress-audit` | `egress-enforced` |
 | --- | --- | --- |
 | `egressPolicy.defaultAction` | `Deny` | `Deny` |
 | `egressPolicy.mode` | **`Audit`** | **`Enforced`** |
 | `rules` | 1 × `Fqdn` allow | 1 × `Fqdn` allow (identical) |
-| `properties.mode` (content safety) | `Blocking` | `Blocking` |
+| `properties.mode` (content safety) | Preserve/read back live value | Preserve/read back live value |
 | `basePolicyName` | `Microsoft.DefaultV2` | `Microsoft.DefaultV2` |
 
 The single allow rule names the deployed policy-api host. The test-receiver host is
@@ -518,10 +504,10 @@ registered unconditionally in every mode.
 Also in effect on the account: `networkInjections` with `scenario: agent` and
 `useMicrosoftManagedNetwork: true`, and `publicNetworkAccess: Disabled`.
 
-**Nothing is enforced today.** Both policies exist and are correct, and both are attached
-to nothing, because no agent version has been created yet. A policy with no agent
-referencing it is inert. Enforcement begins at the moment an agent version names it in
-`rai_config.rai_policy_name` — not before.
+Both baseline agents have been deployed and the identity/egress demo tested
+(owner-confirmed 2026-11-06). The November isolated governance deployment uses three
+new policies and did not alter these baseline properties. Read current names and
+attachments from deployment state; do not reconcile external content-filter drift.
 
 ---
 
@@ -529,11 +515,11 @@ referencing it is inert. Enforcement begins at the moment an agent version names
 
 | # | Question | Status |
 | --- | --- | --- |
-| 1 | Does `definition.image` accept a digest reference? | NOT VERIFIED — blocks trustworthy A/B comparison |
-| 2 | Which layer enforces when managed VNet and egress policy both apply? | NOT FOUND — Blocker 1 |
-| 3 | What are the implicit-allowlist domains? | NOT FOUND — Blocker 3; limits attribution of successes |
-| 4 | What are the real egress-decision field names? | NOT DOCUMENTED — must observe live rows |
-| 5 | Is there a documented correlation key to the application trace? | NOT FOUND — Blocker 4 |
+| 1 | Do new deployments retain the intended image and policy? | Verify by readback for each deployment; digest references were accepted |
+| 2 | Does the managed network independently deny an unlisted third host? | Not tested by the two-host RAI comparison |
+| 3 | What are the implicit-allowlist domains? | Not enumerated; limits broad claims |
+| 4 | What are the real egress-decision field names? | Observed; see telemetry map |
+| 5 | Is application trace-ID correlation available? | Not observed; the lab uses its run-bearing path join |
 | 6 | 403 response body/header schema; does DNS still resolve for a blocked host? | NOT FOUND |
 | 7 | Any region list scoped to the egress preview? | NOT FOUND |
 
@@ -558,6 +544,6 @@ Source inspection (no Learn page documents these payloads):
 
 In this repository:
 
-- `docs/compatibility.md` §B, §C, §D and the Blockers section — the verified-facts record
+- `docs/compatibility.md` — current contracts and primary references
 - `infra/cloud/rai-policies.tf` — the deployed configuration
 - `docs/README.md` — why private endpoints are not egress containment

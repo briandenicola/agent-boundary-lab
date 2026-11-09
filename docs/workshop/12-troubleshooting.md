@@ -42,7 +42,7 @@ Two rules before you debug:
 | `external-up` says secret `harness-oidc-config` missing | `external-app` did not run | Run `chat-agent:external-app` (or `external-bootstrap`) | [`tasks/Taskfile.harness.yml` L282-L299](../../tasks/Taskfile.harness.yml#L282-L299) |
 | Public LB backend unhealthy | nginx needs `externalTrafficPolicy=Local` and probe path `/healthz` | Applied by `task chat-agent:external-prereqs`; do not hand-edit the node resource group | [`tasks/Taskfile.harness.yml` L127-L165](../../tasks/Taskfile.harness.yml#L127-L165) |
 
-### Issue #4 identity flow (never run live; every row is UNVERIFIED)
+### Identity flow
 
 Codes below are general Entra knowledge, not observed in this repo. Full detail: [`../token-flow-documented.md`](../token-flow-documented.md).
 
@@ -52,9 +52,9 @@ Codes below are general Entra knowledge, not observed in this repo. Full detail:
 | Local label `ingress_access_token_missing` | `x-auth-request-access-token` not forwarded | `--pass-access-token`, ingress `auth-response-headers`, header or cookie size (16k buffer set; behaviour UNVERIFIED) |
 | `user_token_forwarded=false` | Header did not reach the tool (Foundry delivery UNVERIFIED, or ContextVar/session state not reaching the tool) | Tool-record field; do not read as a policy decision |
 | 401 from the policy API | Token missing/invalid (`authentication_required`, `invalid_bearer`, `invalid_token`, `invalid_delegated_token`) | Authentication failed, not authorization |
-| 403 `user_not_authorized` | Valid token, user not in `AUTHORIZED_USER_IDS` | Expected for `10870cbe-74ab-4c46-b5a8-8fcded26e615` |
+| 403 `user_not_authorized` | Valid token, user not in `AUTHORIZED_USER_IDS` | Expected for the configured unauthorized synthetic user |
 | 403 `insufficient_scope` / `untrusted_oauth_client` | Scope or client app id not accepted | `policy.read`, `POLICY_API_CLIENT_IDS` |
-| Allowed user never shows `allowed` | Known code defects: `outcome_from_record` drops `user_object_id` on 200; `HARNESS_OBO_*` not mapped into the harness pod; receipt query only matches denials | token-flow section 6 |
+| Authorized user never shows `allowed` | Missing verified identity, missing downstream token or stale deployment | Check current image, `user_token_forwarded`, policy result and [token flow](../token-flow-documented.md) |
 
 ### Harness and monitoring
 
@@ -86,9 +86,9 @@ Codes below are general Entra knowledge, not observed in this repo. Full detail:
 
 | What | Where |
 | --- | --- |
-| All hosted-agent and platform observations | [`../compatibility.md`](../compatibility.md) (B-numbered findings) |
+| Hosted-agent and platform contracts | [Compatibility](../compatibility.md) |
 | Rebuild recoveries | [`../rebuild-runbook.md`](../rebuild-runbook.md) |
-| Telemetry gaps | [`../telemetry-map.md`](../telemetry-map.md) §0.15 |
+| Monitoring and dated results | [Telemetry map](../telemetry-map.md) |
 | Lint checks for task wiring and manifests | [`tasks/Taskfile.lint.yml`](../../tasks/Taskfile.lint.yml) (`task lint:tasks`, `lint:manifests`, `lint:cloud`) |
 
 ## Checkpoint

@@ -130,11 +130,15 @@ task chat-agent:external-bootstrap HOSTNAME=$HOSTNAME LETSENCRYPT_EMAIL=$LETSENC
 
 1. `external-prereqs` (a no-op if step 3 already ran),
 2. `external-app`: creates or updates the Entra app registration with redirect URI `https://<fqdn>/oauth2/callback`, enables ID-token issuance, creates the service principal, creates a client secret and a cookie secret, and writes Secret `harness-oidc-config`. Re-runs **reuse** the existing secrets unless the app id changed or you set `ROTATE_OIDC_SECRET=1`,
-   Since issue #4 it **also** (SOURCE-VERIFIED in the task; **UNVERIFIED, never run**) creates app B and its `policy.read` scope, publishes `access_as_user` on app A, sets app A's `requiredResourceAccess`, grants tenant-wide consent for both scopes via Graph, sets `OAUTH2_PROXY_SCOPE` to `openid profile email offline_access api://<A>/access_as_user`, and writes the `TF_VAR_policy_api_*` lines into `.env` (see below),
+   It also creates app B and its `policy.read` scope, publishes `access_as_user` on
+   app A, configures the OBO consent, sets `OAUTH2_PROXY_SCOPE` and writes the
+   `TF_VAR_policy_api_*` lines into `.env` (see below),
 3. `external-up`: renders the kustomize overlay with your hostname and applies it, then sets `HARNESS_AUTH_MODE=ingress_oidc` on the harness Deployment and waits for both rollouts,
 4. `external-status`.
 
-`external-up` now refuses to run if the Secret has no `OAUTH2_PROXY_SCOPE` (run `external-app` first). oauth2-proxy runs with `--pass-access-token=true` and the ingress forwards `x-auth-request-access-token` with `proxy-buffer-size: 16k`; whether v7.7.1 and 16k behave as intended is **UNVERIFIED**.
+`external-up` refuses a Secret missing `OAUTH2_PROXY_SCOPE`. oauth2-proxy passes
+the access token and ingress forwards `x-auth-request-access-token` with a 16k buffer.
+The identity baseline was tested (owner-confirmed 2026-11-06); recheck a new deployment.
 
 The all-in-one from-scratch form is:
 
@@ -153,14 +157,15 @@ task chat-agent:external-plan   HOSTNAME=$HOSTNAME LETSENCRYPT_EMAIL=$LETSENCRYP
 
 `external-render` refuses to print if any `REPLACE_WITH_*` placeholder is left unsubstituted ([lines 247–269](../../tasks/Taskfile.harness.yml)).
 
-#### Issue #4 follow-up: the policy API switch to delegated auth (UNVERIFIED, never run)
+#### Policy API delegated-auth configuration
 
 Put `POLICY_API_AUTHORIZED_USER_IDS=8bbab162-0743-444c-b305-fed34bab43fb` in `.env` **only**; `10870cbe-74ab-4c46-b5a8-8fcded26e615` must be absent (that absence is what denies it). Both `app:deploy-external` and `external-app` refuse to start without it. `external-app` writes the six `TF_VAR_policy_api_*` lines into `.env`, and `app:deploy-external` runs the second `cloud:up` that applies them. Nothing is copied by hand. If you run the split sequence instead, run `task cloud:up` yourself after `external-app`.
 
 1. `uv lock` (msal was added to `pyproject.toml`; `uv.lock` is tracked and not regenerated).
 2. Build and roll out the new images so the code ships (see [token-flow-documented.md](../token-flow-documented.md) section 8). Images are built by `task build:*`; `deploy:app-components` does not build.
 
-Owner approval is required for every step. These tasks use the `az` CLI, an exception to the squad rule "no az in anything that ships" made at the owner's explicit request. Three code defects found in review that can stop this working are listed in token-flow section 6.
+The owner runs these changes. Use [the current token flow](../token-flow-documented.md)
+and [runbook](../demo-runbook.md) rather than the superseded code-defect checklist.
 
 ### 7. Wait for the certificate
 
@@ -191,7 +196,10 @@ task chat-agent:external-down
 
 This deletes the two Ingresses and the oauth2-proxy and returns the harness to the shared-token (legacy) mode. It leaves ingress-nginx, cert-manager, the Entra app registration and your **DNS record** in place. Delete the record yourself when you retire the hostname.
 
-To undo the issue #4 on-behalf-of setup (UNVERIFIED, never run) use `task chat-agent:external-app-down`: it deletes app B, removes app A's `access_as_user` scope and consent, resets `OAUTH2_PROXY_SCOPE` and removes the `HARNESS_OBO_*` keys (app A is kept). Then unset every `TF_VAR_policy_api_*` and run `task cloud:up` to put the policy API back in legacy mode.
+To undo OBO setup, `chat-agent:external-app-down` removes the owned app-B setup and
+app-A scope/consent, resets the harness settings and removes its policy-auth `.env`
+entries. Do not apply a broad `cloud:up` over unrelated policy drift; review the
+plan separately. Full workshop cleanup follows [Module 11](11-teardown-and-rebuild.md).
 
 ## Code tour
 

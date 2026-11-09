@@ -54,7 +54,7 @@ class AuthorizationIntent(StrEnum):
 class AuthorizationStatus(StrEnum):
     """What actually happened, as reported by the component that made the decision
     (WP-2's policy API authorization, in the future). This is an identity-authorization
-    outcome, not a containment result -- see docs/issue-4-demo-readiness.md."""
+    outcome, not a containment result -- see docs/demo-runbook.md."""
 
     PENDING = "pending"
     AUTHORIZED = "authorized"

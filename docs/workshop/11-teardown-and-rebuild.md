@@ -40,7 +40,9 @@ For a lighter cleanup of the probe only: `task identity:down` and `task identity
 
 ## Walkthrough: rebuild from scratch
 
-Full source: [`../rebuild-runbook.md`](../rebuild-runbook.md). Status caveat from that document: a clean rebuild was attempted on 2026-10-15 and the corrected Terraform is **not yet verified end to end**. Treat this sequence as the documented procedure, not a proven one.
+Full procedure: [rebuild runbook](../rebuild-runbook.md). The baseline is tested,
+but each fresh environment needs its own runtime verification. Preserve state and
+journals through cleanup; do not discard them after a failed destroy.
 
 ### 1. Infrastructure
 

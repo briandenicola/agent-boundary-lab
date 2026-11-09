@@ -1,185 +1,87 @@
-# Module 04 — Identity: Who Is Allowed to Ask the Agent?
+# Module 04: Identity
 
-Modules 01–03 proved *where the agent may send traffic*. This module covers the other half of the boundary: *who may talk to the agent at all*. You will see an **allowed** synthetic user and a **denied** synthetic user, an **oauth2-proxy** doing OIDC sign-in in front of the harness UI, and the **delegated-authorization** code that checks a user's own Entra token instead of a shared secret.
-
-> **Status labels used in this module.** **TESTED** = covered by the repo's offline unit tests (`task identity:test`). **OWNER-REPORTED** = reported by the owner from live runs, not independently observed (see [identity-probe.md](../identity-probe.md)). **PROPOSED / BLOCKED** = designed but not proven. Identity denial is *not* network containment; never present one as the other.
+The tested baseline distinguishes signing in from authorization to retrieve policy.
+The owner confirmed the identity/egress demo was tested on 2026-11-06.
+This module covers that baseline, not Microsoft 365 channel integration.
 
 ## Objectives
 
-By the end of this module you can:
-
-1. Explain what Entra ID, tenant, app registration, service principal, managed identity, workload identity federation and delegated vs app-only tokens are.
-2. Trace a browser request through ingress-nginx → oauth2-proxy → the harness and name each trust boundary.
-3. Explain why the harness shows an **actor alias** and why that alias is *never* an authorization input.
-4. Read `delegated_auth.py` and say exactly which token claims are checked and what happens when the user is not on the allowlist.
-5. Run the identity preflight and (with owner approval) the allowed-vs-denied probe.
+- Explain Entra delegated versus application tokens.
+- Trace the browser-to-policy API flow.
+- Demonstrate authorized and unauthorized synthetic users without confusing their
+  API result with network containment.
 
 ## Concepts
 
-You know OAuth/OIDC from LLM-app work. Here is how those ideas are named in Azure.
+| Term | Meaning |
+| --- | --- |
+| Tenant | The Entra directory issuing the user's token |
+| App registration | The OAuth client/API definition and its exposed scopes |
+| Service principal | The tenant-local instance of an application |
+| Managed/workload identity | Workload credentials without a stored application secret |
+| Delegated token | Access granted to an application on behalf of a signed-in user |
+| OBO | On-behalf-of exchange for a downstream API-specific token |
+| Azure RBAC | Resource permissions, distinct from downstream API user authorization |
 
-| Term | Plain meaning |
-|---|---|
-| **Entra ID** | Microsoft's identity provider (formerly Azure AD). Issues OIDC/OAuth 2.0 tokens. |
-| **Tenant** | One organization's Entra directory, identified by a GUID. Every token's issuer contains it. |
-| **App registration** | The definition of an OAuth client or API in a tenant (client ID, redirect URIs, exposed scopes). |
-| **Service principal** | The per-tenant *instance* of an app registration; where permissions and consent attach. |
-| **Managed identity** | An Azure-issued identity for a workload (no secret to store). This repo uses user-assigned ones in [infra/cloud/identity.tf](../../infra/cloud/identity.tf). |
-| **Workload identity federation** | A Kubernetes ServiceAccount token is exchanged for an Entra token, so pods need no secrets. See the `azurerm_federated_identity_credential` resources in [identity.tf](../../infra/cloud/identity.tf). |
-| **Delegated token** | Issued to an app *on behalf of a signed-in user*. Carries the user's object ID (`oid`). |
-| **App-only token** | Issued to the app itself, no user. The identity probe deliberately never uses these for the allowed/denied check. |
-| **Azure RBAC role** | Permission on an Azure resource (for example `Cognitive Services User` on the Foundry account). |
+```text
+browser -> oauth2-proxy -> harness OBO -> A2A facade
+  -> private Foundry Responses -> hosted ADK -> policy API guard
+```
 
-### Two identity layers, kept separate
+The policy API verifies signature, tenant, audience, expiry, delegated scope, trusted
+OAuth client and authorized-user list. An actor alias is only a display label.
+The unauthenticated receiver never receives the policy API token.
 
-| Layer | Question | Mechanism | Where |
-|---|---|---|---|
-| Browser ingress | "Is this person signed in to our tenant?" | oauth2-proxy (OIDC) at the ingress | [deploy/kustomize/harness-external/](../../deploy/kustomize/harness-external/) |
-| Delegated authorization | "Does this user's own token carry the right audience/scope and is the user on the allowlist?" | JWT validation in the service | [src/containment_demo/delegated_auth.py](../../src/containment_demo/delegated_auth.py) |
-
-The harness's *actor alias* is a third, purely cosmetic thing: a label on the page and in evidence so a presenter can say "this run was the allowed tester". It is **never** authorization. The only identity verdict the UI shows is the policy API's decision on the user's own on-behalf-of (OBO) token (see "The on-behalf-of chain" below).
-
-### The OIDC identity flow
-
-![](diagrams/04-oidc-identity-flow.svg)
-
-> **Diagram caveat (Ripley, 2026-10-20).** The picture above predates the issue #4 OBO code. It places the delegated `AccessGuard` at the facade and says "rejected before Foundry"; the code now enforces the user's token **at the policy API, when `get_servicing_policy` calls it**, after the hosted agent ran. It also says the facade token hand-off is "not verified here", which is still true. It has not been redrawn. The flow in text (SOURCE-VERIFIED; not run live):
->
-> ```text
-> browser -> oauth2-proxy (app A) -> harness --OBO--> token for app B
->   -> facade (X-Delegated-Policy-Token, plain in-cluster HTTP)
->   -> Foundry (x-client-policy-access-token) -> hosted agent
->   -> get_servicing_policy -> policy API (guard + AUTHORIZED_USER_IDS) -> 200 | 403 user_not_authorized
-> ```
+The older identity SVG is omitted because it placed the guard at the facade.
+The actual guard is at the policy API. See [the current token flow](../token-flow-documented.md).
 
 ## Walkthrough
 
-All commands run from the repository root. Task names come from [Taskfile.yml](../../Taskfile.yml) and [tasks/Taskfile.identity.yml](../../tasks/Taskfile.identity.yml) (namespace `identity:`) and [tasks/Taskfile.harness.yml](../../tasks/Taskfile.harness.yml) (namespace `chat-agent:`, alias `harness`).
+All commands run from the repository root. The owner performs setup and sign-in.
 
-### 1. Offline checks first (no Azure, no sign-ins)
+1. Use [Module 07](07-external-access.md) to configure HTTPS and Entra login.
+   `app:deploy-external` includes external identity setup; do not repeat it separately.
+2. Open the configured harness URL as the authorized synthetic user. Ask for the
+   servicing policy. The policy-access card needs HTTP 200 and a verified identity
+   to show `allowed`.
+3. Use a private browser session as the unauthorized synthetic user. The same
+   tool should return 403 `user_not_authorized`, shown as `denied`.
+4. Inspect the separate containment card. Neither identity outcome establishes
+   whether Foundry denied outbound traffic.
+
+For offline regression:
 
 ```bash
 task identity:test
 task identity:validate
 ```
 
-`identity:test` runs the offline identity and policy authorization tests. `identity:validate` is a strict preflight: offline tests, offline directory check, and a consistency check of the private identity journal if one exists.
+Optional directory/delegated-Foundry compatibility probes have a separate lifecycle:
+[identity-probe.md](../identity-probe.md). A successful directory setup is not a
+hosted invocation or network-containment result.
 
-### 2. Create the two synthetic identities and probe them (owner approval required)
-
-```bash
-task identity:setup-plan   # dry look at what setup would do
-task identity:up           # creates the journal if missing, then runs identity:verify
-```
-
-`identity:up` is rerunnable. It creates the dedicated identity setup journal (`.identity-probe/setup-state.json`) only if missing, then calls `identity:verify`, which asks you to sign in interactively **first as the allowed synthetic test user, then as the denied one**, waits for the probe Job, and removes the ephemeral tokens. Entra objects are created through Microsoft Graph, so this is an **approval-gated** step.
-
-Inspect or clean up:
-
-```bash
-task identity:status
-task identity:down      # removes only the probe Job/Secret/ConfigMap/ServiceAccount
-task identity:destroy   # also removes Graph identities, federation, consent and Terraform-managed naming/RBAC
-```
-
-Expected shape of the verdict (redacted by design; see [identity-probe.md](../identity-probe.md)):
-
-```text
-foundry_delegation=pass | fail | inconclusive
-i0_complete=false
-containment=not_evaluated
-```
-
-`containment=not_evaluated` is deliberate: an identity probe cannot prove egress containment.
-
-### 3. Put the harness behind Entra sign-in
-
-```bash
-task chat-agent:external-render   # print manifests; no client secret values
-task chat-agent:external-plan     # server-side dry run
-task chat-agent:external-bootstrap HOSTNAME=<your-fqdn> LETSENCRYPT_EMAIL=<you@example.com>
-task chat-agent:external-status
-```
-
-`external-bootstrap` performs prerequisites, creates the OIDC app registration and service principal (`az ad app create --sign-in-audience AzureADMyOrg`), writes the `harness-oidc-config` Secret, applies the ingress resources and prints status. To go back to the shared-token UI: `task chat-agent:external-down`.
-
-The DNS record, certificate and ingress prerequisites for this step are covered in [Module 07](07-external-access.md); do them first. The full from-scratch path is `task app:deploy-external HOSTNAME=… LETSENCRYPT_EMAIL=…` ([tasks/Taskfile.app.yml](../../tasks/Taskfile.app.yml) lines 20–30).
-
-### 4. Observe allowed vs denied in the browser
-
-Open `https://<your-fqdn>/`. You are redirected to Entra; after sign-in the page shows your display label (derived from the `x-auth-request-*` headers; not authorization) and a **Logout** chip. An unauthenticated request to `/chat` or `/ws` is refused (401 / websocket close code 1008).
-
-### 5. The on-behalf-of chain (issue #4): code written, **nothing run live**
-
-> **Status.** SOURCE-VERIFIED in code and unit-tested with mocks (953 passed / 5 skipped). **UNVERIFIED live:** no Entra app was created, nothing deployed, no token decoded, no Foundry header delivery observed. Full reference and caveats: [token-flow-documented.md](../token-flow-documented.md). Diagram: [04-oidc-identity-flow.svg](diagrams/04-oidc-identity-flow.svg) (outdated, see the caveat under it).
-
-Two Entra apps are involved: **app A** (`agent-boundary-harness-oidc`, the middle tier; scope `api://<A>/access_as_user`) and **app B** (`agent-boundary-policy-api`, scope `policy.read`). Three tokens/headers carry the same user:
-
-| Name | Is | Hop |
-|---|---|---|
-| `x-auth-request-access-token` | access token for app A | oauth2-proxy → harness |
-| `X-Delegated-Policy-Token` | OBO token for app B (harness calls MSAL `acquire_token_on_behalf_of`) | harness → A2A facade, **plain in-cluster HTTP** |
-| `x-client-policy-access-token` | the same OBO token as a Foundry `x-client-*` header | facade → Foundry → hosted agent container |
-
-The tool then sends it as `Authorization: Bearer` to the policy API, whose guard checks signature, audience, scope, client and `AUTHORIZED_USER_IDS`. Design outcome (not observed): user `8bbab162-0743-444c-b305-fed34bab43fb` → 200; `10870cbe-74ab-4c46-b5a8-8fcded26e615` → 403 `user_not_authorized`, in Audit and Enforced. `x-ms-user-identity` is **not** sent (Foundry doc says it needs a custom `UserIdentityImpersonation` data action; whether `x-client-*` forwarding needs it is UNVERIFIED). Foundry header delivery is UNVERIFIED; `user_token_forwarded=false` in the UI is how a failure would look. This is an **identity** result, not a network result.
+Never paste tokens, authorization headers or full claims into chat or evidence.
+Use synthetic user aliases in reports. `user_token_forwarded=false` means the tool
+did not receive its downstream token; it is not an ACS or network denial.
 
 ## Code tour
 
-### OBO exchange — [src/containment_demo/harness/obo.py](../../src/containment_demo/harness/obo.py)
+| Source | Responsibility |
+| --- | --- |
+| `harness/obo.py` | MSAL exchange; explicit failure, no app-token fallback |
+| `harness/chat.py` | Request-scoped token handling and separate identity/evidence cards |
+| `a2a_facade/target.py` | Downstream token forwarding |
+| `protocol_adapter.py` | Lowercase `x-client-*` headers into ADK session state |
+| `delegated_auth.py` | Token validation and authorized-user checks |
+| `services/policy_api/main.py` | Protected business routes; only health is unauthenticated |
 
-`acquire_user_token` runs MSAL `acquire_token_on_behalf_of` with the access token from `x-auth-request-access-token`; on failure raises `OboError(code)` (Entra error code or a local label, never a token) and the turn is refused with 401, `source: identity`. The token travels in the `current_user_token` ContextVar to `harness/agent.py` `call_slot` (harness side only; the hosted agent uses ADK session state).
+Paths are relative to `src/containment_demo/` unless otherwise shown.
+The facade hop is plain in-cluster HTTP; do not claim end-to-end TLS for it.
 
-### Delegated authorization — [src/containment_demo/delegated_auth.py](../../src/containment_demo/delegated_auth.py)
+## Checkpoint
 
-| Lines | What |
-|---|---|
-| [38–56](../../src/containment_demo/delegated_auth.py#L38-L56) | `TokenContract`: tenant, audience, scope and the set of accepted client IDs; validated at construction. |
-| [60–71](../../src/containment_demo/delegated_auth.py#L60-L71) | `DelegatedUser`; `__repr__` is redacted so identities never leak into logs; `session_user_id` is a hash of `tenant:oid`. |
-| [89–150](../../src/containment_demo/delegated_auth.py#L89-L150) | `decode_delegated`: signature, issuer, audience, scope and client checks. |
-| [153–216](../../src/containment_demo/delegated_auth.py#L153-L216) | `TokenVerifier`: fetches only **public** signing keys over verified TLS, redirects off, 5 s timeout, 256 KiB cap, never uses expired keys on fetch failure; RS256 only. |
-| [220–235](../../src/containment_demo/delegated_auth.py#L220-L235) | `AccessGuard.authorize`: valid token **and** `oid` in the allowlist, else `user_not_authorized` (403). |
-| [238–254](../../src/containment_demo/delegated_auth.py#L238-L254) | `configured_guard`: explicit opt-in (`<PREFIX>_AUTH_MODE=delegated`); partial config raises instead of silently falling back to legacy. |
+- Both synthetic users exercise the same tool and API.
+- The alias never controls authorization.
+- Policy API authorization and platform containment have separate verdicts.
 
-### The policy API enforces it — [services/policy_api/main.py](../../services/policy_api/main.py)
-
-The `require_user` middleware ([lines 197–240](../../services/policy_api/main.py#L197-L240)) skips only `/healthz`, runs the guard, and on failure returns a JSON error with `"determination": "identity_only"`. That field is the honest label: the denial is identity, not network policy.
-
-### Actor alias — [src/containment_demo/actor_context.py](../../src/containment_demo/actor_context.py)
-
-* Docstring [1–25](../../src/containment_demo/actor_context.py#L1-L25) states the safety rules: no token, header or claim fields exist, and lifetime is bounded.
-* `_ALIAS_RE` ([line 32](../../src/containment_demo/actor_context.py#L32)) and `MAX_LIFETIME` ([line 37](../../src/containment_demo/actor_context.py#L37)) bound the data.
-* `ActorContext` ([72–100](../../src/containment_demo/actor_context.py#L72-L100)), `issue` ([103](../../src/containment_demo/actor_context.py#L103)), `status_from_http` ([130](../../src/containment_demo/actor_context.py#L130)) and `ActorContextStore` ([149](../../src/containment_demo/actor_context.py#L149)).
-
-The module docstring now says the alias is **not used for authorization**; it is a bounded, display-only record. In the harness, [`_ingress_actor_alias`](../../src/containment_demo/harness/chat.py#L178-L192) sanitizes `x-auth-request-preferred-username` / `-email` / `-user` into that alias character set. The comment at [chat.py lines 47–51](../../src/containment_demo/harness/chat.py#L47-L51) says it plainly: display-only, never authorization input. The UI verdict comes from `_access_entry` in the same file.
-
-### Setup automation — [src/containment_demo/identity_setup.py](../../src/containment_demo/identity_setup.py)
-
-The ordered journal `ORDER` ([lines 20–31](../../src/containment_demo/identity_setup.py#L20-L31)) lists what gets created: browser app, blueprint, agent identity, federation, inheritance, and `incoming_*` / `foundry_*` grants for both the allowed and denied user. `Inputs` ([line 43](../../src/containment_demo/identity_setup.py#L43)) carries `allowed_user_id` and `denied_user_id`.
-
-### Infrastructure — [infra/cloud/identity.tf](../../infra/cloud/identity.tf)
-
-Three user-assigned identities (`apps`, `workflow`, `agent_deployer`), two federated credentials bound to Kubernetes ServiceAccounts through the AKS OIDC issuer, and role assignments such as `Cognitive Services User` on the Foundry account ([lines 104–108](../../infra/cloud/identity.tf#L104-L108)).
-
-### Ingress — [deploy/kustomize/harness-external/](../../deploy/kustomize/harness-external/)
-
-| File | Why it matters |
-|---|---|
-| [oauth2-proxy-deployment.yaml](../../deploy/kustomize/harness-external/oauth2-proxy-deployment.yaml) | `--provider=oidc`, `--cookie-secure=true`, `--set-xauthrequest=true`, `--pass-access-token=true`, `--cookie-refresh=50m`; the scope comes from Secret key `OAUTH2_PROXY_SCOPE`; secrets come from `harness-oidc-config`; read-only root FS, all capabilities dropped. |
-| [ingress-harness.yaml](../../deploy/kustomize/harness-external/ingress-harness.yaml) | `auth-url` / `auth-signin` annotations make ingress-nginx ask oauth2-proxy before every request; `auth-response-headers` forwards the identity headers **and `x-auth-request-access-token`**; `proxy-buffer-size: 16k` is set for the larger header (sufficiency UNVERIFIED). |
-| [ingress-oauth2.yaml](../../deploy/kustomize/harness-external/ingress-oauth2.yaml) | Routes `/oauth2` straight to oauth2-proxy; `proxy-buffer-size: 16k` (see Module 06). |
-
-> **Limitation to be aware of.** `--email-domain=*` in the proxy means *any account that can sign in to the tenant app* passes the browser layer. Fine-grained "allowed vs denied" is decided by the delegated layer and Entra assignment, which is why both layers exist. Treat the browser layer as authentication, not per-user authorization.
-
-Deeper reading: [identity-probe.md](../identity-probe.md), [architecture-as-built.md](../architecture-as-built.md).
-
-## Checkpoint questions
-
-1. Why does `configured_guard` raise on partially configured identity variables rather than fall back to `legacy`?
-2. What is the difference between a bare `403` from `AccessGuard` and a platform egress denial? Which field in the JSON error tells you?
-3. Why is the actor alias safe to display but unsafe to authorize on?
-4. Why does `identity:verify` refuse app-only tokens for the allowed/denied check?
-5. Which parts of this module are TESTED offline, and which are only OWNER-REPORTED?
-
-## Next
-
-Continue to [05 — The Agent and Its Two Tools](05-agent-and-tools.md).
+**Next:** [Module 05: Agent and tools](05-agent-and-tools.md).

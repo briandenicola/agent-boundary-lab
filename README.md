@@ -19,7 +19,13 @@ The three independently observable layers are the agent, the policy, and the evi
 
 ## Status and honesty
 
-Some results are TESTED (n is small, dated in [`docs/telemetry-map.md`](docs/telemetry-map.md)); a complete clean rebuild of the corrected configuration is **not yet verified end to end** ([`docs/rebuild-runbook.md`](docs/rebuild-runbook.md)); the allowed-vs-denied live demo is partly proposed ([`docs/demo-runbook.md`](docs/demo-runbook.md)). Local runs are functional tests, not containment proof. All data is synthetic.
+The existing Foundry egress and identity demo is **tested**, owner-confirmed 2026-11-06.
+Seven isolated ACS scenario agents were deployed and configuration-verified on
+2026-11-09; their hosted runtime comparison awaits owner-run testing.
+Microsoft 365 Copilot integration is the active work. See the
+[documentation index](docs/README.md) for current procedures and the
+[telemetry map](docs/telemetry-map.md) for dated baseline evidence.
+Local runs are functional tests, not containment proof. All data is synthetic.
 
 ## Quick start
 
@@ -56,13 +62,13 @@ A guided, eleven-module lab for engineers new to Azure and Foundry: [docs/worksh
 | [docs/compatibility.md](docs/compatibility.md) | Pinned versions and platform findings |
 | [docs/telemetry-map.md](docs/telemetry-map.md) | Real field names and tables found during validation |
 | [docs/egress-control.md](docs/egress-control.md) | How the network policy works |
-| [docs/token-flow-documented.md](docs/token-flow-documented.md) | Issue #4: OBO token exchange and delegated authorization (SOURCE-VERIFIED code, UNVERIFIED live) |
+| [docs/token-flow-documented.md](docs/token-flow-documented.md) | Delegated token flow and API authorization |
 | [docs/identity-probe.md](docs/identity-probe.md) | Entra identity checks for allowed and denied users |
 | [docs/demo-runbook.md](docs/demo-runbook.md) | Presenter and operator procedure |
 | [docs/rebuild-runbook.md](docs/rebuild-runbook.md) | End-to-end rebuild and recoveries |
 | [docs/kql-queries.md](docs/kql-queries.md) | Evidence queries |
-| [docs/issue-4-demo-readiness.md](docs/issue-4-demo-readiness.md) | Issue #4 status: allowed/denied demo, operator checklist |
-| [docs/README.md](docs/README.md), [docs/PLAN.md](docs/PLAN.md) | Original scope and phased plan |
+| [docs/governance-demo.md](docs/governance-demo.md) | Microsoft 365 Copilot prompts and isolated ACS comparison |
+| [docs/README.md](docs/README.md), [docs/PLAN.md](docs/PLAN.md) | Documentation index and current delivery plan |
 
 ## License
 

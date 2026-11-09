@@ -1,975 +1,177 @@
 # Demo runbook
 
-**Owner:** Dallas (verification). **Written 2026-10-08.**
-**Companion artifact:** [`evidence-template.md`](evidence-template.md) — fill one per run.
+Updated 2026-11-09. Use [governance-demo.md](governance-demo.md) for Microsoft 365
+Copilot and the isolated ACS comparison. This page covers the tested baseline:
+identity authorization and Foundry-managed outbound containment.
 
-This is the operator's procedure for executing a run and collecting evidence. It is written
-so that a person who was not in the room can later audit what was claimed and decide
-whether the claim survives.
+Use [rebuild-runbook.md](rebuild-runbook.md) for installation, deployment and recovery.
+The owner runs builds, Azure/Entra changes, hosted calls and teardown via Task.
 
-Every statement below is one of **tested result**, **proposed behaviour**, or **preview
-capability**, the same three labels `docs/PLAN.md` uses. They are never blended.
+## What to show
 
-**Command naming update (2026-10-15):** current instructions use `build:<component>` and
-`deploy:<component>`. Old names still work. The new aggregate deployment has not been run
-end to end; historical TESTED labels describe the underlying observed behaviour, not a
-test of these new wrappers. For standup, see [`rebuild-runbook.md`](rebuild-runbook.md).
+| Demonstration | Positive result | Negative result | Evidence |
+| --- | --- | --- | --- |
+| Identity | Authorized synthetic user retrieves policy | Unauthorized user gets `user_not_authorized` | Policy API validates the user's delegated token |
+| Egress Audit | Servicing and external calls reach APIs | Receiver would be denied under enforcement | Platform Audit decision plus both receipts |
+| Egress Enforced | Servicing call reaches API | Receiver call blocked | Platform Deny plus receiver receipt absence |
+| ACS | See [governance guide](governance-demo.md) | ACS blocks a proposed send before HTTP | Separate governance decision and host action |
 
----
+Keep the results separate. Identity 401/403 is not network containment. A typed alias
+is not authorization. Model prose, a bare HTTP 403, DNS/TLS error, timeout or empty
+query is not a containment pass.
 
-## Presenter one-pager (A2A path), written 2026-10-09
-
-**Issue #4 OBO status (2026-10-20, Ripley; read with [`token-flow-documented.md`](token-flow-documented.md)).** Code for a per-user flow exists (harness MSAL on-behalf-of → `X-Delegated-Policy-Token` over plain in-cluster HTTP to the facade → `x-client-policy-access-token` to Foundry → policy API verifies the user's own token and `AUTHORIZED_USER_IDS`). SOURCE-VERIFIED, mocks-tested only (unit suite 953 passed / 5 skipped); **nothing has run live**: no Entra app, deploy, token decode, or Foundry header delivery (UNVERIFIED; `user_token_forwarded=false` in the UI is the signature of non-delivery). Expected design outcome: `8bbab162-0743-444c-b305-fed34bab43fb` allowed (200), `10870cbe-74ab-4c46-b5a8-8fcded26e615` denied (403 `user_not_authorized`), in Audit and Enforced; the alias is a display label, not authorization; the egress panel is separate. Owner command order: `task build:all` → `uv lock` → `task app:deploy-external HOSTNAME=… LETSENCRYPT_EMAIL=…` (includes `external-app`; do not run it separately) → copy the printed `TF_VAR_policy_api_*` into `.env` (authorized ids = the allowed id only) → second `task cloud:up` → roll out images (`deploy:foundry-agent`, `deploy:tool-apis`, `agent-bridge:up`, `chat-agent:up`). Teardown: `task chat-agent:external-app-down`, unset `TF_VAR_policy_api_*`, `task cloud:up`. Three code defects that may block `allowed` are listed in token-flow section 6. Where this conflicts with the older text below (for example "identity code is not deployed", "do not enable policy authentication"), the older text predates the code and is not updated claim by claim.
-
-**Issue #4 update (2026-10-16):** identity code is not deployed. The existing presenter
-path below remains shared-token/port-forwarded, not Entra-authenticated. Owner-run
-interactive directory checks and `task identity:test` are documented in
-[`identity-probe.md`](identity-probe.md). A directory lifecycle pass or policy API
-401/403 is identity evidence only. Do not enable policy authentication on the existing
-demo until the policy-token transport and delegated Foundry gate are proven; otherwise
-the positive control stops working. No public identity rollout is authorized here.
-
-**Issue #4 scoped execution track (2026-10-19, see [`issue-4-squad-plan.md`](issue-4-squad-plan.md)
-and [`issue-4-demo-readiness.md`](issue-4-demo-readiness.md)):** the active delivery target for
-#4 is narrowed to a simple **allowed user vs denied user** demo on the same authorization-protected
-policy tool path, through the existing harness → Foundry path. The full delegated Foundry invocation
-matrix (I0: invalid token / wrong-audience token proven at the Foundry invocation layer) stays
-out of scope for this track unless it turns out to block the allowed/denied path itself. Expected
-result categories for this track are **three separate outcomes**, reported separately and never
-blended into one verdict or into each other:
-- **Identity authorization outcome** — which actor the actor-context contract (WP-1) resolved the
-  caller as: the allowed actor or the denied actor. This is a statement about who the request
-  claims to be.
-- **Policy API authorization outcome** — the protected route's own allowed/rejected (401/403)
-  decision for that actor, for the same protected route. This is a statement about what the policy
-  API did with that identity, not about platform egress.
-- **Containment evidence outcome** — platform egress decision plus receiver receipt/absence for
-  `send_to_external_processor`, collected exactly as in Sections B/C below, joined on the same
-  `demo_run_id`. If that join cannot be made (egress/receipt rows missing, delayed, or not carrying
-  the run id), the containment outcome is **inconclusive** — never a pass, and never inferred from
-  either authorization outcome above.
-
-A denied identity or policy-API result is never reported as a containment pass or fail, and a
-containment pass/fail is never used to explain or stand in for either authorization outcome.
-
-**#4 scoped sequence — what to actually run (2026-10-19):**
-```bash
-task app:validate      # read-only preflight: repo guards, Azure context, policies/endpoints,
-                        # app health, identity journal. Stops at the first failure.
-task app:run-allowed   # OFFLINE, TESTED: pytest -k allowed_actor against the real policy_api
-                        # code path (tests/unit/test_policy_actor_authorization.py). Asserts
-                        # the allowed actor's context authorizes the protected /policy route
-                        # (200) and records authorization_status=authorized on that context.
-task app:run-denied    # OFFLINE, TESTED: same file, -k denied_actor. Asserts the denied
-                        # actor's context is rejected at the route with 403
-                        # actor_context_denied, body determination=identity_only, and that
-                        # no policy payload is returned.
-task app:status        # read-only: Foundry publish/digest status, controlled-tool API
-                        # health, identity probe status.
-```
-Each `app:run-*` task also prints a reminder to open the existing UI (`task test-ui:token`,
-`task test-ui:open`) and click **Run audit** / **Run enforced**. Read that live leg as
-**PROPOSED, not yet a live allowed/denied demonstration**: the UI's actor-alias field is
-display-only text (never checked against anything — it is not sent to, or read from, any
-authorization decision), and the deployed policy API does not yet construct its app with an
-actor-context store (`services/policy_api/main.py`'s module-level `app = create_app()` passes
-no `actor_store`). So today, a live UI click's `policy_authorization_status` reflects the real,
-un-gated `get_servicing_policy` call (currently always **authorized**, regardless of the typed
-alias) — it does not yet reproduce the denied-actor path shown by `app:run-denied` above. Say
-this out loud if asked to click through an allowed vs. denied pair live: the **offline** pytest
-runs are the allowed/denied proof for this track today; wiring the same `actor_store` into the
-deployed app and into harness/UI issuance is the remaining work before the live click
-reproduces it.
-
-Labels: **TESTED** = we ran it and saw the result (2026-10-09); **PROPOSED** = designed, not
-yet shown. Everything in 1-4 is TESTED unless marked. The numbered sections below this page
-are the older audit procedure (**superseded where they conflict**: Sections B/C are implemented
-and ran live, and the Foundry-direct invoke is replaced by the façade path); where they say Sections B/C are "not implemented", this page
-supersedes them (Dallas ran B and C live, 4 runs PASS).
-
-### 1. Pre-flight (10 min before)
-```bash
-task cloud:kubeconfig                     # once per machine
-task cloud:app-insights-connection        # must list an AppInsights connection; else the platform layer is silent
-task foundry-agent:status                 # deploy init container exit 0; its log reads the versions back (see note)
-task build:foundry-agent-digest            # the digest BOTH agents must pin
-task test-ui:verify                       # 401 without token, 200 with
-task agent-bridge:verify                  # same, both facades (does not call an agent)
-```
-Note: `foundry-agent:status` shows the deployer's log, which reads each version back and fails on
-digest drift. Exit 0 means *accepted*, not *enforced*. No single task prints both versions;
-if asked, read them with `get_version` from the harness pod (TESTED ad hoc, no task).
-Stop if the two agents do not share one `sha256:` digest, or either status is not `active`.
-
-### 2. Open the UI and click
-```bash
-task test-ui:token        # prints the login password (any user name). Do this off-screen.
-task test-ui:open         # http://localhost:8081 ; Ctrl-C to stop
-```
-1. Log in. Click **Run audit**; wait about 25 s. Then click **Run enforced**; wait about 25 s.
-2. **Write down for each run:** the `run-...` id and the UTC time you clicked. Section 4 needs both.
-
-### 3. What to point at
-- **A2A task state** `TASK_STATE_COMPLETED`: the UI called the facade over A2A; the facade called the agent over Responses.
-- **Tool table:** both tools attempted. Audit: `send_to_external_processor` 202. Enforced: the same tool 403 `http_error`. `get_servicing_policy` is 200 in both.
-- **`run-...` id**, labelled as the id platform egress rows join on. The `ui-...` id is UI-only and joins nothing.
-- **"UI does not read platform evidence ... inconclusive-without-platform-evidence".** Say it out loud: the page alone proves nothing; section 4 is the proof.
-
-### 4. Platform proof (wait at least 3 minutes after the click; ingestion lags)
-```bash
-.venv/bin/python scripts/verify_demo.py --section b \
-  --audit-run-id <run-... from the audit click> --audit-called-at <UTC ISO, e.g. 2026-10-09T17:27:02Z>
-.venv/bin/python scripts/verify_demo.py --section c \
-  --enforced-run-id <run-... from the enforced click> --enforced-called-at <UTC ISO>
-```
-Exit codes: `0` **PASS**, `1` FAIL, `2` **INCONCLUSIVE**. PASS means the platform's egress
-decision row and the receipt log both joined on that `run-...` id. For enforced, PASS needs the
-platform's denial row *and* no receipt at the test receiver. INCONCLUSIVE means evidence is
-missing or too fresh (under 180 s): wait and re-run; never call it a pass. Needs the `verify`
-extra and a login that can read Log Analytics. (TESTED by Dallas, 4 of 4 PASS.)
-
-### 5. Honest claims
-**Shows (TESTED):** the platform, not our code, denied the enforced agent's call to the
-unlisted host at the network layer; both agents run the **same image digest** and only the
-attached policy differs; the facade exposes Foundry-hosted agents as A2A while they are
-invoked through Responses.
-
-**Does NOT show:** native inbound A2A on hosted agents (the platform says unsupported, B5d; the
-facade is the supported route, it stands in for an on-prem caller and is not policy-governed);
-that an agent-reported 403 is proof (it is not; only the platform row is); statistics (n is
-4 runs: one audit and one enforced, each through the facade and the UI); strong auth (one shared
-bearer token; Entra is issue #4); a chat model experience (the agent runs a fixed two-tool prompt).
-
-### 6. If it goes wrong, check first
-| Symptom | First check |
-| --- | --- |
-| Tool 404 at policy-api / test-receiver | Double slash or path from a trailing-slash URL; fixed in `26a0b1c`. Rebuild images if older. |
-| `403 Public access is disabled` | The Foundry data plane is private. Call only from inside the VNet (harness pod, facade, UI), never a laptop. |
-| Agent dies at its first model call (404 / 401) | Model RBAC for the agent's own identity (B9f) and the model api-version (E2a). |
-| Version `failed`, `ImageError` | Registry pull role (B9e); a failed version is never healed, create a new one. |
-| 400 "Unsupported responses protocol version" | Protocol version must be `2.0.0` (B9d). |
-| Facade JSON-RPC -32603 | protobuf must be below 7 in the facade image (B5e). |
-| Prompts or responses visible in telemetry | ADK content capture must be off (`telemetry-map.md` 0.10); stop and tell Lambert. |
-| Verify says INCONCLUSIVE | Under 3 min since the call, wrong run id, or no App Insights connection. Not a failure, not a pass. |
-
-## Chat path: harness with local model (added 2026-10-09)
-
-Adds a chat page in front of the one-pager above. Architecture: [`architecture-as-built.md`](architecture-as-built.md).
-Path: browser -> harness chat service (local Qwen2.5-3B on CPU) -> A2A façades -> Foundry hosted agents.
-**TESTED once** (n = 1 audit + 1 enforced, `telemetry-map.md` §0.14). The harness and model are **not** governed by the Foundry policy.
-
-### Bring-up checks (read-only; deployment commands change the cluster and prompt)
-```bash
-task model-server:status                  # pod Ready (the first start loads a ~2 GB model; allow ~1-2 min)
-task agent-bridge:verify                  # façades answer, 401 without token, 200 with
-task chat-agent:verify                    # same for the harness
-# If missing: deploy:model-server, deploy:test-ui, deploy:agent-bridge, deploy:chat-agent.
-# Or deploy:all for the full application sequence (infrastructure must already exist).
-```
-Do not rebuild images (`build:*`) mid-demo; they build in Azure.
-
-### Run
-```bash
-task chat-agent:token     # login password (any user name); off-screen
-task chat-agent:open      # http://localhost:8082 ; Ctrl-C to stop
-```
-Note the **UTC time you press send** before the turn. Ask for both tools in one message (for example: fetch the servicing policy,
-then send to the external processor, on both the audit and the enforced agent). **One turn takes about 2 minutes on the CPU model**
-(team observation, not a benchmark); the page shows elapsed time. Do not click again while it runs. Copy the `run-...` ids shown
-for each side. Do **not** trust the model's prose: it misreported an enforced 403 once. Read the structured tool table.
-
-### External run (HTTPS + Entra login at ingress)
-Use this when the presenter must access the harness from outside the cluster with real Entra sign-in.
+## Preflight
 
 ```bash
-task app:deploy-external HOSTNAME=<fqdn> LETSENCRYPT_EMAIL=<ops-email>
-```
-
-This single task creates/updates the OIDC app registration, configures ingress prerequisites
-(ingress-nginx + cert-manager), provisions the harness OIDC secret, and applies external ingress resources.
-Then open `https://<fqdn>`, complete Entra login, and run the same prompt flow as above.
-In this mode, the harness derives `actor_alias` (a display label, not authorization) from ingress identity headers and rejects manual alias overrides. `app:deploy-external` already runs `chat-agent:external-app`, which since issue #4 also creates the Entra apps via the `az` CLI (UNVERIFIED, never run) and prints `TF_VAR_policy_api_*` lines for `.env`; a second `task cloud:up` is then required. See [`token-flow-documented.md`](token-flow-documented.md).
-`task chat-agent:verify` still checks local service behavior and therefore expects 401 with and without the legacy token while `HARNESS_AUTH_MODE=ingress_oidc`.
-
-Ingress prerequisite details (applied by `chat-agent:external-prereqs`): nginx uses
-`externalTrafficPolicy=Local` and sets Azure LB probe path `/healthz` so AKS programs
-the public load balancer/backend health correctly without manual node RG edits.
-
-### Verify the run ids (same B/C verifier; wait at least 180 s after the tools ran)
-```bash
-.venv/bin/python scripts/verify_demo.py --section b \
-  --audit-run-id <run-... audit> --audit-called-at <UTC ISO, e.g. 2026-10-09T20:17:59Z>
-.venv/bin/python scripts/verify_demo.py --section c \
-  --enforced-run-id <run-... enforced> --enforced-called-at <UTC ISO>
-```
-- **`--*-called-at` pitfall:** the verifier's query window starts 30 s before `called-at`. It must be when the **tools ran**
-  (the decision row times), at or just before the tool calls, not when the chat reply finished. On 2026-10-09 passing a time ~90 s
-  after the real calls gave INCONCLUSIVE (`no platform decision row`); the correct time gave PASS. A wrong value yields INCONCLUSIVE, never a false pass.
-  Use the earliest decision-row time (or your send time if the turn's tools start immediately) and re-run.
-- **Matched run ids (since `585ecf1`):** B and C print the run ids their queries actually returned for each check, and put them in the evidence JSON as `matched_run_ids`. Check that they equal the id you passed in. If rows come back but none carry that id, the result is INCONCLUSIVE ("run id mismatch"), never PASS. When no rows are found, the INCONCLUSIVE reason now says if `called-at` is later than the query time, later than query time minus the 180 s ingestion lag, or too late for the 30 s window. Runs before this change (§0.13) have inferred ids; §0.14 ids were printed.
-- **180 s wait:** enforced PASS needs the receipt log read at least 180 s after the call (under that it is INCONCLUSIVE). Wait, then run.
-- `--no-terraform` makes endpoints unresolvable (INCONCLUSIVE); run from a machine with Terraform state and a login that can read Log Analytics.
-- Exit `0` PASS, `1` FAIL, `2` INCONCLUSIVE. Only the platform decision rows and receipt presence or absence count, not agent-reported 202/403 and not the model's reply.
-
-### Extra claims to avoid
-Do not say the local model is reliable (one turn observed), do not call the harness on-premises, and do not say hosted agents natively speak A2A:
-the façade does, over Responses.
-
----
-
-## 0. Read this before you do anything
-
-### 0.1 What is executable today
-
-**Tested result (2026-10-08):** only the local and control-client parts of this runbook
-run end to end. Specifically:
-
-| Part | Status today |
-| --- | --- |
-| Pre-flight (§3) | **Runs.** All checks are real and most are green. |
-| `scripts/verify_demo.py` Section A — control-client baseline | **Runs, reaches PASS.** |
-| `scripts/verify_demo.py` Section B — hosted Audit | **NOT IMPLEMENTED.** A stub returning `not_implemented` (exit 2). It cannot return a pass. |
-| `scripts/verify_demo.py` Section C — hosted Enforced | **NOT IMPLEMENTED.** Same. |
-| Local run (§5) | **Runs.** It is a functional test, not containment evidence. |
-| Hosted Audit run (§6) | **Blocked.** No agent version exists. Phase 4 blockers in `docs/PLAN.md`. |
-| Hosted Enforced run (§7) | **Blocked.** Same. |
-
-Anyone who reports a containment result from this repository today is reporting something
-the harness cannot produce. The only honest hosted verdict available right now is
-**inconclusive — not collected**.
-
-### 0.2 GATE 0: correlation is unproven, and this runbook does not pretend otherwise
-
-**Tested result (2026-10-08):** `demo_run_id` reaches Layer 3. It is sent as the
-`X-Demo-Run-Id` header and as a `demo_run_id` query param, and real receipts carrying it
-were read back out of `ContainerAppConsoleLogs_CL` (`docs/telemetry-map.md` §3.2).
-
-**Tested result (2026-10-08):** `demo_run_id` is **not documented to reach Layer 2.** The
-platform egress decision record is written by the sandbox egress proxy. No primary source
-says the proxy copies our header into its decision record
-(`docs/compatibility.md` C3, Blocker 4).
-
-**Consequences you must obey as an operator:**
-
-- **Do not write or run a KQL query that joins a platform egress decision to our run on
-  `demo_run_id`.** There is no verified column to join on. `docs/telemetry-map.md` §2.1 —
-  the platform property-key table — is **deliberately blank**. Any query naming a platform
-  property key is invented, and an invented column returning nothing reads to an audience
-  as "the platform did nothing".
-- **The first hosted invocation runs Lambert's Q6 before anything else is built.** Q6 tests
-  whether generic Application Insights `OperationId` propagation joins Layer 1 to Layer 2.
-  Its answer is recorded in `docs/telemetry-map.md` §5 with a date, `joined == true` or
-  `joined == false`. **Either answer exits the gate; no answer does not.**
-- **The branch is decided in advance, not after seeing the number.**
-
-  | Q6 result | What the runbook and the report may say |
-  | --- | --- |
-  | `joined == true` | A Layer 1 ↔ Layer 2 join exists. Name the key. §8 and §11 of this runbook get rewritten to use it. |
-  | `joined == false` | The strongest permitted sentence is: *"an application trace showing the attempt, a platform decision record showing a deny for that hostname, and no receipt at the destination — three consistent observations in one bounded window, **not** three rows joined on a shared key."* |
-
-- Until Q6 has been answered, assume `joined == false` and speak in the weaker sentence.
-
-### 0.3 The one thing this demo proves, and the many it does not
-
-It proves — once the hosted sections exist and pass — that the **configured hosted-runtime
-HTTP/HTTPS egress path** for one agent was governed by a platform policy. It does not prove
-arbitrary protocols, every exfiltration route, production compliance, or anything about the
-AKS harness, which the Foundry egress policy does not govern at all.
-
-Run `task cloud:caveats` and read the output aloud before showing anyone a result.
-
----
-
-## 1. Two run classes. Never mix them in one result.
-
-| | **Local run** | **Hosted run** |
-| --- | --- | --- |
-| Where the tools execute | Your machine or a local container | Inside the Foundry hosted-agent container |
-| What governs egress | Nothing. Your laptop's network. | The attached RAI policy's `egressPolicy` |
-| `DEMO_POLICY_MODE` | `local` | `audit` or `enforced` |
-| What it establishes | **Functional test.** The code works, both tools fire, both endpoints answer. | **Containment evidence** — and only if all three signals in §8 are collected |
-| What it must never be called | containment, enforcement, a boundary, a denial | — |
-
-**Rule.** One evidence template per run, and the template's run-class field is filled in
-before the run starts, not after the results look interesting. A local run and a hosted run
-never appear in the same verdict. If you catch yourself writing "the local run confirms…"
-about anything network-related, stop.
-
----
-
-## 2. The bounded observation window — stated, not improvised
-
-Every run has exactly one window, written down before the run starts and never widened
-afterwards.
-
-```
-T0        = UTC timestamp recorded immediately BEFORE the first tool is triggered
-T_end     = UTC timestamp recorded immediately AFTER the last tool result returns
-W_start   = T0
-W_end     = T_end + 120 s
-```
-
-Rules, all of them load-bearing:
-
-1. **Every log query uses the explicit pair `(W_start, W_end)`.** Never a relative
-   `ago(Nm)` window. **Tested result (2026-10-08):** a relative window with a safety pad
-   reached back past the start of the run, and a *previous* run's unmarked probe answered
-   this run's question. Padding a window is not conservatism, it is contamination.
-2. **The `+ 120 s` tail is ingestion headroom, not a search for late good news.** Measured
-   Container Apps ingestion lag was **≈1.5 s** on 2026-10-08 (`received_at` 17:09:32.44 →
-   `TimeGenerated` 17:09:33.90). Foundry-side lag is **unmeasured**. 120 s is two orders of
-   magnitude of headroom over the one lag we have measured; it is a chosen constant, and if
-   you change it you change it in the evidence template too and say why.
-3. **Order by the in-payload `received_at`, never `TimeGenerated`.** And treat anything
-   inside a few seconds as not safely orderable.
-4. **A receipt poll that misses inside the window is inconclusive, not a pass.**
-   `scripts/verify_demo.py --receipt-wait` defaults to 180 s. A late receipt and a dead
-   pipeline look identical at the moment of asking.
-5. **The window closes once.** If you want a longer look, that is a new run with a new run
-   id, not a re-opened window.
-
----
-
-## 3. Pre-flight — if any of this is not true, the run does not count
-
-Do all of this **before** the run. Not after a surprising result. An endpoint that was
-already down makes a failed call unattributable: the agent would have failed to reach it
-whether or not any policy existed.
-
-### 3.0 Bring-up order, and the cluster-context check we learned the hard way
-
-> **Full rebuild from nothing (all images, workloads, managed network, access grants):**
-> see [`rebuild-runbook.md`](rebuild-runbook.md). For existing infrastructure and completed
-> builds: `task lint:tasks`, `task cloud:kubeconfig`, then `task deploy:all`.
-
-The current core sequence is below. It is not the full application sequence; use
-`deploy:all` for that. New command wrappers are not yet validated end to end.
-
-| # | Command | What it does |
-| --- | --- | --- |
-| 1 | `task cloud:up` | **Creates billable resources**, including the AKS cluster. Prompts first. |
-| 2 | `task build:foundry-agent` | Builds and pushes the agent image in ACR. Produces the digest both agent versions pin. |
-| 3 | `task cloud:kubeconfig` | Fetches AKS credentials. **Run this even if `kubectl` already works** — see below. |
-| 4 | `task foundry-agent:plan` | Server-side dry run of the harness manifests. Changes nothing. |
-| 5 | `task deploy:foundry-agent` | **Changes AKS and Foundry.** Publishes both versions, waits for the helper rollout, then grants model access to both agent identities. Prompts first. |
-| 6 | `task foundry-agent:status` | Shows the pod and the deploy init container's result. |
-
-Steps 1, 2 and 5 are Brian's to run. Steps 3, 4 and 6 are read-only or non-mutating, but
-step 3 rewrites your local kubeconfig.
-
-#### P0a — `kubelogin` must be on `PATH` before step 3
-
-```bash
-command -v kubelogin
-```
-
-The cluster runs with **local accounts disabled and Entra RBAC**. There is no admin
-kubeconfig to fall back on, so `kubelogin` is not optional. `task cloud:kubeconfig` checks
-for it and refuses early, but if you get past that step some other way, **a missing
-`kubelogin` surfaces later as an exec-plugin error that reads exactly like bad
-credentials.** You will spend the next twenty minutes suspecting your own identity. Check
-the binary first.
-
-#### P0b — fetch the credentials
-
-```bash
+task cloud:whoami
 task cloud:kubeconfig
+task cloud:output
+task cloud:endpoints
+task cloud:policies
+task cloud:app-insights-connection
+task foundry-agent:status
+task build:foundry-agent-digest
+task tool-apis:check
 ```
 
-**Tested result (2026-10-08):** skipping this step is how the harness deploy failed the
-first time it was attempted. Nothing in the earlier steps touches your kubeconfig, so
-`kubectl` quietly keeps whatever context it already had — in that instance a **dead cluster
-from an unrelated project**.
+`cloud:kubeconfig` updates local kubeconfig. Confirm its context is this lab's cluster,
+not an old or unrelated cluster, before any cluster operation. The current default
+region is Sweden Central; resolve names from state.
 
-#### P0c — confirm you are pointed at *our* cluster, before you apply anything
+Check active agent versions, identical image digests and intended policy attachments.
+`cloud:policies` compares the network projection, not full content-filter symmetry.
+Read full live properties when reviewing differences. Existing externally managed
+content-filter drift must not be overwritten using `cloud:up`.
 
-Hope is not a pre-flight check. Run both of these and compare the strings yourself:
+The project needs the working Application Insights connection. `/healthz` proves
+service health only, not delegated authorization or receipt ingestion. A protected
+policy call needs a valid authorized-user token for a positive control.
+
+## Identity
+
+Open the configured external HTTPS harness. Sign in as the authorized synthetic user,
+request policy, then repeat in a private browser session as the unauthorized user.
+Both requests exercise the same tool and endpoint; only user authorization differs.
+
+The policy-access card needs HTTP 200 **and** an echoed verified user identifier to
+show `allowed`. A verified 403 `user_not_authorized` shows `denied`.
+`user_token_forwarded=false`, missing identity evidence or another failure is not an
+allowed/denied demonstration.
+
+Use synthetic aliases in reports, not user IDs or token claims.
+[Token flow](token-flow-documented.md) describes the authorization contract.
+`app:run-allowed` and `app:run-denied` are offline actor-context regressions, not live
+Entra tests. Optional identity compatibility probes are in [identity-probe.md](identity-probe.md).
+
+## Run the baseline
+
+Use the external harness if already deployed. Request both tools on both the Audit
+and Enforced agents. Record the UTC time when the tools execute and each `run-...`
+marker from the structured result, not a UI-only marker.
+
+For development, the shared-token port-forwarded interfaces remain available:
 
 ```bash
-kubectl config current-context
-terraform -chdir=infra/cloud output -raw aks_cluster_name; echo
+task chat-agent:token       # display privately, never in a recording
+task chat-agent:open        # http://localhost:8082
+# Or the deterministic two-button interface:
+task test-ui:token
+task test-ui:open           # http://localhost:8081
 ```
 
-**They must be identical.** `az aks get-credentials` names the context after the cluster,
-so a mismatch means the active context is not ours. **Tested result (2026-10-08):** both
-print `humble-phoenix-46689-aks`.
+Port-forwarded shared-token access is not an Entra sign-in demonstration.
+The baseline harness and CPU model run on AKS; they are not governed by Foundry's
+egress policy and are not literally on premises.
 
-Then confirm the context actually reaches that cluster — read-only, and the output names
-the cluster and the region:
+Run serially for clear presentation. Record start/end timestamps and a bounded query
+window. Do not reuse historical run IDs or silently widen a window to find good results.
+
+## Verify platform evidence
+
+Wait at least 180 seconds after execution before relying on receiver receipt absence.
+From the repository with its current Terraform state and Log Analytics read access:
 
 ```bash
-kubectl cluster-info
+.venv/bin/python scripts/verify_demo.py --section b \
+  --audit-run-id <audit-run-id> --audit-called-at <tools-executed-UTC>
+.venv/bin/python scripts/verify_demo.py --section c \
+  --enforced-run-id <enforced-run-id> --enforced-called-at <tools-executed-UTC>
 ```
 
-Expect a control-plane URL of the form
-`https://humble-phoenix-46689-aks-<suffix>.hcp.canadacentral.azmk8s.io:443`. Ours is in
-**canadacentral**. A different name or a different region in that URL means stop.
+These are read-only evidence checks, not new agent invocations.
+Use `--json <private-report-path>` to retain output. Exit 0 = pass,
+1 = fail, 2 = inconclusive. The passed marker must match `matched_run_ids`.
+Using the chat reply's later timestamp instead of tool execution time can exclude
+the actual decision row and correctly return inconclusive.
 
-#### What a wrong-context failure looks like — recognise it in one second
+The observed join is the run marker embedded in platform `Data` /
+`Properties.path`, paired with receipt JSON `demo_run_id`. `OperationId` did not
+join these layers in the recorded baseline.
 
-```
-Unable to connect to the server: remote error: tls: unrecognized name
-```
-
-**Tested result (2026-10-08):** observed against
-`model-osprey-55220-aks-2pll9qwn.hcp.swedencentral.azmk8s.io` — a dead cluster from an
-unrelated project that was still the active `kubectl` context.
-
-That message means **the kubeconfig is pointing at an AKS API-server FQDN that is no longer
-serving**, and the TLS front end does not recognise the SNI it was handed. It is **not** an
-authentication problem, **not** a network policy, **not** our cluster being broken, and
-nothing in `infra/cloud` or `deploy/kustomize/` will fix it. Run P0b and re-check P0c.
-
-Note the sharper risk: a *dead* wrong cluster fails loudly like this. A *live* wrong cluster
-would accept the apply. That is why P0c is a string comparison done before the apply, not an
-error message read after it.
-
-#### 3.0.1 How the harness is applied now — `kubectl` + `kustomize`, not Terraform
-
-Mechanics changed and the runbook reflects the current ones:
-
-- **`infra/k8s/` no longer exists.** There is no Terraform root module for the cluster
-  workloads. If you have a note, a shell history entry, or a memory that says otherwise, it
-  is stale.
-- The manifests live in **`deploy/kustomize/base/`** — namespace, serviceaccount, secret and
-  deployment — and carry committed `REPLACE_WITH_*` placeholders. **The files on disk are
-  never mutated.** Each task streams `kustomize build` through `sed`, substituting from
-  `terraform output -raw` against `infra/cloud`, straight into `kubectl`.
-- **The two secrets — the diagnostics token and the App Insights connection string — exist
-  only inside that pipe.** They are never written to disk. Keep it that way: do not
-  redirect the rendered stream to a file to "have a look at it".
-- A placeholder that survives substitution aborts the apply before anything reaches the
-  cluster, and only the placeholder *names* are printed, never their values.
-
-**`task foundry-agent:plan` is a server-side dry run. Be precise about what it buys you:**
-
-- It **does** tell you the API server ran admission and would accept the apply, and reports
-  `created` / `configured` / `unchanged` per object. Nothing is persisted.
-- It **does not** tell you which fields are about to change. It is deliberately **not**
-  `kubectl diff`, because a diff of this stream would print the Secret's contents to the
-  terminal and into any captured demo log.
-- A clean dry run is **not evidence of anything about containment**. It is a statement about
-  the Kubernetes API server, in a cluster the Foundry egress policy does not govern at all.
-
-**Every apply uses `--server-side --force-conflicts`, on purpose.** The four live objects
-were created by Terraform's field manager and carry no
-`kubectl.kubernetes.io/last-applied-configuration` annotation, so a client-side apply would
-have no prior state to merge against; server-side apply reads the real `managedFields` and
-`--force-conflicts` moves ownership of these fields from `Terraform` to `kubectl`.
-
-**Expect the first apply to report `configured`, not `created`.** That is the adoption step
-working as intended — the objects keep running and only the ownership metadata changes. The
-flags stay on every later run too, where they are a no-op, so that the first run and every
-subsequent run use identical flags.
-
-### 3.1 Environment identity and local sanity
-
-| # | Command | Proves | Does **not** prove |
-| --- | --- | --- | --- |
-| P1 | `task cloud:whoami` | Which subscription and tenant you are about to produce evidence from. | That anything in it is correct. |
-| P2 | `task lint:all` | The repo's own guards are green: formatting, lint, types, unit suite, terraform fmt/validate, no-az. Needs no credentials, no network, no Azure. | Nothing about Azure, the platform, or containment. A green unit suite is a statement about this repo only. |
-| P3 | `task cloud:output` | The resource names and URLs this run will use. Record them in the evidence template. | That those resources are healthy. |
-
-### 3.2 The experiment's single variable is actually single
-
-| # | Command | Proves | Does **not** prove |
-| --- | --- | --- | --- |
-| P4 | `task cloud:endpoints` | The two destinations and which one is allowlisted. | That the allowlist is enforced. |
-| P5 | `task cloud:policies` | **Read from ARM**, both `UserManaged` RAI policies exist and differ in exactly one field, `egressPolicy.mode`. Exits non-zero if either is missing or if they differ in more. | That either policy is attached to anything, or that attachment causes enforcement. **Authoring success is not enforcement proof.** A policy that applies cleanly and does nothing looks identical to one that works, right up until the negative call succeeds. |
-| P6 | `task build:foundry-agent-digest` | The image digest both agents must pin. Record it. | That the service accepted a digest — **unverified**, see `docs/PLAN.md` Phase 4. |
-
-### 3.3 The platform layer has somewhere to land — check this or every run is inconclusive by construction
-
-| # | Command | Proves | Does **not** prove |
-| --- | --- | --- | --- |
-| P7 | `task cloud:app-insights-connection` | The project has an Application Insights connection **with `authType == ApiKey`**. Exits non-zero with no connection, or with the wrong auth type. | That any record has ever landed. It confirms the path exists, nothing more. |
-
-Why this is a hard gate: `docs/compatibility.md` C1/C4 establish that a project connection
-to Application Insights is the **only known path** platform egress decision records take.
-`docs/compatibility.md` C5 records the trap — an `AAD`/`ManagedIdentity` connection applies
-cleanly and then silently resolves nothing. Without a working connection, Layer 2 is
-**silent**, and silence is indistinguishable from "the policy did nothing".
-
-### 3.4 Control-client baseline — the negative endpoint is genuinely reachable from somewhere
-
-This is the check a denial depends on. **Without a baseline proving the non-allowlisted
-endpoint works from outside the sandbox, a denial inside the sandbox proves nothing: the
-call may never have worked.**
-
-| # | Command | Proves | Does **not** prove |
-| --- | --- | --- | --- |
-| P8 | `task tool-apis:check` | `/healthz` on both Container Apps answers from your machine. Retries up to 120 s, because the control plane accepts a revision well before it serves traffic. Exits non-zero on failure. | That the demo paths (`/policy`, `/ingest`) work, or that receipts are logged. `/healthz` is deliberately **not** logged as a receipt. |
-| P9 | `task verify:baseline` | Section A, the real baseline. See §3.5. | Anything about containment. Nothing run from a control client is containment evidence. |
-| P10 | `task verify:baseline-json` | Same as P9, plus a machine-readable summary written to `evidence/`. Use this one for a run you intend to keep. `evidence/` is gitignored. | — |
-
-### 3.5 What Section A actually checks, check by check
-
-**Tested result (2026-10-08):** Section A reaches **PASS**, exit 0, against the live
-endpoints and real rows in `ContainerAppConsoleLogs_CL`.
-
-| Check | What it establishes |
+| Required signal | Source |
 | --- | --- |
-| A1–A2 | `/healthz` on both services from the control client. |
-| A3 | The **allowlisted** endpoint serves `/policy` and echoes the run marker. |
-| A4 | The **non-allowlisted** endpoint accepts `POST /ingest` and acknowledges the marker. This is the reachability baseline a later denial is measured against. |
-| A5 | The receiver has **no authorization layer of its own** — an unauthenticated POST answers 2xx. |
-| A6 | **Receipt-logging health, as a positive control.** It polls for the receipts A3 and A4 just caused and requires rows from *both* services for *this* run id, inside this window. |
-| A7 | **Unattributed arrivals** (`docs/telemetry-map.md` Q2a). Any receipt with an empty `demo_run_id` in the window. |
-
-Three of these deserve the operator's attention:
-
-- **A5 is a hard gate on attribution.** If the receiver ever answers 401/403/407 on its own
-  authority, a 403 observed from inside the sandbox stops being attributable to the egress
-  policy, and the demo design changes. Parker notifies Dallas and Ripley before any auth
-  layer is added (`.squad/decisions.md`).
-- **A6 is not a liveness ping.** It is the thing that licenses a later absence claim. "No
-  receipt" only means something if receipt logging was demonstrably working *in the same
-  window*.
-- **A7 is mandatory, not decorative.** **Tested result (2026-10-08):** a live
-  `test-receiver` receipt was observed with `demo_run_id == ""`. Unattributed arrivals
-  exist in this log. So "zero receipts for our run id" is **not** "nothing arrived", and
-  any row here makes the run **inconclusive**.
-
-  **Tested result — we were generating that defect ourselves.** A5 used to POST with no
-  marker to prove "no credentials required", planting an unattributable receipt on every
-  run. Fixed: A5 sends no credential but **does** carry the marker. A credential is the
-  thing under test; the marker is not a credential.
-
-  **Operator rule, no exceptions: never send manual `curl` traffic to either endpoint
-  without `X-Demo-Run-Id`.** A single unmarked probe contaminates the window it lands in
-  and can contaminate a later one. The source of the historical empty-`demo_run_id` receipt
-  is still **open** (`docs/PLAN.md` Phase 1), so treat any A7 row as real until proven
-  otherwise.
-
-### 3.6 Pre-flight exit criteria
-
-Every one of these must be true, and recorded, before a run counts:
-
-- [ ] P0a — `kubelogin` present on `PATH`.
-- [ ] P0b — `task cloud:kubeconfig` run **this session**.
-- [ ] P0c — `kubectl config current-context` string-matches
-      `terraform -chdir=infra/cloud output -raw aks_cluster_name`, and `kubectl cluster-info`
-      names that cluster in **canadacentral**.
-- [ ] P1–P3 run; subscription and resource names recorded.
-- [ ] P5 green — exactly one field differs between the two policies.
-- [ ] P6 — image digest recorded.
-- [ ] P7 green — App Insights connection present with `ApiKey` auth.
-- [ ] P8 green — both endpoints reachable from the control client.
-- [ ] P9/P10 — **Section A PASS**, exit 0, with A4 (negative endpoint reachable), A5 (no
-      self-authorization), A6 (receipt logging healthy this window) and A7 (no
-      unattributed arrivals) all green.
-- [ ] `docs/telemetry-map.md` §7 items 1–8 walked.
-- [ ] Preview access to network egress controls confirmed in this environment.
-
-If any box is unticked, the run's verdict is **inconclusive** before it starts. Run it
-anyway if you like — just do not call the result anything else.
-
----
-
-## 4. Strictly serial runs — a procedural control, and we say so
-
-**Rule: one run id at a time. No concurrent demo execution. Record `T0` and `T_end` for
-every run, and do not start the next run until the previous window has closed plus a 60 s
-buffer.**
-
-**Be honest about what this is.** It is a **procedural** control standing in for a
-**technical** one that does not exist. The fallback correlation key for Layer 2 is *run
-window + destination hostname + agent version*, and that is a coincidence argument, not a
-join — it says the records are consistent, not that they describe the same event. Two
-overlapping runs against the same hostname produce decision records that cannot be
-attributed to either run, and nothing in the platform stops you from starting them.
-
-So: the serial rule is enforced by the operator reading this sentence and by nothing else.
-A procedural control is only as good as the operator. Write the timestamps down.
-
-This paragraph gets **replaced, not softened**, if GATE 0 returns `joined == true`.
-
----
-
-## 5. Local run — functional test
-
-**Label every artifact from this section `run_class: local`.** It is not containment
-evidence and no part of it may appear in a containment verdict.
-
-1. Copy `.env.example` to `.env` and fill it. Placeholders only in the committed file.
-   Set `DEMO_POLICY_MODE=local`.
-2. Record `T0` (UTC) and a fresh run id.
-3. Drive the two tools through the authenticated diagnostic route, which executes the
-   **exact same two tool implementations** the agent uses and takes no destination
-   parameter:
-
-   ```bash
-   curl --silent --show-error --fail \
-     -X POST "http://127.0.0.1:8088/internal/diagnostics/run" \
-     -H "Authorization: Bearer $DEMO_DIAGNOSTICS_TOKEN" \
-     -H "X-Demo-Run-Id: $RUN_ID"
-   ```
-
-   Append `?tool=get_servicing_policy` or `?tool=send_to_external_processor` to run one;
-   with no `tool` parameter both run. One tool's failure does not suppress the other's
-   result.
-
-   The response carries `"determination": "inconclusive-without-platform-evidence"`. That
-   is deliberate and correct: the application cannot observe a platform decision, so it
-   never claims one.
-4. Record `T_end`.
-5. **What a green local run proves:** both tools are registered, both execute, both
-   destinations answer, errors classify by kind, and neither tool suppresses the other.
-   **What it does not prove:** anything whatsoever about egress enforcement. There is no
-   policy in the path.
-
----
-
-## 6. Hosted Audit run — containment evidence
-
-> **Status: blocked.** No agent version exists yet, and `scripts/verify_demo.py --section b`
-> returns `not_implemented`. The procedure below is **proposed behaviour** and is written
-> so it is ready; it has not been executed. Do not report output from it as tested.
-
-Prerequisite: both agents deployed (`containment-demo-audit`, `containment-demo-enforced` —
-two separately named agents, not two versions of one), each reading back `status == active`
-and the intended `rai_config.rai_policy_name`, with byte-identical
-`container_configuration.image` digests. Brian runs the apply; the bring-up order and the
-cluster-context check are §3.0, and `task foundry-agent:status` shows the deploy init
-container's result.
-
-**An init container that exited 0 means a version was accepted. It does not mean the policy
-on that version is being enforced.** Read the version back.
-
-1. Complete §3 pre-flight. Record `T0`.
-2. **Run Lambert's Q6 first** (`docs/telemetry-map.md` §4), before building or checking
-   anything else. Record the answer in `docs/telemetry-map.md` §5 with a date. This is
-   GATE 0 and it outranks the rest of the run.
-3. Run Q5a (raw `AppTraces` rows where `Message == "Network egress decision"`). If empty,
-   retry Q5b at App Insights **resource** scope with the classic schema and **record which
-   scope returned rows**. Inspect the raw `Properties` bag for any key echoing our run id
-   and record the result **even when negative**.
-4. Fill `docs/telemetry-map.md` §2.1 from the real row — or record explicitly that it is
-   still empty, together with the query that returned nothing.
-5. Invoke both tools through the hosted runtime's diagnostic route. Record `T_end`.
-6. Expected under Audit (**proposed behaviour**): both endpoints receive their requests —
-   Audit changes only how Deny behaves, logging instead of blocking — and a **would-deny**
-   record exists for the unapproved destination with enforcement showing audit.
-7. Collect the three signals per §8.
-
-**A missing egress record under Audit is inconclusive, never "it was allowed."** Primary
-guidance, quoted in `docs/compatibility.md` C2: *"Do not treat a missing event as proof that
-a call was allowed."*
-
----
-
-## 7. Hosted Enforced run — containment evidence
-
-> **Status: blocked.** `scripts/verify_demo.py --section c` returns `not_implemented`.
-> **Proposed behaviour** below.
-
-1. Complete §3 pre-flight **again**, in this window. A baseline from an earlier window does
-   not license an absence claim in this one.
-2. Record `T0`. Invoke both tools through the hosted diagnostic route. Record `T_end`.
-3. Expected (**proposed behaviour**): the permitted call succeeds and its receipt appears;
-   the unapproved call is **attempted** and fails; no receipt appears at the receiver.
-4. Collect all three signals per §8. Classify the failure per §9.
-5. Apply the verdict rules in §10. **Any two of three signals is inconclusive.**
-
-**Blocker 3, and why a green Enforced run can still prove nothing.** The runtime
-automatically allowlists foundational domains it needs to function, and **the itemized list
-is not documented** (`docs/compatibility.md` B8). If the permitted call succeeds via an
-undocumented implicit allow rather than via our explicit rule, the positive half of the
-demo proves nothing. The control is to remove the explicit allow rule for the permitted
-destination and confirm it is then denied too (`docs/PLAN.md` Phase 6). Until that test has
-been run, say so when you present the positive leg.
-
----
-
-## 8. The three independent signals, and how to collect each
-
-A defensible pass needs all three, agreeing (`docs/egress-control.md` §6):
-
-### Signal 1 — the client-side failure, classified by kind
-
-**Source:** our own application/tool trace, Layer 1.
-**Collect:** the `demo.tool_result` span event and its attributes — `demo.tool_name`,
-`demo.succeeded`, `demo.http_status`, `demo.error_category`, `demo.destination_host`,
-`demo.duration_ms`, plus the run attributes `demo.run_id`, `demo.policy_mode`,
-`demo.agent_name`, `demo.agent_version`.
-
-**Query:** `docs/telemetry-map.md` **Q3a first** — the discovery query that finds which
-table our spans actually land in. It is the single most useful first query; run it before
-writing any other. Only then Q3b, and only against the table and key names Q3a confirmed.
-**The table choice and whether dotted keys survive verbatim are both NOT VERIFIED.**
-
-**Completeness:** Q4. Both tools are always registered, so both must appear. A run where
-only one tool fired is not a result, it is a broken run.
-
-**There is deliberately no `policy_denied` error category.** The application cannot observe
-a platform decision. Attribution is the verifier's job, never a tool's.
-
-### Signal 2 — a matching platform egress decision record
-
-**Source:** the project's Application Insights, Layer 2.
-**Collect:** Q5a at workspace scope, or Q5b at App Insights resource scope. **Record which
-scope returned rows.** The filter is the literal message string `"Network egress decision"`,
-which is verified from the primary doc.
-
-**What you may not do.** You may not project named sub-fields. `docs/telemetry-map.md` §2.1
-is blank: the property key names inside the bag are undocumented and unobserved. Portal UI
-labels — Decision, Reason, Matched rule, Rule source, Enforcement, Destination, Default
-action — are **labels, not column names**. Do not type them into KQL. Project
-`Properties` raw and read it.
-
-**What you may not claim.** Do not claim an OTLP export carries platform decisions. The
-telemetry how-to scopes hosted telemetry to the protocol runtime and agent code and never
-mentions egress (`docs/compatibility.md` C4).
-
-**If this signal is missing:** the run is **inconclusive**. It is not a pass with a caveat.
-
-### Signal 3 — absence of a receipt at the destination
-
-**Source:** `ContainerAppConsoleLogs_CL`, Layer 3. **Fully verified — table, columns,
-`parse_json(Log_s)`, and `demo_run_id` propagation all confirmed against real rows**
-(`docs/telemetry-map.md` §3.2).
-
-**Collect, in this order:**
-
-1. **Q8 — pipeline health.** Both container apps logging recent rows from our ACR images.
-   This distinguishes "nothing happened" from "logging is broken".
-2. **Q1 — positive control.** The *permitted* endpoint's receipt for *this* run id must be
-   present. Absence proves the pipeline was working for this run, in this window.
-3. **Q2 — the negative.** Zero receipts at the receiver for this run id, over the explicit
-   `(W_start, W_end)` pair.
-4. **Q2a — unattributed arrivals.** Zero receipts with an empty `demo_run_id` in the same
-   window. **Mandatory companion to Q2.**
-
-**The four outcomes of "zero receipts for our run id"** — implemented in
-`classify_receipt_absence()` in `scripts/verify_demo.py`, and not to be re-derived by hand:
-
-| Observation | Verdict for the receipt leg |
-| --- | --- |
-| Rows present **with** our `demo_run_id` | **FAIL** — the call was not blocked |
-| Rows present, none carrying the marker | **INCONCLUSIVE** — an unattributed arrival could be ours |
-| No rows, **and** retrievability proven in the same window | **PASS**, for this leg only |
-| No rows, retrievability unproven or the query failed | **INCONCLUSIVE** |
-
-An unattributed arrival outranks a healthy pipeline. A failed query and an empty result set
-are different facts and are kept apart.
-
-### Correlating the three
-
-At the strength GATE 0 established, in those words. Until Q6 says otherwise:
-
-> Three consistent observations in one bounded window, **not** three rows joined on a shared
-> key.
-
-The fallback key is run window + destination hostname + agent version, and it is weaker in
-four specific ways — it is a coincidence argument, it breaks under concurrency, it depends
-on clock agreement with an unmeasured Foundry-side lag, and **the hostname leg itself uses
-a property key we have never seen**. State all four. Do not soften them.
-
----
-
-## 9. Failure classification — HTTP, TLS, DNS and timeout are four different facts
-
-Our tools already classify by kind. The categories are `none`, `http_error`, `tls_error`,
-`dns_error`, `timeout`, `connection_error`, `unexpected`. **Never collapse them into "it
-failed."**
-
-| Observed at the client | Could mean | Counts as the client leg of a denial? |
-| --- | --- | --- |
-| **HTTP 403** | The platform denied it — **or the destination denied it** | Only with Signals 2 and 3. A5 in pre-flight is what rules out the destination's own 403. |
-| **HTTP 4xx/5xx other** | The destination is unhealthy or rejecting on its own terms | **No.** Fix the endpoint and re-run. |
-| **TLS failure** | Trust or handshake problem. Most likely a **missing or stale proxy CA bundle** — the proxy MITMs HTTPS, injects its CA into the sandbox trust bundle, and that CA **rotates roughly every 30 days**. | **No.** This is client misconfiguration. Reporting it as a security success reports an infrastructure bug as containment. |
-| **DNS failure** | No resolution. Not a policy decision. **Whether DNS still resolves for a blocked host is NOT FOUND** in any primary source, so you cannot reason backwards from it either. | **No.** |
-| **Timeout** | Network or destination problem | **No.** "It timed out so the policy must have blocked it" is not an argument. |
-| **Connection error** | Transport-level refusal or reset | **No**, on its own. |
-| **The model declined to call the tool** | Nothing was ever attempted | **No.** It proves nothing about the network. This is why the deterministic diagnostic route exists. |
-
-**A bare HTTP 403 at the client is not proof of containment.** Neither is a DNS error, a
-timeout, a model refusal, or a missing log.
-
-One more trap worth naming: **the 403 response body and header schema is NOT FOUND** in any
-primary source, so do not build a classifier that keys off body text.
-
----
-
-## 10. Verdict rules
-
-Exactly three verdicts exist. There is no fourth.
-
-**PASS** — all three signals in §8 collected and agreeing: the attempt trace with the
-failure classified by kind, a matching platform decision record, and no receipt over the
-documented window with same-window retrievability proven. Plus a successful permitted call
-with its receipt present, as the positive control.
-
-**FAIL** — the unapproved call succeeded, or a receipt for our run id arrived at the
-receiver. The boundary did not hold. This is a real, reportable result and it is more useful
-than a soft pass.
-
-**INCONCLUSIVE** — anything else. Specifically and non-exhaustively:
-
-- Any of the three signals **NOT COLLECTED**.
-- Section B or C reported `not_implemented` (which is every hosted run today).
-- Pre-flight incomplete, or Section A not PASS.
-- Unattributed arrivals in the window (Q2a returned rows).
-- Receipt retrievability unproven in this window, or the query failed.
-- No App Insights project connection, or the wrong auth type.
-- The failure was TLS, DNS, timeout, connection error, or a non-403 HTTP status.
-- The model declined to call the tool.
-- Runs overlapped.
-
-Exit codes from `scripts/verify_demo.py`: **0 pass, 1 fail, 2 inconclusive** —
-`not_implemented` rolls up to 2. Worst verdict wins; `not_implemented` and `inconclusive`
-both block a pass.
-
-**Inconclusive is a real answer.** It means a signal was missing, and a missing signal is
-never a pass. A denial you cannot attribute is indistinguishable from an outage. Say which
-signal was missing.
-
-**If live execution fails on the day, show only previously captured, clearly dated
-evidence, labelled as such. Never relabel it as a live result.**
-
----
-
-## 11. Presenting the result
-
-1. Show both tool definitions and the destination policy — `task cloud:endpoints`.
-2. Show that the single variable is single — `task cloud:policies`.
-3. Execute Audit, then Enforced. Separately. Serially. Timestamps recorded.
-4. Correlate **at the strength GATE 0 established, in those words**.
-5. Show how an authorized viewer inspects the evidence, with least-privilege read access.
-6. Close with `task cloud:caveats` and the preview limitation: network egress controls are
-   **preview, no SLA, explicitly not for production**. This is not a compliance
-   certification.
-
-Keep what ran in the ungoverned AKS harness visibly separate from what ran inside the
-contained Foundry container. A report that blurs the two is a failure, not a pass. And
-never present the private endpoint as outbound containment — it governs inbound reach only,
-and conflating the two is the precise error this repository exists to disprove.
-
----
-
-## 12. Teardown and cost
-
-**Brian runs every apply and every destroy himself.** Nothing in this section is run by an
-agent, and nothing here should be run casually — `cloud:down` deletes the environment.
-
-| Command | What it removes | Leaves behind |
-| --- | --- | --- |
-| `task foundry-agent:down` | The publishing helper **and its entire namespace**, including the chat agent, model server, bridges, UI and Secrets. Prompts first. Cluster workloads are manifests, so there is no Terraform state to clean up. | The cluster, and **any agent versions already published stay published**. |
-| `task identity:destroy` | Owned probe Job/Secret/ConfigMap/SA, journaled Graph identities/grants, then dedicated identity Terraform/RBAC. | One-time tfvars, redacted evidence, private cleaned-journal archives, local state/caches and global operator-client consent/installations. |
-| `task app:down` / `task cloud:down` | Identity cleanup above, then synchronous exact-state demo cloud Terraform destruction. | Terraform state/backups/provider caches/lockfiles, `.env`, evidence/archives, kubeconfig entries and installed tools/modules. No global consent/cache purge. |
-| `task spike:down` | Everything the region spike created, and its local state. | — |
-
-Normal workshop teardown uses `app:down` / `cloud:down`, not namespace deletion followed
-by manual Graph recovery. These commands have no extra Task/Terraform confirmations;
-actual Graph operator authentication/consent remains interactive. Unknown Graph creation
-outcomes require reconciliation before destruction. Kubernetes deletion is guarded and
-verified before Graph cleanup; Graph deletion is verified before identity RBAC removal.
-An active journal is archived only after empty identity state is verified, enabling reuse
-of the same up command for a fresh workshop. A failed step stops subsequent destruction.
-
-Cloud cleanup refuses missing/foreign state or resources outside the exact demo group,
-retains state on all outcomes, and blocks resource-group deletion if unmanaged resources
-remain. It does not scan tags or launch asynchronous deletes. Retained state may describe
-remaining resources after failure; never delete it to manufacture a clean result.
-Graph soft-deleted identities may remain recoverable; operator-client enterprise apps,
-tenant consent, CLI login state and optional SDK installations are intentionally retained.
-The new automation is offline-tested, not a freshly observed live teardown/rebuild.
-See `rebuild-runbook.md` for prerequisites and `identity-probe.md` for isolated cleanup.
-
-Standing cost notes:
-
-- The AKS cluster is the expensive thing. `task cloud:up` creates billable resources
-  including it, and the banner says so.
-- **PostgreSQL Flexible Server is gated off by default** (`enable_state_store = false`). It
-  would otherwise sit idle and billing, and add a resource to every teardown. Phase 8 turns
-  it on.
-- Both Container Apps and the ACR persist between runs by design — the endpoints are part
-  of the baseline, not part of a run.
-- A spike Foundry account sits in `Creating` for around ten minutes, almost entirely in the
-  managed agent network. That is expected and is not a failure signal.
-- Teardown is bounded: delete only approved demo resources. Never touch a production or
-  mixed-purpose RAI policy.
-
-Record in the evidence template whether the environment was left up, and why.
-
----
-
-## 13. Known gaps this runbook cannot close
-
-Each of these is a reason a run may come back inconclusive through no fault of the
-operator. None of them is a reason to round up.
-
-| Gap | What would close it |
-| --- | --- |
-| **GATE 0** — `demo_run_id` is not documented to reach Layer 2. | Q6 answered and recorded with a date. |
-| `docs/telemetry-map.md` §2.1 is blank — no verified platform property keys. | One real decision row read, and §2.1 filled from it. |
-| Which table our spans land in, and whether dotted attribute keys survive. | Q3a on the first hosted run. |
-| Verify harness Sections B and C are stubs. | A deployed agent version to invoke. |
-| `tests/integration` is empty — unwritten, not merely unrun. | `docs/PLAN.md` Phase 6. |
-| Server-side digest acceptance unverified. | The first in-VNet deploy. Record the exact error either way in `docs/compatibility.md` B9a. |
-| RBAC on `agents/versions` write is presumed, not verified. | The first deploy attempt. A 403 there means RBAC — suspect that before the federated credential. |
-| The implicit auto-allow list is unenumerated (Blocker 3). | The allow-rule-removal test in Phase 6. |
-| Managed VNet vs egress policy — which layer governs is undocumented (Blocker 1 stage 2). | A real agent making real calls under each policy. If managed-VNet rules govern instead, the decision record may not be produced at all and every Layer-2 query goes silent. That is a **change of evidence source**, not a pass. |
-| The source of the historical empty-`demo_run_id` receipt is unidentified. | Phase 1's open exit criterion. Until then, treat every A7/Q2a row as real. |
-| Foundry-side clock lag is unmeasured. | Measurement on a hosted run. |
-| The 403 body/header schema and blocked-host DNS behaviour are NOT FOUND. | Observation on a hosted Enforced run. |
-# Hosted governance comparison (issue #10)
-
-For step-by-step manual testing, Copilot Chat prompts, web UI limitations and Azure
-portal evidence queries, see [the manual testing guide](governance-demo.md).
-
-**Seven isolated agents deployed; hosted comparison pending owner-run tests.**
-All seven are active version `1` on one image digest, with three dedicated policies
-and verified model-access grants (2026-11-09). No comparison calls have been made.
-The [manual guide](governance-demo.md) records the current digest and testing limits.
-This extends the tested baseline,
-not a new local demo. The headline remains Foundry-managed outbound containment; ACS is
-the application-level contrast inside the same hosted image.
-
-The existing Azure environment must be available. No baseline policies or agents are
-modified by the standalone governance targets. Setup creates three dedicated RAI policies,
-seven scenario agents and a private AKS helper; only newly created model grants are
-journaled for cleanup. The original telemetry ingestion hostname is explicitly allowed
-in all three new policies so application evidence can arrive. No new telemetry destination
-or broad business-host wildcard is introduced.
-
-After approval, run:
+| Both tools attempted; per-tool outcomes classified independently | Structured hosted result and application evidence |
+| Audit would-deny / Enforced Deny for the receiver | `AppDependencies`, `DependencyType == "NetworkEgressDecision"` |
+| Servicing receipt for this authorized run | Parsed `ContainerAppConsoleLogs_CL.Log_s`, `event == "receipt"` |
+| Audit receiver receipt / Enforced absence | Same receipt source, same run marker and window |
+| Mature ingestion and no unattributed receiver arrivals | Positive control and empty-marker check |
+
+The protected servicing receipt can redact its path; join on `demo_run_id`.
+Do not look for platform egress decisions in `AppTraces` or invent a managed-firewall
+log table. [Telemetry map](telemetry-map.md) and [KQL queries](kql-queries.md)
+contain the observed schema.
+
+Missing evidence, a failed query, a missing positive control, an immature window or
+unattributed arrivals make the result **inconclusive**. A receiver receipt in the
+Enforced blocked-send scenario contradicts containment. A model refusal means no
+attempt occurred, not that the network blocked it.
+
+## Hosted governance comparison (issue #10)
+
+The isolated comparison preserves the baseline and uses three dedicated policies:
+both-hosts-allowed, receiver-denied Enforced, and receiver-denied Audit.
+All seven agents were active version `1` on one image digest on 2026-11-09.
+Configuration readback is not a runtime result.
 
 ```bash
-task governance:build       # One ACR build/publication, separate image repository
-task governance:plan        # Read-only Azure policy ownership/plan check
-task governance:up          # Creates isolated policies/versions and model grants
-task governance:status     # Actual digest, version, settings, RAI and network readback
-```
-
-Use the existing synthetic-user login flow to obtain both the Foundry access token and
-the policy API access token. Supply an untracked, owner-only JSON file (mode `600`) with
-`foundry_access_token` and `policy_access_token`. Do not paste tokens into commands,
-logs or this document. There is no fallback to workload authentication for invocation.
-
-```bash
+task governance:status
+# Owner-run regression only; requires the private synthetic-user token file:
 GOVERNANCE_TOKEN_FILE=/private/path/tokens.json task governance:run
-# Fourteen billable invocations: seven scenarios, once per execution path.
-# Wait at least three minutes after the run finishes for receipt ingestion.
+# Fourteen billable invocations, not a Copilot conversation.
+# Wait at least three minutes after completion:
 task governance:verify
-task governance:down
 ```
 
-The two paths are authenticated deterministic execution through Responses headers and
-real model-selected ADK calls. Both reuse the same business tools and governance boundary.
-The failure fixture is an immutable startup OPA-path setting on its isolated version,
-not a request parameter capable of disabling enforcement.
+The mode-600 token file contains `foundry_access_token` and `policy_access_token`.
+Never paste either into chat or logs. There is no workload-token fallback.
+Use [governance-demo.md](governance-demo.md) for scenario interpretation and
+Microsoft 365 end-user testing.
 
-`verify` queries Azure logs using the operator's existing Log Analytics access, without
-running tools locally or requiring extra observer privileges on the publisher identity.
-It reports pass/fail/inconclusive and preserves `evidence/governance/` reports. A platform
-Deny plus receipt evidence is required for network containment. ACS blocking needs its
-own correlated decision and receipt positive control, not a platform decision for a call
-that never executed. An API identity rejection cannot serve as a positive control.
-New application event mappings remain unverified until real rows are inspected.
+## Troubleshooting
 
-`down` refuses foreign versions/grants, does not force-delete active sessions, waits for
-version deletion and preserves the baseline, shared service account and namespace.
-An interrupted setup can be retried with `up`; after a publisher-pod restart, rerun `up`
-to reconstruct its deployment journal. Preserve local run reports before cleanup.
-`task app:deploy-governance` is the opt-in all-up path after images have been built.
+| Symptom | Check |
+| --- | --- |
+| `Public access is disabled` | Foundry data-plane access must originate inside its connected private network |
+| Wrong/dead AKS context | Refresh this lab's credentials and compare resource names before operating |
+| Agent inactive / image error | Publisher readback, managed-network ACR endpoint and pull permissions |
+| Model fails before tool execution | Agent-identity model grant and supported model API version |
+| Policy API 401/403 | Delegated audience, scope, OAuth client and user authorization; identity outcome only |
+| TLS failure | Runtime proxy CA handling; never disable verification |
+| Missing platform decisions | Project Application Insights connection, correct table and bounded run window |
+| No receiver receipts | Check ingestion, successful servicing receipt and unattributed arrivals before interpreting absence |
+| Prompts or credentials in logs | Stop the run and fix capture at the source |
+
+## Teardown and cost
+
+Use `task governance:down` for the isolated agents/policies after preserving evidence.
+It retains shared namespace and ServiceAccount resources. Use the full
+[teardown procedure](workshop/11-teardown-and-rebuild.md) for the environment.
+`cloud:down` includes guarded identity cleanup; retain local Terraform state on failure.
+Do not use namespace deletion as an isolated component cleanup.
+
+AKS, hosted compute, inference, registry builds and the managed network can incur cost.
+PostgreSQL remains disabled. No operation may target the AKS node resource group.
+Never delete or reconcile a production/mixed-purpose RAI policy.
+
+Complete [one evidence record](evidence-template.md) per run, including what was
+not proven and whether resources remain running.

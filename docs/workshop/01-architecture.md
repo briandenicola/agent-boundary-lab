@@ -36,7 +36,7 @@ ACR, AKS, Entra, private endpoints and the rest are defined in [Module 03](03-in
 
 > Outbound network containment of the tools inside the Foundry hosted agent is enforced by the **platform**, not by our code.
 
-Source: [architecture-as-built.md — "The claim, and what it rests on"](../architecture-as-built.md#the-claim-and-what-it-rests-on).
+Source: [Architecture: execution and boundaries](../architecture-as-built.md#execution-and-boundaries).
 
 Three mechanisms are routinely offered as the answer. None contains outbound tool calls ([egress-control.md §1](../egress-control.md)):
 
@@ -92,13 +92,16 @@ Without Audit, a failure under Enforced proves nothing — the call might never 
 
 ### 5. What is NOT governed
 
-The harness, chat service, local model and A2A façade run on **AKS in your own VNet**. They stand in for an on-premises caller and are **not governed by the Foundry policy**; never describe them as contained or as truly on-premises ([architecture-as-built.md](../architecture-as-built.md#the-claim-and-what-it-rests-on), [aks.tf lines 9–12](../../infra/cloud/aks.tf)). The model's prose is also untrusted: it can misreport a result, so only structured tool results and platform decision rows count.
+The harness, chat service, local model and A2A facade run on AKS as an on-premises
+stand-in. They are **not governed by Foundry's egress policy** and are not literally
+on premises. See [the boundaries](../architecture-as-built.md#independent-controls).
+Model prose is not proof; use structured results and platform decisions.
 
 ### 6. Honesty labels
 
 | Label | Meaning |
 | --- | --- |
-| **TESTED** | Observed in a real run, with date and sample size. See [architecture-as-built.md "Verified, proposed, blocked"](../architecture-as-built.md#verified-proposed-blocked). Small n is not statistics. |
+| **TESTED** | Observed in a real run, with date and sample size. See [dated evidence](../telemetry-map.md#dated-baseline-results). Small n is not statistics. |
 | **PROPOSED** | Designed or coded, not observed working. |
 | **BLOCKED** | Depends on a platform capability that is unavailable. Stop; do not claim it. |
 

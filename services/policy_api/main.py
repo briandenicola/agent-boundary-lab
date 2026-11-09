@@ -105,7 +105,7 @@ def _authorize_actor(store: ActorContextStore, request: Request) -> None:
     """Authorize against the WP-1 actor-context contract (issued by the harness).
 
     This is an identity-authorization decision, not a containment result -- see
-    docs/issue-4-demo-readiness.md. Missing/invalid/expired context is an explicit
+    docs/demo-runbook.md. Missing/invalid/expired context is an explicit
     401; a context whose ``authorization_intent`` is DENIED is an explicit 403.
     """
     run_id = _actor_run_id(request)

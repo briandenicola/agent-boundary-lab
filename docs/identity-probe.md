@@ -1,6 +1,10 @@
 # Issue #4: delegated Foundry authentication probe
 
-> **Pointer (2026-10-20, Ripley).** The on-behalf-of user-token flow (oauth2-proxy → harness OBO → facade → Foundry `x-client-*` → policy API guard) is documented in [`token-flow-documented.md`](token-flow-documented.md): SOURCE-VERIFIED against code, **never run live**. This probe page covers the earlier directory/Foundry-invocation checks only.
+This is the optional directory/delegated-Foundry compatibility probe reference, not
+the current baseline demo checklist. The identity/egress baseline was tested
+(owner-confirmed 2026-11-06). See [the token flow](token-flow-documented.md) and
+[demo runbook](demo-runbook.md#identity) for that path. The historical probe results
+below apply only to the named probe, not to the whole baseline.
 
 **2026-10-19: owner reports directory lifecycle passed and integrated setup configured.**
 The owner completed isolated Graph sign-in and reported `directory_lifecycle: pass`
@@ -8,10 +12,8 @@ after creation, read/update verification and cleanup. The owner subsequently rep
 `tenant_check=pass`, `tenant_verified=true`, `identity_setup=configured`,
 `foundry_delegation=not_evaluated`, and `i0_complete=false` from live `identity:setup`.
 These are owner-reported results, not independently observed delegated invocation evidence.
-No hosted identity invocation has been reported. This does not establish Foundry
-delegation or containment.
-This is the first part
-of [I0](PLAN.md#i0--compatibility-and-identity-contract-first-gate), not an identity rollout.
+That directory result alone does not establish Foundry delegation or containment.
+This is the original isolated compatibility check, not an identity rollout.
 Existing hosted agents, policies, images and both business tools are unchanged.
 
 ## Run the probe using the completed setup

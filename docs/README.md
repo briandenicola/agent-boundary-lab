@@ -1,542 +1,65 @@
-# Framework-neutral agent containment demo
+# Agent Boundary Lab documentation
 
-## Purpose
+The lab demonstrates three independent controls in Azure:
 
-Build a small Python agent using Google Agent Development Kit (ADK), deploy it as a Microsoft Foundry hosted agent, and demonstrate platform-managed HTTP/HTTPS egress enforcement plus operational evidence.
+1. **Identity:** the protected servicing API accepts an authorized user's delegated
+   token and rejects an unauthorized user.
+2. **ACS governance:** the Foundry-hosted ADK runtime evaluates a proposed tool call
+   before executing it.
+3. **Foundry egress:** the platform controls which HTTPS destinations an executing
+   tool can reach.
 
-The message: **Keep your agent framework; manage the outbound boundary independently and inspect the evidence.** This is a complementary platform pattern, not a replacement for an existing enterprise agent platform.
+Exactly two business tools are always registered: `get_servicing_policy` and
+`send_to_external_processor`. Tool destinations come from validated startup settings,
+not the prompt. ACS denial is application governance, not platform network enforcement.
 
-This repository began as a build specification. The existing Foundry egress and identity
-demo has been tested; ACS governance is new work. Follow `PLAN.md` for implementation tracks.
+## Start here
 
-> **Current status (2026-11-06):** the owner confirmed that the existing Foundry egress
-> and identity demo has been tested. Earlier proposed/unverified labels below describe
-> historical stages, not the current baseline. This update records the owner's report,
-> not a new assistant-run verification or a claim that every historical optional probe
-> passed. The approved scope and dependency-ordered work for #10 are in
-> [`PLAN.md`](PLAN.md#issue-10--agtacs-runtime-governance).
-
-Issue #10 local governance artifacts are available. Owner-run sequence:
-`task governance:prepare` -> `task governance:check` -> `task governance:tamper`.
-These install/check ACS and OPA locally, use mock HTTP destinations, and do not deploy
-anything. **Local validation (2026-11-06):** 259 tests, formatting, lint, type checks and
-all five tamper checks passed; the owner-generated dependency lock is included.
-The G4 hosted packaging and isolated deployment/evidence automation are now written.
-The governed image was built and published in Azure on **2026-11-06**, and the base
-Azure lab was recreated using `task cloud:bootstrap` and `task cloud:up`.
-**Azure API deployment (2026-11-09):** both controlled APIs now run the real service
-images; their new revisions are healthy, receive 100% of traffic and answer `/healthz`.
-The guarded `task deploy:tool-apis` updated only those two Container Apps. Both existing
-RAI policies' properties were unchanged in before/after readback.
-**Isolated deployment (2026-11-09):** all seven governance scenario agents are active
-at version `1` on one image digest; three dedicated policies and seven model-access
-grants are verified. No hosted comparison calls were made: the owner chose to run the
-manual tests. Deployment and API health are not containment evidence. Keep governance
-Disabled on the baseline. See [the manual testing guide](governance-demo.md).
-After approval, use
-`governance:build`, `governance:plan`, `governance:up`, `governance:run` and
-`governance:verify`; see [the hosted governance procedure](demo-runbook.md#hosted-governance-comparison-issue-10).
-ACS is application governance inside the hosted container; Foundry's network boundary
-remains the platform capability being demonstrated.
-
-> **Status (2026-10-09):** the build is no longer only a specification. Deployed and observed: both Foundry hosted agents (one image digest, Audit and Enforced policies), the two controlled endpoints, A2A façades on AKS, a demo UI, a local-model (Qwen2.5-3B, CPU) harness chat service, and `verify_demo.py` sections B and C returning PASS (small n; see [`telemetry-map.md`](telemetry-map.md) §0.13, §0.14). Open: Entra auth for the A2A hop (issue #4), model reliability and speed, section D. What is actually deployed: [`architecture-as-built.md`](architecture-as-built.md). Remaining text in this file is the original design unless marked.
-
-## Documentation index
-
-| Doc | Read it for |
+| Document | Purpose |
 | --- | --- |
-| [`architecture-as-built.md`](architecture-as-built.md) | The system as deployed, trust boundaries, verified vs proposed vs blocked |
-| [`diagrams/README.md`](diagrams/README.md) | Excalidraw diagram of the whole environment (zones, flows F1-F11, legend) |
-| [`demo-runbook.md`](demo-runbook.md) | Presenter one-pager, harness chat path, full audit procedure |
-| [`governance-demo.md`](governance-demo.md) | Manual Copilot-assisted hosted comparison, web UI limits and Azure evidence inspection |
-| [`rebuild-runbook.md`](rebuild-runbook.md) | Consistent build/deploy commands, component names and complete standup order |
-| [`identity-probe.md`](identity-probe.md) | Issue #4 I0 probe, offline owner commands and blocked identity-setup contract |
-| [`PLAN.md`](PLAN.md) | Phases, status, gates, backlog |
-| [`compatibility.md`](compatibility.md) | Platform research and observed facts (B-sections: hosted agents, A2A, local model, harness) |
-| [`telemetry-map.md`](telemetry-map.md) | Real field names and evidence (§0.12-§0.14 are the join and verified runs) |
-| [`egress-control.md`](egress-control.md) | Egress policy mechanics |
-| [`evidence-template.md`](evidence-template.md) | Per-run evidence record |
+| [Demo runbook](demo-runbook.md) | Present the tested identity and egress baseline |
+| [Governance demo](governance-demo.md) | Microsoft 365 Copilot prompts, isolated ACS scenarios and operator evidence |
+| [Rebuild runbook](rebuild-runbook.md) | Task-driven provisioning, deployment, recovery and teardown |
+| [Architecture](architecture-as-built.md) | Components, call paths and trust boundaries |
+| [Implementation plan](PLAN.md) | Current work and remaining acceptance gates |
+| [Workshop](workshop/README.md) | Guided baseline lab |
 
-> **Preview warning:** The Microsoft Foundry egress walkthrough dated September 24, 2026 describes network egress controls as preview, without a preview SLA, and not intended for production. Recheck availability and restrictions before building. Do not present this demo as a production assurance or compliance certification.
+## Reference
 
-## Operator commands
-
-Use `task build:<component>` and `task deploy:<component>` with the same component name:
-
-| Component | Meaning |
+| Document | Purpose |
 | --- | --- |
-| `foundry-agent` | Google ADK agent hosted in Foundry; one image, two policy variants |
-| `tool-apis` | Policy API and test receiver on Container Apps; two images |
-| `agent-bridge` | AKS bridge exposing A2A and invoking Foundry through Responses |
-| `chat-agent` | AKS browser chat page and agent loop; stands in for on-premises |
-| `model-server` | CPU Qwen/llama.cpp inference server used by the chat agent |
-| `test-ui` | Separate two-button test page, with no chat model |
-
-`task build:all` builds all seven images and deploys nothing. After `cloud:up` and
-`cloud:kubeconfig`, `task deploy:all` deploys applications, required Secrets and Foundry
-model-access grants; it does not build images or provision infrastructure. Already-built
-images work unchanged. The old command names remain compatibility aliases.
-
-Other operations use the component namespace: for example `task chat-agent:open`,
-`task model-server:status`, and `task agent-bridge:send SLOT=audit`.
-See the [rebuild runbook](rebuild-runbook.md) for image tags, ordering and validation.
-
-## Demo scope
-
-### Identity extension: issue #4
-
-**Tested baseline (owner-confirmed 2026-11-06).** The identity extension is no longer
-proposed. The following scope and rollout notes were written during implementation;
-their unresolved-status statements are historical.
-
-**Original scope (agreed 2026-10-15):** expose the AKS harness at a real
-HTTPS URL, require login by assigned Entra users, and demonstrate delegated user access
-through the harness and Foundry hosted agents to the policy API on Container Apps.
-Use the Entra Agent ID authentication sidecar for the harness's token operations.
-**User-delegated authentication to Foundry itself is a required compatibility gate**;
-workload authentication plus a forwarded downstream token is a documented alternative,
-not an approved replacement for this requirement.
-
-Protect only the policy API. The test receiver stays unauthenticated so an API rejection
-cannot masquerade as a platform egress denial. Identity authorization and network containment
-have separate results. AKS continues to stand in for on-premises; true on-premises deployment
-is not claimed. See [the issue #4 implementation track](PLAN.md#issue-4--end-to-end-agent-and-user-identity).
-The [I0 probe and integrated setup](identity-probe.md) are now available, offline checked.
-Terraform owns naming/Azure RBAC; a journaled Graph SDK/API path owns identities,
-federation and per-user consent, replacing the unsupported typed-URL provider draft.
-The owner reported the temporary directory lifecycle passed on 2026-10-19.
-Persistent setup, the delegated Foundry contract and public login remain unverified;
-the first owner-run step is `identity:foundry-contract`, not a public rollout.
-
-Exactly two business tools remain registered and callable in ADK in every mode:
-
-| Tool | Behavior | Destination policy |
-| --- | --- | --- |
-| `get_servicing_policy` | Retrieves a synthetic servicing policy from a controlled HTTPS API | Explicitly allowed hostname |
-| `send_to_external_processor` | Sends a harmless synthetic test record to a second controlled HTTPS API | Hostname omitted from the allowlist; default deny applies |
-
-“Approved” means **the destination is permitted by the hosted agent's egress policy**. It does not mean Foundry has semantically approved the tool or granted API authorization. Use different hostnames; this is not a path-based allowlist demo.
-
-## Proposed architecture
-
-![Whole environment for the agent boundary lab](diagrams/environment.svg)
-
-The diagram above is exported from
-[`diagrams/environment.excalidraw`](diagrams/environment.excalidraw),
-which is the editable source — open it at [excalidraw.com](https://excalidraw.com)
-and re-export the SVG after any change (see [`diagrams/README.md`](diagrams/README.md)).
-It is a map of the environment, not a result: nothing in it is evidence of
-containment. The ASCII view below remains the authoritative description of the
-call path. The earlier Azure-only view is
-[`diagrams/azure-environment.svg`](diagrams/azure-environment.svg).
-
-```text
-                    [ the only public surface ]
-                                |
-                                v
-AKS, inside the VNet -- STANDS IN FOR ON-PREMISES
-  agentic harness: full agent runtime, its own model + tools. This is the client.
-    |
-    |  A2A (Agent2Agent) over JSONRPC, Microsoft Entra ID auth
-    |  POST .../agents/{agent}/endpoint/protocols/a2a
-    |  resolved over the PRIVATE ENDPOINT -- never the internet
-    v
-Foundry account: publicNetworkAccess Disabled, networkAcls default Deny
-  Foundry hosted-agent endpoint  (A2A + Responses protocols enabled)
-    |
-    v
-Python container: protocol adapter -> ADK runner -> two HTTP tools
-    |
-    v
-Foundry-managed egress policy        <-- the ONLY thing containing outbound traffic
-    |-- permitted hostname -> synthetic policy API
-    |-- unapproved hostname -> controlled test receiver
-
-Evidence: harness trace + ADK/tool traces + platform egress decisions + endpoint receipt logs
-Telemetry destination: Application Insights; optional approved OTLP collector
-```
-
-The caller is **not a thin test client**. It is a complete agentic harness with its own
-agent loop, its own model and its own local tools, which delegates one step of its work to
-a remote agent in Foundry. That is the realistic enterprise shape: the organization keeps
-its harness where its data and controls already are, and reaches into Foundry for a
-capability it does not want to run locally.
-
-**The harness runs on AKS, standing in for an on-premises environment.** It is not
-literally on premises, and nothing in this repository should claim it is. Running it
-inside the VNet buys the thing that matters: the harness reaches Foundry across a private
-endpoint, so the Foundry account can be inbound-private and the environment needs exactly
-one public surface — the harness's own ingress. A reader evaluating true on-premises
-deployment should treat this as a topology stand-in, not as evidence that an on-premises
-harness works; that is Phase 10 and remains deferred.
-
-### Private endpoints are not egress containment
-
-> How the outbound control actually works — the RAI policy's nested `egressPolicy`, the
-> sandbox egress proxy, rule evaluation, Audit vs Enforced, and how to tell a real platform
-> denial from a destination's own 403 — is documented in depth in
-> **[`egress-control.md`](egress-control.md)**.
-
-The Foundry account is inbound-private: `publicNetworkAccess` is `Disabled` and
-`networkAcls.defaultAction` is `Deny`. A containment demo whose platform answers from the
-public internet undercuts itself before the first tool call.
-
-**But do not confuse the two directions, because confusing them is the exact error this
-repository exists to correct.** The private endpoint governs who can reach *in*. It places
-no restriction whatsoever on what the agent can reach *out* to. An agent behind a private
-endpoint can still call any host on the internet. Outbound is governed solely by the
-managed network injection and the egress policy — which is why the egress policy, not the
-private endpoint, is the experimental variable. If a diagram, slide, or report presents a
-private endpoint as outbound containment, it is wrong, regardless of how private the
-rest of the environment looks.
-
-**This changes who is being contained, and that distinction is the whole point.** The
-harness is not contained by the Foundry egress policy at all. It runs on AKS, under
-whatever policy we apply to our own cluster, and Foundry has no visibility into it. Only
-the two tools that execute *inside the Foundry hosted-agent container* are subject to the
-egress policy. A reader who concludes "the platform contained the agent" without noticing
-that the harness half is governed by something else entirely has drawn the wrong lesson.
-Containment attaches to the runtime the code executes in, never to the logical agent, and
-never follows a tool back across the A2A boundary.
-
-### Why A2A and not MCP
-
-These two protocols point in opposite directions, and only one of them produces the
-architecture above.
-
-**A2A carries the harness's call INTO Foundry.** The harness is the client; the Foundry
-hosted agent is the server. The agent's tools still execute inside the Foundry container,
-so the egress policy still governs them. The containment claim survives intact.
-
-**MCP would reverse the arrow.** Foundry's MCP support makes the *agent* an MCP **client**
-that connects out to remote MCP servers; there is no documented way to expose a Foundry
-agent *as* an MCP server for an external harness to call. So "harness reaches Foundry over
-MCP" is not a supported topology as of the access date below.
-
-Worse, the MCP shape that *is* supported would actively damage this demo. If the harness
-published an on-premises MCP server and the Foundry agent consumed it, the agent would be
-making an **outbound call to an on-premises host** — which is precisely the egress path
-under test. That host would then need to be in the allowlist, the on-premises boundary
-would become a third variable, and a denied call would no longer be attributable to the
-policy alone. MCP is therefore excluded from the containment demo by design, not by
-oversight.
-
-Primary references, accessed **2026-10-08**:
-
-- Enable incoming A2A on a Foundry agent: https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint
-- Connect agents to MCP server endpoints: https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/tools/model-context-protocol
-
-### Verified A2A facts, and one unresolved blocker
-
-Confirmed from the primary reference on the access date above:
-
-| Fact | Value |
-| --- | --- |
-| Protocol versions | **1.0 GA**, 0.3 preview |
-| Transport | v1.0 is **JSONRPC only**. v0.3 also allows HTTP+JSON. gRPC unsupported in both |
-| Authentication | **Microsoft Entra ID only.** Key-based and anonymous access are not supported, including for the agent card |
-| Caller role | **Foundry Agent Consumer** (`eed3b665-ab3a-47b6-8f48-c9382fb1dad6`), scoped to the project or to a single agent |
-| Token scope | `https://ai.azure.com/.default` |
-| Enablement | `PATCH` the agent with an `agent_card` and `agent_endpoint.protocol_configuration.a2a`. Not available in the portal |
-| Endpoint | `…/agents/{agent}/endpoint/protocols/a2a`, card at `…/agentCard/v1.0` |
-| Retention | A2A tasks and contexts are kept 60 days from last write |
-
-**Version-negotiation trap.** A request that specifies no version gets **preview v0.3**,
-not GA v1.0. Pin the version explicitly — `A2A-Version: 1.0`, `?a2a-version=1.0`, or by
-resolving the v1.0 agent card — or the demo silently runs on a preview protocol. Supplying
-both selectors with *different* values returns HTTP 400 `version-ambiguous`.
-
-**RESOLVED (2026-10-09): native incoming A2A does NOT work on a hosted container agent** (platform: `HOSTED_AGENT_NOT_SUPPORTED`, `docs/compatibility.md` B5d). The supported route is the A2A façade (B5e; exercised end to end on 2026-10-09, `telemetry-map.md` §0.13, with streaming, cancel and multi-turn not implemented): hosted agents are invoked through Responses and the façade exposes them as A2A. The paragraph below is the pre-spike state, kept for history.
-
-**(Pre-spike) UNRESOLVED — does incoming A2A work on a hosted container agent?** The documentation
-states that incoming A2A *requires the Responses protocol*, which our agent uses. But the
-only agent type it explicitly blesses is the **prompt agent**, and its prerequisites name
-"a deployed prompt agent". Whether a custom hosted-container agent can be exposed over A2A
-is **not confirmed by any primary source we have found**. Treat it as unverified until a
-spike proves it. If it turns out to be unsupported, the harness falls back to calling the
-agent over the Responses protocol directly — the containment claim is unaffected, because
-the protocol the harness uses to reach the agent has no bearing on what the agent's tools
-can reach. Do not write A2A support for hosted agents into any report as tested until it
-has been.
-
-Both APIs are reachable and healthy independently of the agent. Neither API deliberately denies the negative test. Therefore, an API authorization error cannot masquerade as successful network containment.
-
-Use a Foundry-hosted model where feasible so framework choice is separated from model-provider choice. Validate the ADK model adapter rather than assuming a native integration. Do not enable Google telemetry export by default.
-
-## Demonstration sequence
-
-1. Show both ADK tool definitions and the external destination policy.
-2. Invoke both tools through the **deployed hosted-agent runtime** using a deterministic test path.
-3. Under **Audit**, expect both controlled APIs to receive their requests. Inspect would-deny evidence for the unapproved destination.
-4. Under **Enforced**, expect the permitted call to succeed and the unapproved call to be denied by the platform. Confirm that the second API received no matching request.
-5. Show the correlated tool attempt, egress decision, and API receipt evidence.
-6. Explain how an authorized operations team can inspect Application Insights and optionally receive telemetry through an approved OpenTelemetry destination.
-
-Use separate Audit and Enforced policy resources and immutable agent versions. Run each test against an explicitly identified version, not an assumed latest deployment. Both versions must use the same image digest and tool configuration; the egress policy is the experimental variable.
-
-### Expected results—not captured evidence
-
-| Mode | Permitted tool | Unapproved tool |
-| --- | --- | --- |
-| Local baseline | API succeeds; receipt logged | API succeeds; receipt logged |
-| Hosted Audit | API succeeds; receipt logged | API succeeds; receipt logged; would-deny evidence |
-| Hosted Enforced | API succeeds; receipt logged | Platform denial; matching decision evidence; no API receipt |
-
-The documented walkthrough describes proxy HTTP 403 for the enforced negative test. A bare 403, DNS error, timeout, model refusal, or missing log is **not** proof of containment. Treat missing evidence as inconclusive.
-
-## Observability requirements
-
-Implement three distinguishable evidence layers:
-
-- **Agent/application:** agent run, ADK tool invocation, duration, destination hostname, HTTP outcome, and error category.
-- **Platform:** available Foundry egress decision evidence, with the real field names discovered during validation.
-- **Destination:** receipt events at each controlled API, using a synthetic correlation marker.
-
-Proposed application fields: `demo_run_id`, `trace_id`, `agent_name`, `agent_version`, `policy_mode`, `tool_name`, `destination_host`, `duration_ms`, `http_status`, and `error_category`. These are our application schema, not guaranteed platform fields. Do not synthesize a platform policy decision in application logs.
-
-ADK has OpenTelemetry instrumentation; Foundry protocol libraries provide runtime telemetry. Verify their provider/exporter integration and trace correlation rather than assuming all ADK internal spans automatically appear in Foundry. Avoid duplicate tracer providers and duplicate export.
-
-Enable project monitoring for Application Insights. Optional OTLP export must target an approved collector. Test whether the egress configuration permits telemetry delivery. Do not assume platform egress decision records are included in every application OTLP export; verify their actual source and export path separately.
-
-Use full trace sampling for synthetic demo runs where supported. Disable prompt, response, payload, credential, and authorization-header capture. Give viewers least-privilege read access to the chosen monitoring resources.
-
-## Build prerequisites
-
-- A test Azure subscription, Foundry project, and supported hosted-agent region.
-- Confirmed access to the egress preview in that environment.
-- Permission to create an account-level RAI policy and deploy hosted-agent versions.
-- Azure Container Registry and a container-build workflow.
-- A Foundry model deployment compatible with the validated ADK adapter.
-- Two distinct HTTPS hostnames under our control, with valid certificates and observable receipt logs.
-- Application Insights/project monitoring; optional approved OTLP collector.
-- Local Python, container tooling, and Azure deployment tooling. Pin versions after the compatibility spike.
-
-Keep real resource values in local configuration. Commit `.env.example` with placeholders only. Use managed identity and supported project connections for credentials; do not put secrets in source, images, or committed deployment files.
-
-## Suggested repository structure
-
-```text
-README.md
-PLAN.md
-pyproject.toml
-.env.example
-.gitignore
-Dockerfile
-src/containment_demo/
-  agent.py
-  tools.py
-  protocol_adapter.py
-  diagnostics.py
-  telemetry.py
-  settings.py
-services/
-  policy_api/
-  test_receiver/
-infra/
-  policies/
-  deployment/
-scripts/
-  preflight.py
-  deploy.py
-  verify_demo.py
-tests/
-  unit/
-  integration/
-docs/
-  compatibility.md
-  egress-control.md
-  demo-runbook.md
-  telemetry-map.md
-  evidence-template.md
-# Dapr extension adds:
-src/workflow_app/
-src/workflow_api/
-samples/onprem_harness/
-infra/aks/
-infra/dapr/
-tests/workflow/
-docs/workflow-runbook.md
-```
-
-## Security and testing rules
-
-- Synthetic data only. No customer records, bank credentials, or confidential platform details.
-- Register both tools in every mode; no conditional removal, code allowlist, or prompt-only block.
-- Use bounded timeouts and disabled redirects; keep TLS verification enabled and use the documented runtime CA handling.
-- Do not expose a public arbitrary-URL probe. Diagnostic execution is authenticated and restricted to the two configured destinations.
-- Tool failures are captured independently so the blocked call does not suppress the permitted test.
-- Keep network destination permission, API authorization, and data-validation responsibilities distinct.
-- This proves the configured hosted-runtime HTTP/HTTPS path only—not arbitrary protocols, every exfiltration route, or production compliance.
-
-## Acceptance criteria
-
-- [ ] ADK executes inside a real Foundry hosted-agent container through a supported protocol adapter.
-- [ ] Exactly two business tools remain registered in Audit and Enforced modes.
-- [ ] Both endpoints pass independent baseline health/receipt checks.
-- [ ] Audit produces successful calls and identifiable would-deny evidence.
-- [ ] Enforced preserves the permitted call and blocks the unapproved destination with corroborating evidence.
-- [ ] The negative test is not an application check, prompt refusal, or endpoint-side authorization failure.
-- [ ] Application/tool traces and platform decision evidence can be inspected by authorized viewers.
-- [ ] Trace correlation and any OTLP export claims have been tested and documented.
-- [ ] Setup, test, teardown, and demo instructions are reproducible; unsupported features are disclosed.
-
-## Extension: Dapr Workflow on AKS
-
-### Recommended next build
-
-Keep Google ADK and both business tools in Foundry hosted agents. Add a Python Dapr Workflow application on AKS, with a Dapr sidecar and a persistent, workflow-compatible state store. **Azure Durable Task Scheduler and its SDK are not dependencies of this design.** Dapr's own runtime infrastructure is distinct from the Azure managed Scheduler service.
-
-```text
-ON-PREMISES: agentic harness
-           |
-           |--- A2A (or Responses) ------------> Foundry hosted agent
-           |                                     (containment demo path)
-           |
-           '--- authenticated workflow API ----> AKS: Python workflow app + Dapr sidecar
-                                                   |-- Persistent workflow state store
-                                                   |-- Activity -> Foundry hosted ADK agent
-                                                   |                 `-- two-tool egress demo
-                                                   `-- Approval event / deadline
-                                                         -> follow-up activity -> completion
-```
-
-The harness reaches Foundry two ways, and they are deliberately separate. The **direct
-path** is the containment demo: harness to hosted agent, nothing else in between, so a
-denied call has exactly one sufficient cause. The **workflow path** adds durability,
-approval gates and restart survival around that same unchanged agent. Keeping them
-separate means the workflow extension can never be blamed for, or credited with, a
-containment result.
-
-**PostgreSQL is the state store, but it is gated off by default.** `infra/cloud/` carries
-the full Flexible Server configuration behind `enable_state_store`, which defaults to
-`false`. Nothing before Phase 8 reads from it, so the containment environment runs without
-it.
-
-The default is now about cost and lifecycle rather than availability: the server would sit
-idle and billing, and add a resource to every teardown, so it is created when Phase 8 needs
-it.
-
-It began as an availability workaround. The subscription is restricted from provisioning
-Flexible Server in `eastus2`, where the containment environment previously ran: the
-capabilities API returns `restricted: Enabled` with every supported version list empty,
-which surfaces as the misleading error `The value of the 'Version' should be in: []`.
-Flexible Server uses VNet injection rather than a private endpoint, so the server is pinned
-to its subnet's region and could not simply live elsewhere. That conflict is what drove the
-move to `canadacentral`, which permits both.
-
-Surveyed 2026-10-08:
-
-| Unrestricted | Restricted |
-| --- | --- |
-| `centralus`, `westus3`, `northcentralus`, `canadacentral` | `eastus`, `eastus2`, `westus2`, `southcentralus` |
-
-**The target region is `canadacentral`, so that the containment environment and the Phase 8
-state store share one region.** PostgreSQL Flexible Server is unrestricted there with major
-versions 11–18, and `gpt-5.4-mini` `2026-03-17` is available on `GlobalStandard`
-(`compatibility.md` A2b). Its egress spike passed on 2026-10-08: ARM retained the
-Microsoft-managed agent network with `publicNetworkAccess` `Disabled`, and stored both RAI
-policies differing only in `Audit` versus `Enforced` mode. `swedencentral` passed the same
-check and remains a proven fallback.
-
-That result is control-plane acceptance only. It shows ARM stores the configuration; it
-shows nothing about enforcement, about which layer wins when the managed network and the
-egress policy both apply, or about whether a denied request is attributable.
-
-Check regions individually rather than by geography: `canadaeast` is restricted for
-PostgreSQL even though `canadacentral` is not.
-
-That testing was not optional. There is **no published region list** for hosted agents or
-for the network egress preview — `eastus2` is trusted only because the Phase 0 spike
-confirmed it. Any further region needs the same treatment: run `task spike:up -- <region>`,
-which creates only a Foundry account and two RAI policies. If the egress policy is rejected
-there, record a blocker rather than quietly falling back to an application-level check.
-
-Note that the spike's Foundry account sits in `Creating` for around ten minutes, almost
-entirely in the managed agent network. That is expected and is not a failure signal.
-
-Validate the chosen version against the selected Dapr runtime and Python Workflow SDK for
-actor-state requirements, transactions, concurrency and durability configuration before
-adoption. Dapr Workflow is built on actors, and a Dapr state store can back actors only if
-it supports *both transactional operations and ETag* — PostgreSQL does, but confirm the
-specific component version rather than assuming it. **Demo storage must survive pod
-restart; an ephemeral store is not a recovery proof.** Pin a mutually compatible runtime,
-Python Workflow SDK, AKS extension or Helm release, and state-store component. Pick one
-installation method; do not install overlapping Dapr control planes.
-
-Source: [Dapr supported state stores](https://docs.dapr.io/reference/components-reference/supported-state-stores/), accessed 2026-10-08 — "State stores can be used for actors if it supports both transactional operations and ETag."
-
-Proposed case flow:
-
-1. Start a synthetic servicing case with a stable workflow instance ID.
-2. An activity invokes the unchanged hosted ADK agent, retrieving policy and attempting the unapproved tool.
-3. Record a verified network denial as an expected result, not a retryable transient fault.
-4. Wait for an authenticated approval event with a durable deadline.
-5. Restart the workflow application pod while the case waits; leave persistent storage intact.
-6. Submit approval, resume the same instance, invoke a follow-up agent activity, and complete with evidence references.
-
-Approval changes workflow status, never network permission. Durability is at workflow/activity boundaries, not automatic checkpointing of all internal ADK reasoning or tools. Keep workflow logic deterministic and agent/HTTP calls in activities. Design for retried activities and idempotent side effects. Persist ADK context explicitly or make each activity self-contained.
-
-### On-premises participation
-
-**The on-premises side is a full agentic harness, not an API client.** It runs its own
-agent loop, its own model and its own local tools, and delegates selected steps outward.
-It reaches the Foundry hosted agent directly over A2A (see "Why A2A and not MCP"), and
-reaches the durable workflow through an application-owned API in front of Dapr. The
-harness does not adopt Dapr and does not run a Dapr sidecar.
-
-That workflow API must still enforce instance ownership, allowed operations, schema
-limits, and approval authority — a sophisticated caller is not a trusted caller. Never
-expose raw Dapr sidecar or administrative ports publicly.
-
-**Optional outbound-only bridge:** If AKS cannot call on-premises, publish a request to an approved broker. A local consumer executes the local agent and publishes a result. An AKS adapter validates the result and raises a workflow event. Implement correlation, deduplication, deadlines, late-result handling, and poison-message handling. This is an application messaging pattern, not automatic cross-cluster workflow routing; select the broker and transport only after approval.
-
-The bridge is a separate integration sample. Keep the Foundry ADK agent's exactly two business tools unchanged; do not replace the containment proof with a local tool execution.
-
-### State, security, and observability responsibilities
-
-Dapr runs workflow execution through its runtime and persists progress in a configured state store. We operate AKS, Dapr infrastructure, storage, credentials, backup/recovery, upgrades, and retention. AKS-hosted workflows do not imply on-premises state residency. Minimize history inputs/results to synthetic metadata and opaque references; separately document where agent memory and workflow history reside.
-
-Dapr provides workflow tracing. Validate SDK/version-specific activity context propagation; do not assume one continuous trace crosses every approval wait or remote agent call. Correlate workflow instance ID, activity operation/attempt, ADK invocation/session, tool trace, platform decision, and endpoint receipt marker. Export only to approved destinations, with payload capture disabled.
-
-Dapr service invocation security is not a general network egress firewall. Keep Foundry hosted-agent egress for the original two-tool proof and separately configure/test AKS application outbound controls, identity, secrets, and private connectivity. Account for Foundry/model, state store, telemetry, and approved broker dependencies.
-
-### Deferred portability comparison
-
-Running Dapr Workflow and/or ADK on on-premises Kubernetes/OpenShift is a later deployment validation, not demonstrated by AKS success. Validate runtime/control-plane compatibility, storage, identity, networking, and operations separately. Do not assume a single Dapr app spans disconnected clusters or can route activities to a chosen site automatically. Foundry containment does not follow an agent moved to local compute. A fully local design requires locally validated state/runtime dependencies and is not an air-gapped promise.
-
-### Additional prerequisites and acceptance criteria
-
-- AKS test environment, approved Dapr installation, persistent compatible state store, and an authenticated workflow API.
-- Permissions for cluster deployments, approved runtime identities, storage access, private routing/DNS, and monitoring.
-- [ ] Workflow activities invoke the unchanged Foundry ADK agent and preserve its containment evidence.
-- [ ] The same case survives workflow pod restart during approval wait, with the state store intact.
-- [ ] Denial, duplicate approvals, timeout, and activity retries have explicit safe outcomes.
-- [ ] Agent context and workflow state have independent tested persistence strategies.
-- [ ] A separately running agentic harness on AKS, standing in for on-premises, invokes the Foundry hosted agent over A2A across the private endpoint — with the protocol version pinned to 1.0 and Entra ID authentication — and separately starts/queries/signals a workflow case through the authenticated API. If incoming A2A proves unsupported for hosted container agents, the harness uses the Responses protocol and that substitution is recorded, not hidden.
-- [ ] The Foundry account is inbound-private (`publicNetworkAccess` Disabled, `networkAcls` Deny) and the harness ingress is the environment's only public surface. The private endpoint is never described as outbound containment.
-- [ ] Evidence distinguishes what ran in the harness, which the egress policy does not govern, from what ran inside the contained Foundry container. A report that blurs the two is a failure, not a pass.
-- [ ] Raw sidecar management interfaces remain private; case-level authorization is tested.
-- [ ] State-store durability/backup, workflow retention, and trace linkage are documented.
-- [ ] Optional bridge and OpenShift/full-local deployment remain deferred unless separately approved.
-
-## Start with GitHub Copilot
-
-Open this repository and ask:
-
-> Read README.md and PLAN.md. Implement Phase 0 first, then the local scaffold and tests. Keep Google ADK and both business tools. Do not replace platform egress enforcement with application checks, invent SDK APIs, or deploy Azure resources without my approval. Record validated package versions, protocol/model integration, preview availability, and telemetry fields. If a required platform feature is unavailable, stop that portion and report the blocker; never label local simulation as Foundry enforcement.
-
-After the base containment acceptance criteria pass, implement Phases 8–9 in PLAN.md using Dapr Workflow on AKS. Keep the messaging bridge and on-premises runtime comparison in Phase 10 deferred.
-
-## References
-
-Recheck these primary sources at implementation time; this specification was prepared October 7, 2026.
-
-- Microsoft Learn, **Hosted agents in Foundry Agent Service**: https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agents
-- Microsoft Foundry Blog, **Control where your hosted agent connects with network egress in Foundry Agent Service**, September 24, 2026: https://devblogs.microsoft.com/foundry/egress-controls-hosted-agent/
-- Microsoft Learn, **Export hosted agent telemetry by using OpenTelemetry**: https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/configure-hosted-agent-telemetry
-- Microsoft Learn, **Deploy and run workflows with the Dapr extension for AKS**: https://learn.microsoft.com/en-us/azure/aks/dapr-workflow
-- Microsoft Learn, **Install Dapr Extension for AKS and Arc-enabled Kubernetes**: https://learn.microsoft.com/en-us/azure/aks/dapr
-- Dapr Docs, **Workflow overview**: https://docs.dapr.io/developing-applications/building-blocks/workflow/workflow-overview/
-- Dapr Docs, **Workflow architecture**: https://docs.dapr.io/developing-applications/building-blocks/workflow/workflow-architecture/
-- Google ADK, **Traces**: https://adk.dev/observability/traces/
-- Google Cloud, **Instrument ADK applications with OpenTelemetry**: https://docs.cloud.google.com/stackdriver/docs/instrumentation/ai-agent-adk
+| [Compatibility](compatibility.md) | Pinned runtime contracts and primary references |
+| [Identity token flow](token-flow-documented.md) | Delegated API authorization and UI interpretation |
+| [Identity probe](identity-probe.md) | Optional directory and delegated-Foundry compatibility checks |
+| [Egress control](egress-control.md) | RAI network policy mechanics, TLS and limits |
+| [Telemetry map](telemetry-map.md) | Observed schemas, joins and dated evidence |
+| [KQL queries](kql-queries.md) | Evidence inspection queries |
+| [Evidence template](evidence-template.md) | One record per run |
+| [Diagrams](diagrams/README.md) | Editable diagram sources |
+
+## Current baseline
+
+The owner confirmed the existing Foundry egress and identity demo was tested on
+2026-11-06. Dated baseline observations remain in the telemetry map; they are not
+results for a later deployment.
+
+On 2026-11-09 the real controlled APIs were deployed and healthy, and seven isolated
+governance agents were active on one image digest, with three dedicated RAI policies
+and verified model-access grants. No hosted governance comparison was invoked.
+Microsoft 365 Copilot integration is the active implementation track.
+
+## Operating rules
+
+Use the repository's Task targets. The owner runs builds, deployments, hosted calls
+and teardown. Preserve Terraform state and externally managed policy settings.
+Do not run `cloud:up` to erase unrelated policy drift; `deploy:tool-apis` applies a
+guarded plan limited to the two existing Container Apps.
+
+Use synthetic data, verified TLS, bounded timeouts and disabled redirects. Never
+capture prompts, responses, payloads, tokens or authorization headers in telemetry.
+No arbitrary-URL tool, application hostname allowlist, conditional tool registration
+or prompt-only refusal substitutes for the platform experiment.
+
+Missing evidence is **inconclusive**, never a pass. Local execution is a functional
+test, not containment proof. Network egress controls are preview and are not a
+production assurance or compliance certification.

@@ -1,16 +1,19 @@
 # KQL queries for the containment evidence
 
-Run these in the Log Analytics workspace `humble-phoenix-46689-logs` (Logs blade). Both `AppDependencies`
+Run these in this deployment's Log Analytics workspace (resolve it from `cloud:output`).
+Both `AppDependencies`
 (the platform egress decisions) and `ContainerAppConsoleLogs_CL` (receipts) are in that one workspace.
 
-**Status:** every table and column used here is listed as VERIFIED in `telemetry-map.md` (§0.6.3, §0.12 to §0.14, §3.2).
+**Status:** observed schema and dated results are in [telemetry-map.md](telemetry-map.md).
 These exact query texts were written on 2026-10-09 from those columns and **have not been run as written**; Dallas
 ran equivalent queries for §0.14. Run one first and report any error before relying on it.
 
 Set the run id once at the top of each query. The `run-…` id appears in the URL path of the decision row (`Data`)
 and in the receipt line; the `ui-…` and harness ids do not join to it.
 
-A proposed (not yet applied) workbook with these panels: `infra/cloud/workbooks/egress-evidence.workbook.json`.
+Workbook source: `infra/cloud/workbooks/egress-evidence.workbook.json`.
+Relative windows below are for exploration. For evidence records use explicit run
+start/end times and verify matching receipt events, not arbitrary access-log lines.
 
 ## 1. Every platform egress decision in a time window
 
@@ -80,6 +83,7 @@ ContainerAppConsoleLogs_CL
 | where TimeGenerated > ago(24h)
 | where Log_s has run
 | extend j = parse_json(Log_s)
+| where tostring(j.event) == "receipt" and tostring(j.demo_run_id) == run
 | project TimeGenerated, service = ContainerAppName_s, event = tostring(j.event),
           demo_run_id = tostring(j.demo_run_id), Log_s
 | order by TimeGenerated asc
@@ -101,7 +105,8 @@ let decisions = AppDependencies
         where_ = tostring(p.host);
 let receipts = ContainerAppConsoleLogs_CL
     | where TimeGenerated > ago(24h)
-    | where Log_s has run and Log_s has "\"event\""
+    | extend r = parse_json(Log_s)
+    | where tostring(r.event) == "receipt" and tostring(r.demo_run_id) == run
     | project TimeGenerated, source = "receipt", detail = "reached the destination", where_ = ContainerAppName_s;
 union decisions, receipts
 | order by TimeGenerated asc
@@ -113,7 +118,8 @@ row followed by a `test-receiver` receipt is the audit slot letting the same cal
 
 ## 7. Which hosts did a run try to reach (any run)
 
-Expect the Application Insights ingestion host to appear as `Deny` under `Enforced`.
+The historical baseline denied the telemetry host. Dedicated governance policies
+allow it; inspect actual policy and rows rather than assuming either outcome.
 
 ```kusto
 AppDependencies
@@ -148,7 +154,8 @@ the audit slot (same host should be `Allow`/`AuditWouldDeny`) before stating it.
 One timeline across all runs. Under `Audit` each tool shows an `execute_tool` span, a `demo.tool_result` trace, a
 platform decision row and a receipt. Under `Enforced` the app rows are absent (the platform denies the telemetry
 export, §8), so read the decision row and the missing `test-receiver` receipt (180 s rule). Decision rows carry no
-run id, so they line up with app rows by host and time only (inferred). Same query as workbook panel (g).
+`demo_run_id` property, but retain the run marker in `Data` / `Properties.path`.
+Use that marker for evidence, not host/time proximity alone.
 
 ```kusto
 let tools = AppDependencies
@@ -200,7 +207,8 @@ Limits (SOURCE-VERIFIED in `services/policy_api/main.py`):
 - The policy API writes `event=authorization_decision` for **denied** or **unavailable** calls and `event=receipt`,
   `outcome=served` (with `user_object_id`) for an allowed call. Both lines carry `demo_run_id`, so the first query
   matches either kind. The `served` term is a plain substring match on the log line; an allowed user should get one
-  `served` row, a denied user one `authorization_decision` row. Neither shape has been seen live.
+  `served` row, a denied user one `authorization_decision` row. Validate the actual
+  run's parsed event and marker before using it as evidence.
 - Under `Enforced` the agent may emit no app telemetry (App Insights egress is denied, §8), so the second query can be
   empty. That is not a pass and not a fail; it is missing evidence (inconclusive).
 - A denial row is an **identity** result (`determination=identity_only`). It is not an egress result.
