@@ -21,8 +21,23 @@ Issue #10 local governance artifacts are available. Owner-run sequence:
 These install/check ACS and OPA locally, use mock HTTP destinations, and do not deploy
 anything. **Local validation (2026-11-06):** 259 tests, formatting, lint, type checks and
 all five tamper checks passed; the owner-generated dependency lock is included.
-The existing hosted image does not yet include ACS/OPA or these policy artifacts;
-keep governance Disabled there until the G4 packaging/deployment stage is implemented.
+The G4 hosted packaging and isolated deployment/evidence automation are now written.
+The governed image was built and published in Azure on **2026-11-06**, and the base
+Azure lab was recreated using `task cloud:bootstrap` and `task cloud:up`.
+**Azure API deployment (2026-11-09):** both controlled APIs now run the real service
+images; their new revisions are healthy, receive 100% of traffic and answer `/healthz`.
+The guarded `task deploy:tool-apis` updated only those two Container Apps. Both existing
+RAI policies' properties were unchanged in before/after readback.
+**Isolated deployment (2026-11-09):** all seven governance scenario agents are active
+at version `1` on one image digest; three dedicated policies and seven model-access
+grants are verified. No hosted comparison calls were made: the owner chose to run the
+manual tests. Deployment and API health are not containment evidence. Keep governance
+Disabled on the baseline. See [the manual testing guide](governance-demo.md).
+After approval, use
+`governance:build`, `governance:plan`, `governance:up`, `governance:run` and
+`governance:verify`; see [the hosted governance procedure](demo-runbook.md#hosted-governance-comparison-issue-10).
+ACS is application governance inside the hosted container; Foundry's network boundary
+remains the platform capability being demonstrated.
 
 > **Status (2026-10-09):** the build is no longer only a specification. Deployed and observed: both Foundry hosted agents (one image digest, Audit and Enforced policies), the two controlled endpoints, A2A façades on AKS, a demo UI, a local-model (Qwen2.5-3B, CPU) harness chat service, and `verify_demo.py` sections B and C returning PASS (small n; see [`telemetry-map.md`](telemetry-map.md) §0.13, §0.14). Open: Entra auth for the A2A hop (issue #4), model reliability and speed, section D. What is actually deployed: [`architecture-as-built.md`](architecture-as-built.md). Remaining text in this file is the original design unless marked.
 
@@ -33,6 +48,7 @@ keep governance Disabled there until the G4 packaging/deployment stage is implem
 | [`architecture-as-built.md`](architecture-as-built.md) | The system as deployed, trust boundaries, verified vs proposed vs blocked |
 | [`diagrams/README.md`](diagrams/README.md) | Excalidraw diagram of the whole environment (zones, flows F1-F11, legend) |
 | [`demo-runbook.md`](demo-runbook.md) | Presenter one-pager, harness chat path, full audit procedure |
+| [`governance-demo.md`](governance-demo.md) | Manual Copilot-assisted hosted comparison, web UI limits and Azure evidence inspection |
 | [`rebuild-runbook.md`](rebuild-runbook.md) | Consistent build/deploy commands, component names and complete standup order |
 | [`identity-probe.md`](identity-probe.md) | Issue #4 I0 probe, offline owner commands and blocked identity-setup contract |
 | [`PLAN.md`](PLAN.md) | Phases, status, gates, backlog |

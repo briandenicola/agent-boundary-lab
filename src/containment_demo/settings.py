@@ -12,6 +12,7 @@ is worse than one that refuses to start, because its results look real.
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from enum import StrEnum
 from pathlib import Path
@@ -50,6 +51,11 @@ class ErrorCategory(StrEnum):
     TIMEOUT = "timeout"
     CONNECTION_ERROR = "connection_error"
     UNEXPECTED = "unexpected"
+
+
+class GovernanceErrorCategory(StrEnum):
+    DENIED = "governance_denied"
+    ERROR = "governance_error"
 
 
 class GovernanceMode(StrEnum):
@@ -204,6 +210,15 @@ class Settings(BaseSettings):
     @property
     def test_receiver_host(self) -> str:
         return _host_of(str(self.test_receiver_url))
+
+    @staticmethod
+    def validate_run_id(run_id: str) -> str:
+        if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", run_id) is None:
+            raise ValueError("invalid demo run identifier")
+        return run_id
+
+    def for_run(self, run_id: str) -> Settings:
+        return self.model_copy(update={"demo_run_id": self.validate_run_id(run_id)})
 
     @property
     def agent_version(self) -> str:

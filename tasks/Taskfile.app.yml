@@ -17,6 +17,12 @@ tasks:
       - task: :cloud:up
       - task: :deploy:app-components
 
+  deploy-governance:
+    desc: OPT-IN AZURE + AKS. Existing all-up app deployment, then the isolated governance track; images must already be built
+    cmds:
+      - task: deploy
+      - task: :governance:up
+
   deploy-external:
     desc: FROM SCRATCH. Provision cloud infra, deploy app components, then enable external HTTPS harness ingress with Entra login
     requires:

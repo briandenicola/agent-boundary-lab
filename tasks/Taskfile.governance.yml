@@ -4,13 +4,18 @@ silent: true
 env:
   GOVERNANCE_TEST_OPA: '{{.ROOT_DIR}}/.task/governance/bin/opa'
 
+includes:
+  arm:
+    taskfile: ./Taskfile.arm.yml
+    internal: true
+
 tasks:
   prepare:
     desc: Install pinned ACS/OPA and update the dependency lock; owner-run, downloads required
     cmds:
       - task: opa
       - uv lock
-      - uv sync --locked --extra dev --extra services --extra governance --no-build-package agent-control-specification
+      - uv sync --locked --extra dev --extra services --extra governance --extra verify --no-build-package agent-control-specification
 
   opa:
     internal: true
@@ -41,7 +46,7 @@ tasks:
         msg: Run task governance:prepare first.
     cmds:
       - .task/governance/bin/opa check --strict policies/acs/bundle
-      - .venv/bin/python -m pytest tests/unit/test_governance.py tests/unit/test_agent.py tests/unit/test_diagnostics.py tests/unit/test_settings.py tests/unit/test_tools.py tests/unit/test_telemetry.py tests/unit/test_protocol_adapter.py tests/unit/test_harness.py tests/unit/test_invocation_primitive.py -q
+      - .venv/bin/python -m pytest tests/unit/test_governance.py tests/unit/test_governance_hosted.py tests/unit/test_agent.py tests/unit/test_deploy.py tests/unit/test_diagnostics.py tests/unit/test_settings.py tests/unit/test_tools.py tests/unit/test_telemetry.py tests/unit/test_protocol_adapter.py tests/unit/test_harness.py tests/unit/test_invocation_primitive.py tests/unit/test_verify_harness.py tests/unit/test_hosted_verdicts.py tests/unit/test_cloud_tasks.py tests/unit/test_task_commands.py -q
       - task: :lint:format
       - task: :lint:ruff
       - task: :lint:types
@@ -50,3 +55,264 @@ tasks:
     desc: Prove governance guards fail when bypassed in isolated temporary copies
     cmds:
       - .venv/bin/python scripts/verify_governance_guards.py
+
+  build:
+    desc: BUILDS AND PUBLISHES IN AZURE. Build the governed image separately from the baseline image
+    prompt: Build and publish containment-demo-governed-agent in the existing ACR?
+    cmds:
+      - task: :cloud:target-check
+      - task: :build:_foundry-image
+        vars: {REPOSITORY: containment-demo-governed-agent}
+
+  plan:
+    desc: READ-ONLY AZURE. Check policy ownership and plan three isolated RAI policies
+    cmds:
+      - task: _context
+      - terraform -chdir=infra/governance init -input=false
+      - task: _ownership
+      - terraform -chdir=infra/governance plan -input=false -compact-warnings
+
+  up:
+    desc: CHANGES AZURE + AKS. Create three isolated policies, seven same-digest scenario agents and model-access grants
+    prompt: Create the isolated governance policies, publisher, seven hosted agents and their model-access grants? The existing baseline is not redeployed.
+    cmds:
+      - task: _context
+      - task: _prerequisites
+      - task: :tool-apis:check
+      - terraform -chdir=infra/governance init -input=false
+      - task: _ownership
+      - |
+        set -eu
+        mkdir -p .task/governance
+        terraform -chdir=infra/governance plan -input=false -compact-warnings \
+          -out="{{.ROOT_DIR}}/.task/governance/policies.tfplan"
+        terraform -chdir=infra/governance show -json \
+          "{{.ROOT_DIR}}/.task/governance/policies.tfplan" \
+          | .venv/bin/python scripts/governance_manifest.py --check-plan
+        terraform -chdir=infra/governance apply -input=false -compact-warnings \
+          "{{.ROOT_DIR}}/.task/governance/policies.tfplan"
+      - task: _publisher
+      - |
+        set -eu
+        NS=$(terraform -chdir=infra/cloud output -raw kubernetes_namespace)
+        kubectl -n "$NS" rollout status deployment/agent-governance --timeout=300s
+        kubectl -n "$NS" exec deployment/agent-governance -- \
+          /opt/deploy-venv/bin/python -m containment_demo.governance.hosted up
+      - task: _access
+      - task: status
+
+  status:
+    desc: READ-ONLY AZURE. Read back actual image, governance settings, policies and network configuration
+    cmds:
+      - task: _context
+      - |
+        set -eu
+        NS=$(terraform -chdir=infra/cloud output -raw kubernetes_namespace)
+        kubectl -n "$NS" exec deployment/agent-governance -- \
+          /opt/deploy-venv/bin/python -m containment_demo.governance.hosted status
+
+  run:
+    desc: INVOKES FOUNDRY 14 TIMES. Both deterministic and model-selected calls for all seven scenarios; private token JSON required
+    prompt: Invoke the isolated Foundry agents fourteen times using the authorized synthetic user's supplied tokens?
+    cmds:
+      - task: _context
+      - |
+        set -eu
+        : "${GOVERNANCE_TOKEN_FILE:?Set GOVERNANCE_TOKEN_FILE to the owner-only JSON from the existing synthetic-user login flow.}"
+        [ "$(stat -c %a "$GOVERNANCE_TOKEN_FILE")" = 600 ] && \
+          [ "$(stat -c %u "$GOVERNANCE_TOKEN_FILE")" = "$(id -u)" ] || {
+          echo "The token file must be owned by you and mode 600." >&2; exit 1; }
+        NS=$(terraform -chdir=infra/cloud output -raw kubernetes_namespace)
+        CODE=0
+        cat "$GOVERNANCE_TOKEN_FILE" | kubectl -n "$NS" exec -i deployment/agent-governance -- \
+          /opt/deploy-venv/bin/python -m scripts.verify_governance run || CODE=$?
+        mkdir -p evidence/governance
+        TMP=$(mktemp evidence/governance/runs.XXXXXX)
+        trap 'rm -f "$TMP"' EXIT
+        kubectl -n "$NS" exec deployment/agent-governance -- \
+          cat /home/agent/.governance/runs.json > "$TMP"
+        mv "$TMP" evidence/governance/runs.json
+        exit "$CODE"
+
+  verify:
+    desc: READ-ONLY AZURE. Judge collected application, platform and receipt evidence; no invocations or automatic retry
+    cmds:
+      - task: :cloud:target-check
+      - |
+        set -eu
+        export DEMO_GOVERNANCE_WORKSPACE_ID=$(terraform -chdir=infra/cloud output -raw log_analytics_workspace_id)
+        export DEMO_POLICY_API_APP_NAME=$(terraform -chdir=infra/cloud output -raw policy_api_app_name)
+        export DEMO_TEST_RECEIVER_APP_NAME=$(terraform -chdir=infra/cloud output -raw test_receiver_app_name)
+        .venv/bin/python -m scripts.verify_governance verify \
+          --journal evidence/governance/runs.json --out evidence/governance/evidence.json
+
+  down:
+    desc: CHANGES AZURE + AKS. Delete only owned scenario versions, recorded model grants, three dedicated policies and the helper
+    prompt: Remove only this governance track's hosted versions, recorded grants, policies, Deployment and Secret? Keep the baseline and namespace.
+    cmds:
+      - task: _context
+      - |
+        set -eu
+        NS=$(terraform -chdir=infra/cloud output -raw kubernetes_namespace)
+        kubectl -n "$NS" exec deployment/agent-governance -- \
+          /opt/deploy-venv/bin/python -m containment_demo.governance.hosted check-down
+      - task: _access-down
+      - |
+        set -eu
+        NS=$(terraform -chdir=infra/cloud output -raw kubernetes_namespace)
+        kubectl -n "$NS" exec deployment/agent-governance -- \
+          /opt/deploy-venv/bin/python -m containment_demo.governance.hosted down
+      - terraform -chdir=infra/governance destroy -input=false -auto-approve -compact-warnings
+      - |
+        set -eu
+        NS=$(terraform -chdir=infra/cloud output -raw kubernetes_namespace)
+        kubectl -n "$NS" delete deployment/agent-governance secret/agent-governance-config \
+          --ignore-not-found --timeout=120s
+
+  _context:
+    internal: true
+    cmds:
+      - task: :cloud:target-check
+      - |
+        set -eu
+        ACCOUNT=$(terraform -chdir=infra/cloud output -raw foundry_account_id)
+        case "$ACCOUNT" in /subscriptions/"$ARM_SUBSCRIPTION_ID"/*) ;;
+          *) echo "Baseline state is not in the approved subscription." >&2; exit 1 ;; esac
+        EXPECTED=$(terraform -chdir=infra/cloud output -raw aks_cluster_name)
+        [ "$(kubectl config current-context)" = "$EXPECTED" ] || {
+          echo "Run cloud:kubeconfig for this environment before governance operations." >&2; exit 1; }
+
+  _prerequisites:
+    internal: true
+    cmds:
+      - task: :deploy:_namespace
+      - |
+        set -eu
+        NS=$(terraform -chdir=infra/cloud output -raw kubernetes_namespace)
+        SA=$(terraform -chdir=infra/cloud output -raw agent_deployer_service_account)
+        CLIENT_ID=$(terraform -chdir=infra/cloud output -raw agent_deployer_client_id)
+        EXISTING=$(kubectl -n "$NS" get serviceaccount "$SA" --ignore-not-found -o json)
+        if [ -n "$EXISTING" ]; then
+          ACTUAL=$(printf '%s' "$EXISTING" | jq -r '.metadata.annotations["azure.workload.identity/client-id"] // ""')
+          [ "$ACTUAL" = "$CLIENT_ID" ] || {
+            echo "Shared deployer ServiceAccount has a different workload identity; refusing to overwrite it." >&2
+            exit 1
+          }
+          exit 0
+        fi
+        sed -e "s|REPLACE_WITH_NAMESPACE|$NS|g" \
+            -e "s|REPLACE_WITH_SERVICE_ACCOUNT|$SA|g" \
+            -e "s|REPLACE_WITH_AGENT_DEPLOYER_CLIENT_ID|$CLIENT_ID|g" \
+            deploy/kustomize/base/serviceaccount.yaml \
+          | kubectl apply --server-side -f -
+
+  _ownership:
+    internal: true
+    vars:
+      ACCOUNT:
+        sh: terraform -chdir=infra/cloud output -raw foundry_account_id
+      EXISTING:
+        sh: mktemp
+    cmds:
+      - task: arm:_arm-get
+        vars:
+          URL: 'https://management.azure.com{{.ACCOUNT}}/raiPolicies?api-version=2026-05-15-preview'
+          QUERY: 'value[].name'
+          OUT: '{{.EXISTING}}'
+      - |
+        set -eu
+        trap 'rm -f "{{.EXISTING}}"' EXIT
+        OWNED='[]'
+        if [ -f infra/governance/terraform.tfstate ]; then
+          OWNED=$(terraform -chdir=infra/governance show -json | jq --arg account "{{.ACCOUNT}}" \
+            '[.values.root_module.resources[]? |
+              select(.mode == "managed" and .type == "azapi_resource" and
+                (.address | startswith("azapi_resource.policy[")) and
+                .values.parent_id == $account and
+                .values.id == ($account + "/raiPolicies/" + .values.name)) |
+              .values.name]')
+        fi
+        printf '%s\n%s\n' "$(cat "{{.EXISTING}}")" "$OWNED" | jq -s \
+          '{existing: .[0], owned: .[1]}' \
+          | .venv/bin/python scripts/governance_manifest.py --check-ownership
+
+  _publisher:
+    internal: true
+    vars:
+      ACR:
+        sh: terraform -chdir=infra/cloud output -raw acr_name
+      DIGEST:
+        sh: mktemp
+    cmds:
+      - task: arm:_acr-digest
+        vars:
+          ACR: '{{.ACR}}'
+          REPOSITORY: containment-demo-governed-agent
+          TAG_OVERRIDE: '${IMAGE_TAG:-}'
+          EXPLICIT: '${GOVERNANCE_IMAGE_DIGEST:-}'
+          BUILD_HINT: task governance:build
+          OUT: '{{.DIGEST}}'
+      - |
+        set -eu
+        trap 'rm -f "{{.DIGEST}}"' EXIT
+        SERVER=$(terraform -chdir=infra/cloud output -raw acr_login_server)
+        IMAGE="$SERVER/containment-demo-governed-agent@$(cat "{{.DIGEST}}")"
+        CLOUD=$(terraform -chdir=infra/cloud output -json)
+        POLICIES=$(terraform -chdir=infra/governance output -json policies)
+        printf '%s\n%s\n' "$CLOUD" "$POLICIES" | jq -s '{cloud: .[0], policies: .[1]}' \
+          | .venv/bin/python scripts/governance_manifest.py --image "$IMAGE" \
+          | kubectl apply --server-side -f -
+
+  _access:
+    internal: true
+    vars:
+      NAMES:
+        sh: |
+          set -eu
+          PREFIX=$(terraform -chdir=infra/cloud output -raw agent_name_audit)
+          for SCENARIO in audit-control governance-denial network-denial success evaluation-failure baseline-audit baseline-enforced; do
+            printf '%s ' "$PREFIX-gov-$SCENARIO"
+          done
+    cmds:
+      - task: :cloud:_agent-access
+        vars:
+          APPLY: 'true'
+          AGENT_NAMES: '{{.NAMES}}'
+          JOURNAL: '{{.ROOT_DIR}}/.task/governance/model-access.json'
+
+  _access-down:
+    internal: true
+    cmds:
+      - |
+        set -eu
+        [ -f .task/governance/model-access.json ] || {
+          echo "No recorded governance model grants; nothing to remove."; exit 0; }
+        SCOPE=$(terraform -chdir=infra/cloud output -raw foundry_account_id)
+        PREFIX=$(terraform -chdir=infra/cloud output -raw agent_name_audit)
+        ACCOUNT=$(terraform -chdir=infra/cloud output -raw foundry_account_name)
+        PROJECT=$(terraform -chdir=infra/cloud output -raw project_name)
+        .venv/bin/python scripts/governance_manifest.py --check-grants --scope "$SCOPE" \
+          --agent-prefix "$PREFIX" \
+          < .task/governance/model-access.json
+        for ROW in $(jq -r '.[] | @base64' .task/governance/model-access.json); do
+          RECORD=$(printf '%s' "$ROW" | base64 --decode)
+          ID=$(printf '%s' "$RECORD" | jq -r .id)
+          AGENT=$(printf '%s' "$RECORD" | jq -r .agent_name)
+          EXPECTED=$(printf '%s' "$RECORD" | jq -r .principal_id)
+          ACTUAL=$(az ad sp list \
+            --filter "tags/any(t:t eq 'agentName:$AGENT') and tags/any(t:t eq 'accountName:$ACCOUNT') and tags/any(t:t eq 'projectName:$PROJECT')" \
+            --query "[?ends_with(displayName,'-AgentIdentity')].id" -o tsv --only-show-errors)
+          [ "$ACTUAL" = "$EXPECTED" ] || {
+            echo "Governance grant principal no longer matches its agent; review before cleanup." >&2; exit 1; }
+          RAW=$(az role assignment list --scope "$SCOPE" --only-show-errors -o json)
+          ASSIGNMENTS=$(printf '%s\n' "$RAW" | sed -n '/^\[/,$p')
+          TOTAL=$(printf '%s\n' "$ASSIGNMENTS" | jq --arg id "$ID" '[.[] | select(.id == $id)] | length')
+          [ "$TOTAL" != 0 ] || continue
+          MATCH=$(printf '%s\n' "$ASSIGNMENTS" | jq --arg id "$ID" --arg principal "$EXPECTED" \
+            '[.[] | select(.id == $id and .principalId == $principal and
+             (.roleDefinitionId | endswith("5e0bd9bd-7b93-4f28-af87-19fc36ad61bd")))] | length')
+          [ "$MATCH" = 1 ] || {
+            echo "Grant ID does not belong to the recorded governance principal/model role; refusing deletion." >&2; exit 1; }
+          az role assignment delete --ids "$ID" --only-show-errors
+        done
+        printf '[]\n' > .task/governance/model-access.json

@@ -60,13 +60,15 @@ def _authorised(request: Request, settings: Settings) -> bool:
     return hmac.compare_digest(presented, expected)
 
 
-def _run_one(name: str, settings: Settings) -> dict[str, Any]:
+def _run_one(name: str, settings: Settings, user_token: str | None = None) -> dict[str, Any]:
     """Run a single tool, converting an unexpected crash into a recorded outcome.
 
     The tools already classify their own network failures. This guard exists only so
     that a defect in one tool cannot prevent the other's result from being reported.
     """
     try:
+        if name == "get_servicing_policy":
+            return tools.get_servicing_policy(settings, user_token=user_token)
         return _RUNNERS[name](settings)
     except Exception as exc:
         logger.exception("diagnostic tool raised", extra={"tool": name})
@@ -101,6 +103,15 @@ async def diagnostics_handler(request: Request, settings: Settings) -> JSONRespo
             status_code=400,
         )
 
+    return JSONResponse(await run_diagnostics(settings, requested))
+
+
+async def run_diagnostics(
+    settings: Settings, requested: list[str], user_token: str | None = None
+) -> dict[str, Any]:
+    """Shared deterministic execution after the ingress has authenticated the caller."""
+    if any(name not in _RUNNERS for name in requested):
+        raise ValueError("unknown diagnostic tool")
     governance = Governance(settings)
     invocation_id = f"diagnostic-{uuid.uuid4()}"
     results = []
@@ -108,21 +119,19 @@ async def diagnostics_handler(request: Request, settings: Settings) -> JSONRespo
         rejection = await governance.before_tool(
             name, {}, session_id=invocation_id, invocation_id=invocation_id
         )
-        results.append(rejection if rejection is not None else _run_one(name, settings))
+        results.append(rejection if rejection is not None else _run_one(name, settings, user_token))
     logger.info(
         "diagnostic run complete",
         extra={"demo_run_id": settings.demo_run_id, "policy_mode": str(settings.policy_mode)},
     )
-    return JSONResponse(
-        {
-            "demo_run_id": settings.demo_run_id,
-            "policy_mode": str(settings.policy_mode),
-            "agent_name": settings.agent_name,
-            "agent_version": settings.agent_version,
-            "determination": "inconclusive-without-platform-evidence",
-            "results": results,
-        }
-    )
+    return {
+        "demo_run_id": settings.demo_run_id,
+        "policy_mode": str(settings.policy_mode),
+        "agent_name": settings.agent_name,
+        "agent_version": settings.agent_version,
+        "determination": "inconclusive-without-platform-evidence",
+        "results": results,
+    }
 
 
 def register_diagnostics_route(host: Any, settings: Settings) -> None:

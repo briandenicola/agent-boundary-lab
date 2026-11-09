@@ -769,7 +769,8 @@ true on-premises hosting, and OpenShift portability remain outside this issue.
 
 ## Issue #10 — AGT/ACS runtime governance
 
-**Status (2026-11-06): G0-G3 local gates passed; G4-G5 not started.**
+**Status (2026-11-06): G0-G3 local gates passed; G4 artifacts written, hosted gates pending;
+G5 tested-results handoff not started.**
 Extend the tested egress/identity demo. Do not rerun the original build phases or replace
 the hosted ADK agent, Responses adapter, A2A facade, or delegated policy API behavior.
 
@@ -887,21 +888,48 @@ destination. Show both controls with separate, correlated evidence.
 
 ### G4 — Isolated hosted scenarios and owner-run Task automation
 
-**Depends on:** G3. **Status:** not started.
+**Depends on:** G3. **Status:** partial — seven isolated agents deployed and active;
+hosted comparison validation deferred to the owner's manual tests.
 
-- [ ] Package the pinned runtime and policy artifacts in the agent image; keep one
+**Implementation update (2026-11-06):** separate `containment-demo-governed-agent`
+image repository, separate `infra/governance` policy state, and an `agent-governance`
+AKS helper reuse the existing account, APIs, workload identity and telemetry destination.
+Seven isolated agents cover the five scenarios below plus Disabled regression clones
+of the original business egress scenarios. No existing baseline version or policy is
+replaced. Hosted calls use the existing synthetic-user identity flow; no workload-token
+fallback for Foundry invocation. Responses diagnostics and model-selected calls are
+checked separately. `task cloud:bootstrap` and `task cloud:up` recreated the base lab;
+`task governance:build` produced the digest recorded in `compatibility.md`.
+**Deployment update (2026-11-09):** both controlled APIs now run their real service
+images. The guarded `task deploy:tool-apis` updated only the two Container Apps;
+new revisions are healthy, receive all traffic and answer `/healthz`. Before/after
+readback confirmed both existing RAI policies' properties unchanged. Terraform definitions
+and external content-filter drift were left alone. Hosted runtime and Azure evidence
+gates remain unverified; API health, image builds and offline regressions do not
+complete this stage.
+
+**Isolated setup (2026-11-09):** three dedicated RAI policies, a private publisher and
+seven active version-`1` agents are deployed. Direct readback confirmed one image digest,
+the intended governance settings/policy attachments and seven model-access grants.
+Original policy properties remained unchanged; no main Terraform definitions were edited.
+The owner chose deployment only, with no hosted comparison calls. Use
+[`governance-demo.md`](governance-demo.md) for manual Copilot-assisted testing and Azure
+portal evidence inspection. The existing browser UI is baseline-only, not a seven-scenario
+selector.
+
+- [x] Package the pinned runtime and policy artifacts in the agent image; keep one
       immutable digest for the governance scenario comparisons.
-- [ ] Add explicit opt-in deployment configuration for governance agent versions and
+- [x] Add explicit opt-in deployment configuration for governance agent versions and
       dedicated egress policies. Governance-denial scenarios permit the receiver at
       every network layer, including an Enforced RAI policy with both API hosts allowed.
 - [ ] Add small dependency-aware Task targets for local checking, governance setup,
       hosted verification and bounded teardown; reuse current build/deploy operations.
-      Proposed entry points: `governance:check`, `governance:up`,
+      Written entry points include `governance:check`, `governance:up`,
       `governance:verify`, `governance:down`. Local `governance:prepare`, `check` and
-      `tamper` now exist; the hosted entry points do not.
+      `tamper` exist; the hosted lifecycle remains to be exercised.
 - [ ] Integrate the governance setup into an opt-in all-up app deployment with standalone
       setup available. No manual identity/resource preparation or monolithic CLI wrappers.
-- [ ] Read back actual digest, governance manifest/mode, agent version and policy
+- [x] Read back actual digest, governance manifest/mode, agent version and policy
       attachment before comparisons; do not infer configuration from requested settings.
 - [ ] Provide an isolated opt-in evaluator-failure fixture; never add a public request
       parameter that disables governance or changes policy.
@@ -927,9 +955,10 @@ for an invocation that the host prevented from executing. Missing signals are in
 
 ### G5 — Runbook, tested results and handoff
 
-**Depends on:** G4. **Status:** not started.
+**Depends on:** G4 for tested results. **Status:** partial — manual testing guide written;
+hosted runtime results remain pending.
 
-- [ ] Add `docs/governance-demo.md` with setup, local/hosted commands, scenario order,
+- [x] Add `docs/governance-demo.md` with setup, local/hosted commands, scenario order,
       evidence inspection, failure handling and teardown. Reuse the existing architecture
       document rather than create a second competing system description.
 - [ ] Update `docs/README.md`, `docs/architecture-as-built.md`, `docs/demo-runbook.md`,
@@ -961,14 +990,14 @@ it does not resolve or grant an approval.
 
 ---
 
-## Backlog / next (updated 2026-11-06)
+## Backlog / next (updated 2026-11-09)
 
 Nothing below is done unless stated. Billable items need owner approval first.
 
 | Item | Status |
 | --- | --- |
 | **#4 End-to-end agent and user identity** | Existing identity demo tested, owner-confirmed 2026-11-06. Earlier implementation/probe notes above are historical. |
-| **#10 AGT/ACS runtime governance** | G0-G3 local gates passed: 259 tests, format/lint/types and five tamper checks. G4-G5 not started; hosted governance remains unverified. |
+| **#10 AGT/ACS runtime governance** | G0-G3 local gates passed. Seven isolated agents deployed, policies/configuration/grants verified; no comparison calls made. G5 manual guide written; hosted results await owner-run tests. |
 | **#2 Document the AKS harness** | Open. Harness built and documented in `docs/architecture-as-built.md`, B13, B14; close after review. |
 | **#3 Local model evaluation** | Open. Qwen2.5-3B is the candidate (B11 laptop, §0.14 one AKS turn). Tool-calling reliability over many turns and speed are unmeasured; result stays functional, not containment. |
 | **#1 Chat UI on AKS** | Open. Harness chat service is the chat UI; the two-button demo UI also still exists. |

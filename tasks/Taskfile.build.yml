@@ -52,20 +52,32 @@ tasks:
     aliases: [agent]
     desc: BUILDS IN AZURE. Build the ADK agent hosted in Foundry
     cmds:
+      - task: _foundry-image
+        vars: {REPOSITORY: containment-demo-agent}
+      - task: foundry-agent-digest
+
+  _foundry-image:
+    internal: true
+    requires:
+      vars: [REPOSITORY]
+    cmds:
       - |
         set -eu
+        ACR=$(terraform -chdir="{{.ROOT_DIR}}/infra/cloud" output -raw acr_name)
+        if ! printf '%s' "$ACR" | grep -Eq '^[A-Za-z0-9]{5,50}$'; then
+          echo "Missing or invalid acr_name in infra/cloud state. Restore the lab state or provision the approved environment before building." >&2
+          exit 1
+        fi
         . "{{.ROOT_DIR}}/scripts/image-tag.sh"
-        TAG=$(image_tag_new containment-demo-agent "${IMAGE_TAG:-}")
-        ACR=$(terraform -chdir=./{{.CLOUD_DIR}} output -raw acr_name)
+        TAG=$(image_tag_new "{{.REPOSITORY}}" "${IMAGE_TAG:-}")
         echo "building agent image in $ACR"
         az acr build \
           --registry "$ACR" \
-          --image "containment-demo-agent:$TAG" \
+          --image "{{.REPOSITORY}}:$TAG" \
           --file Dockerfile \
           .
-        image_tag_record containment-demo-agent "$TAG"
-        echo "built and recorded containment-demo-agent:$TAG"
-      - task: foundry-agent-digest
+        image_tag_record "{{.REPOSITORY}}" "$TAG"
+        echo "built and recorded {{.REPOSITORY}}:$TAG"
 
   tool-apis:
     aliases: [services]

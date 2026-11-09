@@ -913,3 +913,63 @@ operator. None of them is a reason to round up.
 | The source of the historical empty-`demo_run_id` receipt is unidentified. | Phase 1's open exit criterion. Until then, treat every A7/Q2a row as real. |
 | Foundry-side clock lag is unmeasured. | Measurement on a hosted run. |
 | The 403 body/header schema and blocked-host DNS behaviour are NOT FOUND. | Observation on a hosted Enforced run. |
+# Hosted governance comparison (issue #10)
+
+For step-by-step manual testing, Copilot Chat prompts, web UI limitations and Azure
+portal evidence queries, see [the manual testing guide](governance-demo.md).
+
+**Seven isolated agents deployed; hosted comparison pending owner-run tests.**
+All seven are active version `1` on one image digest, with three dedicated policies
+and verified model-access grants (2026-11-09). No comparison calls have been made.
+The [manual guide](governance-demo.md) records the current digest and testing limits.
+This extends the tested baseline,
+not a new local demo. The headline remains Foundry-managed outbound containment; ACS is
+the application-level contrast inside the same hosted image.
+
+The existing Azure environment must be available. No baseline policies or agents are
+modified by the standalone governance targets. Setup creates three dedicated RAI policies,
+seven scenario agents and a private AKS helper; only newly created model grants are
+journaled for cleanup. The original telemetry ingestion hostname is explicitly allowed
+in all three new policies so application evidence can arrive. No new telemetry destination
+or broad business-host wildcard is introduced.
+
+After approval, run:
+
+```bash
+task governance:build       # One ACR build/publication, separate image repository
+task governance:plan        # Read-only Azure policy ownership/plan check
+task governance:up          # Creates isolated policies/versions and model grants
+task governance:status     # Actual digest, version, settings, RAI and network readback
+```
+
+Use the existing synthetic-user login flow to obtain both the Foundry access token and
+the policy API access token. Supply an untracked, owner-only JSON file (mode `600`) with
+`foundry_access_token` and `policy_access_token`. Do not paste tokens into commands,
+logs or this document. There is no fallback to workload authentication for invocation.
+
+```bash
+GOVERNANCE_TOKEN_FILE=/private/path/tokens.json task governance:run
+# Fourteen billable invocations: seven scenarios, once per execution path.
+# Wait at least three minutes after the run finishes for receipt ingestion.
+task governance:verify
+task governance:down
+```
+
+The two paths are authenticated deterministic execution through Responses headers and
+real model-selected ADK calls. Both reuse the same business tools and governance boundary.
+The failure fixture is an immutable startup OPA-path setting on its isolated version,
+not a request parameter capable of disabling enforcement.
+
+`verify` queries Azure logs using the operator's existing Log Analytics access, without
+running tools locally or requiring extra observer privileges on the publisher identity.
+It reports pass/fail/inconclusive and preserves `evidence/governance/` reports. A platform
+Deny plus receipt evidence is required for network containment. ACS blocking needs its
+own correlated decision and receipt positive control, not a platform decision for a call
+that never executed. An API identity rejection cannot serve as a positive control.
+New application event mappings remain unverified until real rows are inspected.
+
+`down` refuses foreign versions/grants, does not force-delete active sessions, waits for
+version deletion and preserves the baseline, shared service account and namespace.
+An interrupted setup can be retried with `up`; after a publisher-pod restart, rerun `up`
+to reconstruct its deployment journal. Preserve local run reports before cleanup.
+`task app:deploy-governance` is the opt-in all-up path after images have been built.

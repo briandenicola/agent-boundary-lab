@@ -66,7 +66,7 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from containment_demo.settings import ErrorCategory
+from containment_demo.settings import ErrorCategory, GovernanceErrorCategory
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ class ToolOutcome:
     tool_name: str
     attempted: bool
     succeeded: bool | None
-    error_category: ErrorCategory | None
+    error_category: ErrorCategory | GovernanceErrorCategory | None
     http_status: int | None
     destination_host: str | None
     evidence_source: str
@@ -397,14 +397,19 @@ def response_texts(payload: Any) -> list[str]:
 _SAFE_RUN_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
-def _category_of(record: dict[str, Any]) -> tuple[ErrorCategory | None, str | None]:
+def _category_of(
+    record: dict[str, Any],
+) -> tuple[ErrorCategory | GovernanceErrorCategory | None, str | None]:
     raw = record.get("error_category")
     if raw is None:
         return None, "record carried no error_category"
     try:
         return ErrorCategory(str(raw)), None
     except ValueError:
-        return None, f"unrecognised error_category {str(raw)[:40]!r}"
+        try:
+            return GovernanceErrorCategory(str(raw)), None
+        except ValueError:
+            return None, f"unrecognised error_category {str(raw)[:40]!r}"
 
 
 def outcome_from_record(record: dict[str, Any]) -> ToolOutcome:
@@ -679,6 +684,8 @@ def invoke_agent(
     prompt: str | None = None,
     timeout_seconds: float = 120.0,
     client: Any | None = None,
+    user_token: str | None = None,
+    diagnostics_token: str | None = None,
 ) -> InvocationResult:
     """Call one named hosted agent and classify what each tool did.
 
@@ -698,12 +705,19 @@ def invoke_agent(
     if client is None:
         client = build_agent_client(endpoint, agent_name, timeout_seconds)
 
+    headers = {"X-Demo-Run-Id": demo_run_id, "X-Client-Demo-Run-Id": demo_run_id}
+    if user_token:
+        from containment_demo.protocol_adapter import USER_TOKEN_HEADER
+
+        headers[USER_TOKEN_HEADER] = user_token
+    if diagnostics_token:
+        headers["X-Client-Demo-Diagnostics"] = diagnostics_token
     try:
         response = client.responses.create(
             model=model,
             input=text,
             metadata={"demo_run_id": demo_run_id},
-            extra_headers={"X-Demo-Run-Id": demo_run_id},
+            extra_headers=headers,
             extra_query={"demo_run_id": demo_run_id},
             store=STORE_RESPONSE,
             timeout=timeout_seconds,

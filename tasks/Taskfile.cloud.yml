@@ -515,7 +515,18 @@ tasks:
         ACCOUNT=$($T foundry_account_name)
         PROJECT=$($T project_name)
         FAIL=0
-        for AGENT in $($T agent_name_audit) $($T agent_name_enforced); do
+        AGENTS="{{.AGENT_NAMES | default ""}}"
+        JOURNAL="{{.JOURNAL | default ""}}"
+        if [ -z "$AGENTS" ]; then AGENTS="$($T agent_name_audit) $($T agent_name_enforced)"; fi
+        for AGENT in $AGENTS; do
+          printf '%s\n' "$AGENT" | grep -qE '^[A-Za-z0-9][A-Za-z0-9-]{0,61}[A-Za-z0-9]$' || {
+            echo "Invalid agent name for access grant." >&2; exit 1; }
+          if [ -n "$JOURNAL" ]; then
+            PREFIX=$($T agent_name_audit)
+            case "$AGENT" in "$PREFIX"-gov-*) ;; *)
+              echo "Journaled grants are limited to governance agent names." >&2; exit 1 ;;
+            esac
+          fi
           IDS=$(az ad sp list \
             --filter "tags/any(t:t eq 'agentName:$AGENT') and tags/any(t:t eq 'accountName:$ACCOUNT') and tags/any(t:t eq 'projectName:$PROJECT')" \
             --query "[?ends_with(displayName,'-AgentIdentity')].id" -o tsv --only-show-errors)
@@ -530,8 +541,28 @@ tasks:
           if [ "$HAVE" != "0" ]; then
             echo "$AGENT ($IDS): already has Cognitive Services OpenAI User on the account"
           elif [ "{{.APPLY}}" = "true" ]; then
-            az role assignment create --assignee-object-id "$IDS" --assignee-principal-type ServicePrincipal \
-              --role "$ROLE_ID" --scope "$SCOPE" --only-show-errors -o none
+            if [ -z "$JOURNAL" ]; then
+              az role assignment create --assignee-object-id "$IDS" --assignee-principal-type ServicePrincipal \
+                --role "$ROLE_ID" --scope "$SCOPE" --only-show-errors -o none
+            else
+              mkdir -p "$(dirname "$JOURNAL")"
+              if [ ! -f "$JOURNAL" ]; then
+                NEW=$(mktemp "$JOURNAL.XXXXXX")
+                printf '[]\n' > "$NEW"
+                mv "$NEW" "$JOURNAL"
+              fi
+              chmod 600 "$JOURNAL"
+              TMP=$(mktemp "$JOURNAL.XXXXXX")
+              trap 'rm -f "$TMP"' EXIT
+              RAW=$(az role assignment create --assignee-object-id "$IDS" --assignee-principal-type ServicePrincipal \
+                --role "$ROLE_ID" --scope "$SCOPE" --only-show-errors -o json)
+              ID=$(printf '%s\n' "$RAW" | sed -n '/^{/,$p' | jq -er '.id')
+              jq --arg id "$ID" --arg scope "$SCOPE" --arg principal "$IDS" \
+                --arg role "$ROLE_ID" --arg agent "$AGENT" \
+                '. + [{id:$id, scope:$scope, principal_id:$principal, role_definition_id:$role, agent_name:$agent}]' \
+                "$JOURNAL" > "$TMP"
+              mv "$TMP" "$JOURNAL"
+            fi
             echo "$AGENT ($IDS): GRANTED Cognitive Services OpenAI User on the account"
           else
             echo "$AGENT ($IDS): MISSING Cognitive Services OpenAI User on the account (plan only, nothing changed)"

@@ -84,9 +84,39 @@ def build_host(settings: Settings) -> Any:
         # (azure-ai-agentserver-responses 2.2.0 hosting/_endpoint_handler.py:628). Whether
         # Foundry delivers this one is UNVERIFIED until a live run.
         user_token = context.client_headers.get(USER_TOKEN_HEADER) or None
+        run_settings = settings
+        run_runner = runner
+        run_id = context.client_headers.get("x-client-demo-run-id")
+        if run_id is not None:
+            run_settings = settings.for_run(run_id)
+            run_runner = InMemoryRunner(
+                agent=build_agent(run_settings), app_name=run_settings.agent_name
+            )
+        diagnostic_token = context.client_headers.get("x-client-demo-diagnostics")
+        if diagnostic_token is not None:
+            import hmac
+            import json
+
+            from starlette.exceptions import HTTPException
+
+            from containment_demo.diagnostics import run_diagnostics
+
+            expected = settings.diagnostics_token
+            if (
+                not settings.diagnostics_enabled
+                or expected is None
+                or not hmac.compare_digest(diagnostic_token, expected.get_secret_value())
+            ):
+                raise HTTPException(status_code=401, detail="unauthorized")
+            body = await run_diagnostics(
+                run_settings,
+                ["get_servicing_policy", "send_to_external_processor"],
+                user_token,
+            )
+            return TextResponse(context, request, text=json.dumps(body))
         reply = await _run_agent_turn(
-            runner=runner,
-            settings=settings,
+            runner=run_runner,
+            settings=run_settings,
             user_text=user_text,
             cancellation_signal=cancellation_signal,
             user_token=user_token,

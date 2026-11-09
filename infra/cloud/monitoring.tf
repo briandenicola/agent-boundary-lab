@@ -52,10 +52,10 @@ data "azurerm_monitor_diagnostic_categories" "foundry" {
 resource "azurerm_monitor_diagnostic_setting" "foundry" {
   for_each = local.foundry_diagnostic_targets
 
-  name                           = "${local.resource_name}-diagnostics"
-  target_resource_id             = each.value
-  log_analytics_workspace_id     = azurerm_log_analytics_workspace.main.id
-  log_analytics_destination_type = "Dedicated"
+  # These resource logs use AzureDiagnostics; Azure does not retain Dedicated.
+  name                       = "${local.resource_name}-diagnostics"
+  target_resource_id         = each.value
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
 
   dynamic "enabled_log" {
     for_each = data.azurerm_monitor_diagnostic_categories.foundry[each.key].log_category_types

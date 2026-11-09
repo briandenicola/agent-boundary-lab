@@ -24,8 +24,11 @@ def test_foundry_account_and_project_use_the_same_workspace_and_live_categories(
     for body in (categories, settings):
         assert "for_each = local.foundry_diagnostic_targets" in body
     assert "resource_id = each.value" in categories
-    assert "target_resource_id             = each.value" in settings
-    assert "log_analytics_workspace_id     = azurerm_log_analytics_workspace.main.id" in settings
+    assert re.search(r"target_resource_id\s*=\s*each.value", settings)
+    assert re.search(
+        r"log_analytics_workspace_id\s*=\s*azurerm_log_analytics_workspace.main.id", settings
+    )
+    assert "log_analytics_destination_type" not in settings
     assert (
         "data.azurerm_monitor_diagnostic_categories.foundry[each.key].log_category_types"
         in settings
@@ -34,6 +37,15 @@ def test_foundry_account_and_project_use_the_same_workspace_and_live_categories(
     insights = block(source, "resource", "azurerm_application_insights", "main")
     assert "workspace_id        = azurerm_log_analytics_workspace.main.id" in insights
     assert "setByPolicy" not in settings
+
+
+def test_lab_preserves_externally_managed_aks_defender() -> None:
+    source = (ROOT / "infra/cloud/aks.tf").read_text()
+    cluster = block(source, "resource", "azurerm_kubernetes_cluster", "main")
+    lifecycle = re.search(r"(?s)lifecycle\s*\{(.*?)\n  \}", cluster)
+    assert lifecycle
+    assert re.search(r"(?m)^\s*microsoft_defender,", lifecycle[1])
+    assert not re.search(r"ignore_changes\s*=\s*all", lifecycle[1])
 
 
 def test_container_collection_is_bound_to_aks_and_keeps_environment_inventory_off() -> None:

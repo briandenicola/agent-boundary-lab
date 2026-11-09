@@ -30,6 +30,30 @@ from scripts.verify_demo import (
 )
 
 
+def test_partial_log_query_cannot_prove_receipt_absence(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    from types import ModuleType, SimpleNamespace
+
+    from scripts.verify_demo import LogQuery, _run_query
+
+    module = ModuleType("azure.monitor.query")
+    module.LogsQueryStatus = SimpleNamespace(  # type: ignore[attr-defined]
+        SUCCESS="success", FAILURE="failure", PARTIAL="partial"
+    )
+    monkeypatch.setitem(sys.modules, "azure.monitor.query", module)
+    response = SimpleNamespace(
+        status="partial",
+        partial_error="synthetic missing table",
+        tables=[SimpleNamespace(columns=["demo_run_id"], rows=[["gov-unit"]])],
+    )
+    query = LogQuery(
+        SimpleNamespace(query_workspace=lambda *a, **kw: response), "workspace", "ready"
+    )
+    rows, reason = _run_query(query, "synthetic query", ("start", "end"))
+    assert rows == []
+    assert reason.startswith("query failed")
+
+
 def _row(service: str = "test-receiver", run_id: str = "") -> dict[str, str]:
     return {"service": service, "demo_run_id": run_id, "received_at": "2026-10-08T17:00:00Z"}
 

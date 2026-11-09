@@ -38,6 +38,125 @@ def shell_body(name: str) -> str:
     return textwrap.dedent(match[1])
 
 
+@pytest.mark.parametrize(
+    ("existing", "get_exit", "success", "applied"),
+    [
+        ("", 0, True, True),
+        (
+            json.dumps(
+                {"metadata": {"annotations": {"azure.workload.identity/client-id": "lab-client"}}}
+            ),
+            0,
+            True,
+            False,
+        ),
+        (
+            json.dumps(
+                {"metadata": {"annotations": {"azure.workload.identity/client-id": "foreign"}}}
+            ),
+            0,
+            False,
+            False,
+        ),
+        ("", 1, False, False),
+    ],
+)
+def test_governance_prerequisites_preserve_shared_identity(
+    tmp_path: Path, existing: str, get_exit: int, success: bool, applied: bool
+) -> None:
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("Bash is required to execute the prerequisite guard")
+    body = task_body("Taskfile.governance.yml", "_prerequisites")
+    script = textwrap.dedent(body.split("      - |\n", 1)[1])
+    assert ":deploy:_namespace" in body
+    up = task_body("Taskfile.governance.yml", "up")
+    assert up.index("_prerequisites") < up.index("terraform")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    terraform = bin_dir / "terraform"
+    terraform.write_text(
+        '#!/bin/sh\ncase "$*" in\n'
+        " *kubernetes_namespace) echo lab-namespace ;;\n"
+        " *agent_deployer_service_account) echo agent-deployer ;;\n"
+        " *agent_deployer_client_id) echo lab-client ;;\n"
+        " *) exit 1 ;;\nesac\n"
+    )
+    terraform.chmod(0o755)
+    kubectl = bin_dir / "kubectl"
+    kubectl.write_text(
+        '#!/bin/sh\ncase "$*" in\n'
+        ' *"get serviceaccount"*) printf "%s" "$FAKE_EXISTING"; exit "$FAKE_GET_EXIT" ;;\n'
+        ' "apply --server-side -f -") cat > "$FAKE_APPLIED" ;;\n'
+        " *) exit 1 ;;\nesac\n"
+    )
+    kubectl.chmod(0o755)
+    manifest = tmp_path / "deploy/kustomize/base/serviceaccount.yaml"
+    manifest.parent.mkdir(parents=True)
+    shutil.copyfile(ROOT / "deploy/kustomize/base/serviceaccount.yaml", manifest)
+    applied_file = tmp_path / "applied.yaml"
+    result = subprocess.run(  # noqa: S603
+        [bash, "-c", script],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "FAKE_EXISTING": existing,
+            "FAKE_GET_EXIT": str(get_exit),
+            "FAKE_APPLIED": str(applied_file),
+        },
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert (result.returncode == 0) is success, result.stderr
+    assert applied_file.exists() is applied
+    if applied:
+        assert "REPLACE_WITH_" not in applied_file.read_text()
+        assert "azure.workload.identity/client-id: lab-client" in applied_file.read_text()
+
+
+@pytest.mark.parametrize("registry", ["", "invalid-name"])
+def test_agent_image_build_stops_before_azure_without_valid_registry(
+    tmp_path: Path, registry: str
+) -> None:
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("Bash is required to execute the image build command")
+    body = task_body("Taskfile.build.yml", "_foundry-image")
+    match = re.search(r"(?ms)^      - \|\n(.*)", body)
+    assert match
+    script = textwrap.dedent(match[1]).replace("{{.ROOT_DIR}}", str(tmp_path))
+    script = script.replace("{{.REPOSITORY}}", "containment-demo-governed-agent")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    terraform = bin_dir / "terraform"
+    terraform.write_text('#!/bin/sh\nprintf "%s" "$FAKE_REGISTRY"\n')
+    terraform.chmod(0o755)
+    az = bin_dir / "az"
+    az.write_text('#!/bin/sh\ntouch "$FAKE_AZ_CALLED"\n')
+    az.chmod(0o755)
+    called = tmp_path / "azure-called"
+    result = subprocess.run(  # noqa: S603
+        [bash, "-c", script],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "FAKE_REGISTRY": registry,
+            "FAKE_AZ_CALLED": str(called),
+        },
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "Missing or invalid acr_name" in result.stderr
+    assert not called.exists()
+
+
 @pytest.fixture
 def dry_task(tmp_path: Path):
     runner = shutil.which("task")
@@ -72,6 +191,66 @@ def dry_task(tmp_path: Path):
         return result.stdout + result.stderr
 
     return run
+
+
+def test_model_grant_journal_is_private_in_the_real_task_shell(tmp_path: Path) -> None:
+    runner = shutil.which("task")
+    if runner is None:
+        pytest.skip("Go Task is required to execute the model-access command")
+    shutil.copytree(ROOT / "tasks", tmp_path / "tasks")
+    journal = tmp_path / "private/model-access.json"
+    (tmp_path / "Taskfile.yml").write_text(
+        "version: '3'\nsilent: true\nincludes:\n"
+        "  cloud:\n    taskfile: ./tasks/Taskfile.cloud.yml\n"
+        "tasks:\n  grant:\n    cmds:\n      - task: cloud:_agent-access\n"
+        "        vars:\n          APPLY: 'true'\n"
+        "          AGENT_NAMES: containment-demo-audit-gov-success\n"
+        f"          JOURNAL: '{journal}'\n"
+    )
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    scope = (
+        "/subscriptions/synthetic/resourceGroups/lab"
+        "/providers/Microsoft.CognitiveServices/accounts/lab"
+    )
+    assignment = json.dumps(
+        {"id": f"{scope}/providers/Microsoft.Authorization/roleAssignments/synthetic"}
+    )
+    scripts = {
+        "terraform": (
+            '#!/bin/sh\ncase "$*" in\n'
+            f' *foundry_account_id) echo "{scope}" ;;\n'
+            " *agent_name_audit) echo containment-demo-audit ;;\n"
+            " *) echo synthetic ;;\nesac\n"
+        ),
+        "az": (
+            '#!/bin/sh\ncase "$*" in\n'
+            ' "ad sp list "*) echo 00000000-0000-4000-8000-000000000001 ;;\n'
+            ' "role assignment list "*) echo 0 ;;\n'
+            f" \"role assignment create \"*) echo '{assignment}' ;;\n"
+            " *) exit 1 ;;\nesac\n"
+        ),
+    }
+    for name, script in scripts.items():
+        path = bin_dir / name
+        path.write_text(script)
+        path.chmod(0o755)
+    result = subprocess.run(  # noqa: S603
+        [runner, "grant"],
+        cwd=tmp_path,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    grants = json.loads(journal.read_text())
+    assert len(grants) == 1
+    assert grants[0]["agent_name"] == "containment-demo-audit-gov-success"
+    assert grants[0]["scope"] == scope
+    assert journal.stat().st_mode & 0o777 == 0o600
+    assert not list(journal.parent.glob("model-access.json.*"))
 
 
 @pytest.mark.parametrize("export_exit", [0, 23])
@@ -204,7 +383,10 @@ def test_deploy_all_is_sequential_and_builds_nothing(dry_task) -> None:
     ]
     commands = dry_task("deploy:all")
     assert "acr build" not in commands
-    assert "-target=" not in commands
+    assert re.findall(r"-target=(\S+)", commands) == [
+        "azurerm_container_app.policy_api",
+        "azurerm_container_app.test_receiver",
+    ]
     assert "rollout status deployment/agent-harness" in commands
     assert commands.index("rollout status deployment/agent-harness") < commands.index(
         "role assignment create"
@@ -423,6 +605,49 @@ def plan_with(address: str, actions: list[str], mode: str = "managed") -> str:
             ],
         }
     )
+
+
+def test_api_deployment_targets_only_existing_apps_and_applies_the_saved_plan(
+    tmp_path: Path,
+) -> None:
+    result, calls = run_endpoint_plan(
+        tmp_path, plan_with("azurerm_container_app.policy_api", ["update"])
+    )
+    assert result.returncode == 0, result.stderr
+    plan_call = next(line for line in calls.splitlines() if " plan " in line)
+    assert re.findall(r"-target=(\S+)", plan_call) == [
+        "azurerm_container_app.policy_api",
+        "azurerm_container_app.test_receiver",
+    ]
+    apply_call = next(line for line in calls.splitlines() if " apply " in line)
+    assert "-target" not in apply_call
+    assert "endpoints.tfplan" in apply_call
+
+
+@pytest.mark.parametrize(
+    "dependency",
+    [
+        "azapi_resource.rai_policy_audit",
+        "azapi_resource.rai_policy_enforced",
+        "azurerm_log_analytics_workspace.main",
+    ],
+)
+def test_api_deployment_rejects_dependency_changes_even_with_valid_app_updates(
+    tmp_path: Path, dependency: str
+) -> None:
+    plan = json.loads(plan_with("azurerm_container_app.policy_api", ["update"]))
+    plan["resource_changes"].extend(
+        [
+            json.loads(plan_with("azurerm_container_app.test_receiver", ["update"]))[
+                "resource_changes"
+            ][0],
+            json.loads(plan_with(dependency, ["update"]))["resource_changes"][0],
+        ]
+    )
+    result, calls = run_endpoint_plan(tmp_path, json.dumps(plan))
+    assert result.returncode != 0
+    assert "Refusing" in result.stderr
+    assert " apply " not in calls
 
 
 @pytest.mark.parametrize(

@@ -219,6 +219,117 @@ class TestInputTextIsAwaited:
         assert captured["user_text"] == USER_TEXT
         assert result.text == "done"
 
+    def test_run_markers_are_request_scoped(
+        self,
+        settings: Settings,
+        offline_sdk: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured = []
+
+        async def turn(**kwargs: Any) -> str:
+            captured.append(kwargs["settings"].demo_run_id)
+            return "done"
+
+        original = settings.demo_run_id
+        monkeypatch.setattr(protocol_adapter, "_run_agent_turn", turn)
+        host = protocol_adapter.build_host(settings)
+        for run_id in ("gov-first", "gov-second"):
+            asyncio.run(
+                host.handler(
+                    object(),
+                    FakeResponseContext(client_headers={"x-client-demo-run-id": run_id}),
+                    None,
+                )
+            )
+        assert captured == ["gov-first", "gov-second"]
+        assert settings.demo_run_id == original
+
+    def test_invalid_marker_cannot_reach_the_runner(
+        self,
+        settings: Settings,
+        offline_sdk: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def turn(**_: Any) -> str:
+            pytest.fail("Invalid run marker reached the runner")
+
+        monkeypatch.setattr(protocol_adapter, "_run_agent_turn", turn)
+        host = protocol_adapter.build_host(settings)
+        with pytest.raises(ValueError, match="invalid demo run"):
+            asyncio.run(
+                host.handler(
+                    object(),
+                    FakeResponseContext(client_headers={"x-client-demo-run-id": "' unsafe"}),
+                    None,
+                )
+            )
+
+    def test_responses_diagnostic_reuses_tools_without_a_model(
+        self,
+        diagnostic_settings: Settings,
+        offline_sdk: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        seen = []
+
+        def policy(settings: Settings, user_token: str | None = None) -> dict[str, Any]:
+            seen.append(("policy", settings.demo_run_id, user_token))
+            return {"tool_name": "get_servicing_policy", "succeeded": True}
+
+        def receiver(settings: Settings) -> dict[str, Any]:
+            seen.append(("receiver", settings.demo_run_id, None))
+            return {"tool_name": "send_to_external_processor", "succeeded": True}
+
+        async def turn(**_: Any) -> str:
+            pytest.fail("A deterministic request invoked the model")
+
+        monkeypatch.setattr(protocol_adapter, "_run_agent_turn", turn)
+        monkeypatch.setattr(tools, "get_servicing_policy", policy)
+        monkeypatch.setitem(diagnostics._RUNNERS, "send_to_external_processor", receiver)
+        host = protocol_adapter.build_host(diagnostic_settings)
+        result = asyncio.run(
+            host.handler(
+                object(),
+                FakeResponseContext(
+                    client_headers={
+                        "x-client-demo-run-id": "gov-deterministic",
+                        "x-client-demo-diagnostics": TOKEN,
+                        protocol_adapter.USER_TOKEN_HEADER: "synthetic-delegated-token",
+                    }
+                ),
+                None,
+            )
+        )
+        assert seen == [
+            ("policy", "gov-deterministic", "synthetic-delegated-token"),
+            ("receiver", "gov-deterministic", None),
+        ]
+        assert "synthetic-delegated-token" not in result.text
+
+    def test_bad_diagnostic_auth_never_falls_back_to_model(
+        self,
+        diagnostic_settings: Settings,
+        offline_sdk: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from starlette.exceptions import HTTPException
+
+        async def turn(**_: Any) -> str:
+            pytest.fail("Invalid diagnostic credentials reached the model")
+
+        monkeypatch.setattr(protocol_adapter, "_run_agent_turn", turn)
+        host = protocol_adapter.build_host(diagnostic_settings)
+        with pytest.raises(HTTPException) as error:
+            asyncio.run(
+                host.handler(
+                    object(),
+                    FakeResponseContext(client_headers={"x-client-demo-diagnostics": "wrong"}),
+                    None,
+                )
+            )
+        assert error.value.status_code == 401
+
     def test_get_input_text_is_actually_called(
         self,
         settings: Settings,

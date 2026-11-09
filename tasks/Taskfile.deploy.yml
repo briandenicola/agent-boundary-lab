@@ -44,6 +44,8 @@ tasks:
         PLAN_DIR=$(mktemp -d)
         trap 'rm -f "$PLAN_DIR/endpoints.tfplan"; rmdir "$PLAN_DIR"' EXIT
         terraform -chdir="{{.ROOT_DIR}}/infra/cloud" plan -input=false -compact-warnings \
+          -target=azurerm_container_app.policy_api \
+          -target=azurerm_container_app.test_receiver \
           -var "region={{.REGION}}" \
           -var "rai_base_policy_name=${RAI_BASE_POLICY:-Microsoft.DefaultV2}" \
           -var "endpoint_image_tag=$ENDPOINT_TAG" \
@@ -63,7 +65,7 @@ tasks:
                  and .change.actions == ["update"]))))
         ' >/dev/null; then
           echo "Refusing: the plan contains changes beyond updates to the two tool APIs." >&2
-          echo "Review 'task cloud:plan', reconcile infrastructure with 'task cloud:up', then retry." >&2
+          echo "Review 'task cloud:plan' and the unexpected dependency changes; do not overwrite subscription-managed policies." >&2
           exit 1
         fi
         terraform -chdir="{{.ROOT_DIR}}/infra/cloud" apply -input=false -compact-warnings \

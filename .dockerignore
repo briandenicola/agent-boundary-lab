@@ -20,6 +20,13 @@ __pycache__
 
 # Never ship local state, credentials or terraform state into an image.
 .env
+.env.*
+.identity-probe
+*.jwt
+evidence
+kubeconfig
+kubeconfig.*
+*.kubeconfig
 *.tfstate
 *.tfstate.*
 .terraform
@@ -30,6 +37,10 @@ tasks
 # Tests and tooling are not needed at runtime.
 tests
 scripts
+!scripts
+scripts/*
+!scripts/verify_demo.py
+!scripts/verify_governance.py
 .vscode
 .specify
 .squad

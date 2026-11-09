@@ -13,6 +13,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -47,6 +48,18 @@ class Evaluation:
     verdict: str
     reason_code: str
     error: bool = False
+
+
+def policy_fingerprint(content: bytes, bundle: Path) -> str:
+    digest = hashlib.sha256(content)
+    for path in sorted(bundle.rglob("*")):
+        if path.is_symlink():
+            raise ValueError("governance bundle symlinks are unsupported")
+        if path.is_file():
+            digest.update(str(path.relative_to(bundle)).encode())
+            digest.update(b"\0")
+            digest.update(hashlib.sha256(path.read_bytes()).digest())
+    return f"sha256:{digest.hexdigest()}"
 
 
 def _load_control(settings: Settings) -> tuple[Control, str, str]:
@@ -85,14 +98,7 @@ def _load_control(settings: Settings) -> tuple[Control, str, str]:
     bundle = (manifest_path.parent / policy["bundle"]).resolve(strict=True)
     if not bundle.is_dir() or not bundle.is_relative_to(manifest_path.parent):
         raise ValueError("governance bundle must be a directory inside the manifest directory")
-    digest = hashlib.sha256(content)
-    for path in sorted(bundle.rglob("*")):
-        if path.is_symlink():
-            raise ValueError("governance bundle symlinks are unsupported")
-        if path.is_file():
-            digest.update(str(path.relative_to(bundle)).encode())
-            digest.update(b"\0")
-            digest.update(hashlib.sha256(path.read_bytes()).digest())
+    fingerprint = policy_fingerprint(content, bundle)
 
     opa_path = settings.governance_opa_path.resolve(strict=True)
     version = subprocess.run(  # noqa: S603
@@ -106,7 +112,7 @@ def _load_control(settings: Settings) -> tuple[Control, str, str]:
     control: object = sdk.AgentControl.from_path(str(manifest_path))
     if not isinstance(control, Control):
         raise TypeError("ACS runtime does not implement the verified evaluation contract")
-    return control, f"{name}/{policy_id}", f"sha256:{digest.hexdigest()}"
+    return control, f"{name}/{policy_id}", fingerprint
 
 
 def _normalize(raw: object, arguments_valid: bool) -> Evaluation:

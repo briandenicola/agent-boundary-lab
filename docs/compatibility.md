@@ -12,7 +12,86 @@ described on AGT's `main` branch.
 Installed validation stack: Python **3.12.12**, ACS **0.3.1b1**, Google ADK **2.12.0**,
 Responses server **2.2.0**, OPA **1.9.0**, Ruff **0.17.1**, mypy **2.4.0**.
 The checks exercise real native ACS/Rego evaluation with mocked HTTP and an offline
-ADK model. Hosted image packaging and live governance evidence remain G4 work.
+ADK model. G4 packaging/automation is now written and the governed image was built and
+published in Azure on **2026-11-06**; live governance evidence remains pending.
+The Dockerfile uses uv **0.9.7** and `uv sync --locked` for isolated runtime
+(`/opt/agent-venv`) and deployer (`/opt/deploy-venv`) profiles. Exporting requirements
+appends the project's unpinned OTel overrides, which failed `--require-hashes` installation;
+sync installs the lock directly without that export/re-resolution boundary.
+OPA and ACS remain pinned as below.
+
+**Azure build observation (2026-11-06):** `task governance:build` succeeded in the
+new lab's ACR with Python **3.12.16**, pinned OPA checksum/strict bundle checks and
+runtime/deployer import checks. Published image digest:
+`sha256:4db03b3f15a958f765a2c2a4ebcb7084d086ed6b2bfd01618bf8c7e8de167fe3`.
+`task cloud:bootstrap` and `task cloud:up` recreated the base lab in Sweden Central.
+At that rebuild, the two controlled APIs used explicit bootstrap placeholders.
+No hosted governance scenario had been deployed or invoked at that point. The initial post-apply plan reported two
+diagnostic-setting differences: Azure returned null for `logAnalyticsDestinationType`,
+while Terraform requested `Dedicated`.
+
+**Drift resolution (2026-11-06):** omit the unconfigurable destination-type field;
+Foundry resource diagnostics retain their existing workspace/categories and use
+`AzureDiagnostics`, as documented in Microsoft's
+[supported account log categories](https://learn.microsoft.com/azure/azure-monitor/reference/supported-logs/microsoft-cognitiveservices-accounts-logs)
+(accessed **2026-11-06**). Application Insights tables remain a separate telemetry path.
+A later plan also proposed removing externally managed AKS Defender. The cluster now
+delegates only that security block's updates to its external owner, preserving enabled
+protection. `task cloud:validate` passed and `task cloud:plan` reported **No changes**.
+No Azure apply, log-destination change or RAI policy change was needed. A clean
+infrastructure plan is not hosted containment evidence.
+
+**Azure API observation (2026-11-09):** `task build:tool-apis` published both service
+images with tag `6da553c-dirty-20261109162459`; guarded `task deploy:tool-apis` applied
+exactly two Container App updates, with no resources added or destroyed. Both new
+revisions are healthy, receive 100% of traffic and return their expected `/healthz`
+service identities. ACR readback returned these image digests:
+
+| Image | Digest |
+| --- | --- |
+| `containment-demo-policy-api` | `sha256:52f5a60c10b2c74a5cd9f5c7821fae178ce7957768b317eebb4c3e5e87f921af` |
+| `containment-demo-test-receiver` | `sha256:0b7e23eadc9de5c4d21d2b1665dece8dc1b4a3bcb18b0b3769aab17e5fc2df53` |
+
+Before/after ARM readback confirmed unchanged properties for `egress-audit` and
+`egress-enforced`. Their pre-existing content-filter drift was not reconciled; Terraform
+definitions were left unchanged during this deployment. This scoped deployment does
+not establish full infrastructure convergence, delegated API authorization or hosted
+containment.
+
+**Isolated deployment observation (2026-11-09):** `task governance:up` created exactly
+three dedicated RAI policies, then seven isolated agents, all active version `1`.
+Direct readback verified one shared image digest:
+`sha256:52a8e31808c575c674f0a4e1cb4ba2617807d9b49903c80b8b142a9a47cf1e53`.
+Seven journaled Cognitive Services OpenAI User grants were verified against live Azure
+assignments. Content filters match the live baseline and managed-network readback
+allows both API hosts independently. Both original RAI policies' properties remained
+unchanged. No hosted comparison invocations were made: the owner chose manual testing.
+Configuration acceptance and active versions are not runtime containment evidence.
+
+The AKS cluster was stopped and was resumed for the private publisher. Standalone setup
+now creates the namespace and missing shared ServiceAccount from existing infrastructure
+outputs, but refuses to replace a different workload identity. A native invocation-result
+regression now covers the matrix's journal normalization and user-identifier removal.
+
+Foundry rejected a caller-supplied `APPLICATIONINSIGHTS_CONNECTION_STRING` as reserved.
+Scenario definitions now leave that variable to the platform's existing project connection,
+as documented in [hosted-agent environment variables](https://learn.microsoft.com/azure/foundry/agents/how-to/deploy-hosted-agent)
+(accessed **2026-11-09**). A 15-second creation request timed out; read-only version
+listing confirmed no versions before a deliberate retry. The publisher now uses bounded
+60-second requests with automatic SDK retries disabled. Version creation then succeeded.
+Go Task's embedded shell rejected `umask`; private grant/run journals now use mode-600
+`mktemp` files with atomic replacement, covered by an actual Task-shell regression.
+
+G4 reuses the published `azure-ai-projects` **2.8.0** lifecycle contract. Primary source
+rechecked **2026-11-06**:
+[`AgentsOperations`](https://github.com/Azure/azure-sdk-for-python/blob/azure-ai-projects_2.8.0/sdk/ai/azure-ai-projects/azure/ai/projects/operations/_operations.py)
+(`create_version`, `get_version`, `list_versions`, `delete_version(force=False)`) and
+[`get_openai_client`](https://github.com/Azure/azure-sdk-for-python/blob/azure-ai-projects_2.8.0/sdk/ai/azure-ai-projects/azure/ai/projects/_patch.py).
+That client supports a named agent endpoint and an explicit `api_key` override, not a
+documented version-targeting parameter. The runner checks the latest version and requires
+application evidence for the expected version. It never fabricates a version URL.
+The new governance event queries are **candidate mappings**, pending real hosted rows;
+missing events make results inconclusive.
 
 | Component | Pin / verified source contract |
 | --- | --- |
@@ -39,8 +118,8 @@ are enabled. Disabled does not import/load ACS, read policies or launch OPA.
 **Reproduction:** `task governance:prepare`, `task governance:check`, then
 `task governance:tamper`. Preparation installs dependencies/OPA and updates `uv.lock`;
 checks use mock destinations and an offline ADK model, with no Azure or telemetry setup.
-G0-G3 local gates passed. No Azure resources, policies, images or deployments were changed.
-G4 hosted packaging/deployment is not included in this implementation.
+G0-G3 local gates passed without Azure changes. The later G4 image build and base-lab
+rebuild are recorded above; hosted governance comparisons remain unverified.
 
 Primary sources read **2026-11-06**:
 

@@ -424,7 +424,9 @@ def open_log_query(workspace_id: str | None) -> LogQuery:
     except ImportError as exc:
         return LogQuery(None, None, f"azure-monitor-query not installed ({exc}); pip extra: verify")
     try:
-        client = LogsQueryClient(DefaultAzureCredential())
+        client = LogsQueryClient(
+            DefaultAzureCredential(), connection_timeout=10, read_timeout=30, retry_total=1
+        )
     except Exception as exc:
         return LogQuery(None, None, f"could not build a credential: {sanitize(exc)}")
     return LogQuery(client, workspace_id, "ready")
@@ -450,7 +452,7 @@ def _run_query(
         response = log.client.query_workspace(log.workspace_id, kql, timespan=window)
     except Exception as exc:
         return [], f"query failed: {sanitize(exc)}"
-    if response.status == LogsQueryStatus.FAILURE:
+    if response.status != LogsQueryStatus.SUCCESS:
         return [], f"query failed: {str(getattr(response, 'partial_error', 'unknown'))[:200]}"
     rows: list[dict[str, Any]] = []
     for table in response.tables:
@@ -480,6 +482,8 @@ def query_receipts_for_run(
           demo_run_id = tostring(rec.demo_run_id),
           received_at = tostring(rec.received_at),
           path        = tostring(rec.path),
+          outcome     = tostring(rec.outcome),
+          identity_verified = isnotempty(tostring(rec.user_object_id)),
           bytes       = toint(rec.content_length_bytes),
           ContainerAppName_s
 | order by TimeGenerated asc

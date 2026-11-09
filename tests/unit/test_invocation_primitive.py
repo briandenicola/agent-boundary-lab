@@ -380,11 +380,44 @@ class TestTheRunMarkerIsCarried:
         )
         call = client.responses.calls[0]
         assert call["metadata"] == {"demo_run_id": "run-marker-xyz"}
-        assert call["extra_headers"] == {"X-Demo-Run-Id": "run-marker-xyz"}
+        assert call["extra_headers"] == {
+            "X-Demo-Run-Id": "run-marker-xyz",
+            "X-Client-Demo-Run-Id": "run-marker-xyz",
+        }
         # A URL-granularity log cannot see a header. The query parameter is the copy
         # that survives when request headers are not captured.
         assert call["extra_query"] == {"demo_run_id": "run-marker-xyz"}
         assert "run-marker-xyz" in str(call["input"])
+
+    def test_tokens_use_transport_headers_and_are_not_retained(self) -> None:
+        client = _FakeClient(_response("{}"))
+        result = invoke_agent(
+            endpoint="https://example.invalid/api/projects/p",
+            agent_name="governed-agent",
+            demo_run_id="gov-unit",
+            client=client,
+            user_token="synthetic-policy-token",
+            diagnostics_token="synthetic-diagnostic-token",
+        )
+        call = client.responses.calls[0]
+        assert call["extra_headers"]["x-client-policy-access-token"] == "synthetic-policy-token"
+        assert call["extra_headers"]["X-Client-Demo-Diagnostics"] == "synthetic-diagnostic-token"
+        assert "synthetic-policy-token" not in json.dumps(result.as_dict())
+        assert "synthetic-diagnostic-token" not in json.dumps(result.as_dict())
+
+    def test_governance_rejection_is_not_classified_as_a_network_denial(self) -> None:
+        from containment_demo.settings import GovernanceErrorCategory
+
+        result = outcome_from_record(
+            {
+                "tool_name": "send_to_external_processor",
+                "demo_run_id": "gov-unit",
+                "succeeded": False,
+                "error_category": "governance_denied",
+            }
+        )
+        assert result.error_category is GovernanceErrorCategory.DENIED
+        assert result.http_status is None
 
     def test_the_agents_own_calls_mark_both_destinations_the_same_way(self) -> None:
         # The invocation primitive and the tools must agree on the marker names, or the

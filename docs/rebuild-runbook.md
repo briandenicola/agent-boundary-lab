@@ -158,6 +158,19 @@ path-resolution error, not evidence that the Azure environment needs bootstrappi
 The `parent_id` deprecation warnings on federated credentials are separate from these
 failures; this recovery does not change those credentials.
 
+### Deploy only the tool APIs when policies are externally managed
+
+Use `task build:tool-apis`, then `task deploy:tool-apis`. The deploy task targets only
+the two existing Container Apps when creating its saved Terraform plan. Its guard still
+rejects every managed-resource change except in-place updates to those apps, including
+unexpected changes to their dependencies. It applies that exact saved plan, not a new
+targeted apply.
+
+This leaves unrelated RAI policy drift outside the application deployment. Do not run
+`task cloud:up` merely to overwrite possibly subscription-managed policy settings.
+Terraform resource definitions and the live policies remain unchanged. A targeted plan
+does not establish that the full environment is drift-free or prove containment.
+
 Provider references checked **2026-10-15** (configuration guidance, not deployed evidence):
 
 - [AzAPI resource: locks, retry, import](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource).

@@ -13,7 +13,8 @@ FROM python:3.12-slim AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PATH="/opt/agent-venv/bin:$PATH"
 
 WORKDIR /app
 
@@ -21,14 +22,25 @@ WORKDIR /app
 # opentelemetry-api <=1.42.1 while azure-ai-agentserver-core pins >=1.43.0, and no
 # released pair is co-installable; pip would simply fail here. See docs/compatibility.md
 # "Blocker 0" for why the override is safe and what it risks.
-COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.9.7 /uv /usr/local/bin/uv
 
 COPY pyproject.toml README.md* ./
+COPY uv.lock ./
 COPY docs/README.md docs/README.md
 COPY src ./src
+COPY policies/acs ./policies/acs
+COPY scripts/verify_demo.py scripts/verify_governance.py ./scripts/
 
-RUN uv pip install --system --no-cache . \
+RUN UV_PROJECT_ENVIRONMENT=/opt/agent-venv uv sync --no-cache --locked --no-dev \
+        --extra governance --no-build-package agent-control-specification --no-editable \
     && python -c "from mcp.types import CacheableResult; import litellm.responses.mcp.chat_completions_handler"
+
+ADD https://github.com/open-policy-agent/opa/releases/download/v1.9.0/opa_linux_amd64_static /tmp/opa
+RUN echo "66fa66f3b730b2fb086003863428b382b2898d343adb4b5dfab5598b4d739eed  /tmp/opa" \
+        | sha256sum --check --status \
+    && install -m 755 /tmp/opa /usr/local/bin/opa \
+    && /usr/local/bin/opa check --strict /app/policies/acs/bundle \
+    && rm /tmp/opa
 
 # The agent-version deployer lives in its own interpreter, in this same image.
 #
@@ -45,8 +57,9 @@ RUN uv pip install --system --no-cache . \
 # The A2A spike (containment_demo.a2a_spike) runs in this same venv, exec'd into the
 # harness pod. The a2a extra resolves alongside azure-ai-projects here, and never touches
 # the agent's own interpreter, so the agent's model stack is unchanged.
-RUN uv venv /opt/deploy-venv \
-    && VIRTUAL_ENV=/opt/deploy-venv uv pip install --no-cache ".[deploy,a2a]"
+RUN UV_PROJECT_ENVIRONMENT=/opt/deploy-venv uv sync --no-cache --locked --no-dev \
+        --extra deploy --extra a2a --extra verify --no-editable \
+    && /opt/deploy-venv/bin/python -c "import azure.ai.projects; import azure.monitor.query; import containment_demo.governance.hosted"
 
 # Run unprivileged. The container has no need to write anywhere outside /tmp.
 RUN useradd --create-home --uid 10001 agent
