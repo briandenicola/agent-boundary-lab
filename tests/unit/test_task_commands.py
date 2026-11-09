@@ -63,10 +63,37 @@ def test_toolbox_commands_use_isolated_helper_files_and_never_roll_out_baseline(
     assert "terraform apply" not in command
 
 
-def test_toolbox_registration_is_explicit_and_plan_only_reads_its_client(dry_task) -> None:
-    setup = dry_task("copilot-toolbox:oauth-setup")
-    assert "cloud:target-check" in setup
-    assert "-m containment_demo.copilot_toolbox_oauth up" in setup
+def test_acs_lifecycle_separates_infrastructure_build_and_agent_deployment(dry_task) -> None:
+    up = dry_task("acs:up")
+    assert "cloud:target-check" in up
+    assert "-m containment_demo.copilot_toolbox_oauth up" in up
+    assert "terraform -chdir=infra/governance apply" in up
+    assert "Foundry User is already assigned" in up
+    assert "governance.hosted up" not in up
+    assert "az acr build" not in up
+    assert "terraform -chdir=infra/cloud apply" not in up
+    build = dry_task("acs:build")
+    assert "containment-demo-governed-agent" in build
+    assert "az acr build" in build
+    assert "copilot_toolbox_oauth up" not in build
+    assert " apply " not in build
+    deploy = dry_task("acs:deploy")
+    assert "governance.hosted up" in deploy
+    assert "az role assignment create" in deploy
+    assert "terraform -chdir=infra/governance apply" not in deploy
+    assert "az acr build" not in deploy
+    assert "microsoft365/publish" not in deploy
+    integration = dry_task("acs:copilot")
+    assert "ensure --metadata" in integration
+    assert ".task/copilot/publish-request.json" in integration
+    status = dry_task("acs:report")
+    assert "/opt/deploy-venv/bin/python - status" in status
+    assert "< src/containment_demo/governance/hosted.py" in status
+    assert "-m scripts.acs_report" in status
+    assert "governance.hosted up" not in status
+
+
+def test_toolbox_plan_only_reads_its_recorded_client(dry_task) -> None:
     plan = dry_task("copilot-toolbox:plan")
     assert "-m containment_demo.copilot_toolbox_oauth client-id" in plan
     assert "copilot_toolbox_oauth up" not in plan
@@ -86,7 +113,9 @@ def test_toolbox_registration_task_runs_idempotently_and_resolves_the_recorded_i
         "version: '3'\nsilent: true\nincludes:\n"
         "  copilot-toolbox:\n    taskfile: ./tasks/Taskfile.copilot-toolbox.yml\n"
         "  cloud:\n    taskfile: ./tasks/Taskfile.cloud.yml\n"
-        "tasks:\n  resolve:\n    cmds:\n"
+        "tasks:\n  up:\n    cmds:\n"
+        "      - task: copilot-toolbox:oauth-setup\n"
+        "  resolve:\n    cmds:\n"
         "      - .venv/bin/python -m containment_demo.copilot_toolbox_oauth client-id\n"
     )
     (tmp_path / ".venv/bin").mkdir(parents=True)
@@ -180,7 +209,7 @@ def test_toolbox_registration_task_runs_idempotently_and_resolves_the_recorded_i
         "ARM_SUBSCRIPTION_ID": subscription,
     }
     environment.pop("COPILOT_TOOLBOX_OAUTH_CLIENT_ID", None)
-    for action in ("copilot-toolbox:oauth-setup", "copilot-toolbox:oauth-setup", "resolve"):
+    for action in ("up", "up", "resolve"):
         result = subprocess.run(  # noqa: S603
             [runner, action],
             cwd=tmp_path,
@@ -447,7 +476,8 @@ def test_governance_prerequisites_preserve_shared_identity(
     body = task_body("Taskfile.governance.yml", "_prerequisites")
     script = textwrap.dedent(body.split("      - |\n", 1)[1])
     assert ":deploy:_namespace" in body
-    up = task_body("Taskfile.governance.yml", "up")
+    assert "_infrastructure" in task_body("Taskfile.governance.yml", "up")
+    up = task_body("Taskfile.governance.yml", "_infrastructure")
     assert up.index("_prerequisites") < up.index("terraform")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

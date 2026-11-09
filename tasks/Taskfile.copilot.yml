@@ -80,6 +80,7 @@ tasks:
       - task: :governance:_context
       - |
         set -eu
+        COPILOT_METADATA_FILE=${COPILOT_METADATA_FILE:-{{.METADATA_DEFAULT | default ""}}}
         : "${COPILOT_METADATA_FILE:?Copy deploy/copilot/publish-request.example.json to .task/copilot/publish-request.json, fill owner metadata, and set COPILOT_METADATA_FILE.}"
         test -f "$COPILOT_METADATA_FILE"
         [ "$(az account show --query user.type -o tsv --only-show-errors)" = user ] || {
@@ -99,6 +100,17 @@ tasks:
         az account get-access-token --resource https://ai.azure.com \
           --query accessToken -o tsv --only-show-errors > "$TOKEN"
         kubectl -n "$NS" exec "$POD" -- mkdir -p /home/agent/.copilot
+        if [ -s .task/copilot/publication.json ]; then
+          REMOTE=$(kubectl -n "$NS" exec "$POD" -- /bin/sh -c \
+            'if [ -e /home/agent/.copilot/publication.json ]; then echo present; else echo missing; fi')
+          case "$REMOTE" in
+            present) ;;
+            missing) kubectl -n "$NS" cp .task/copilot/publication.json \
+              "$POD:/home/agent/.copilot/publication.json"
+              kubectl -n "$NS" exec "$POD" -- chmod 600 /home/agent/.copilot/publication.json ;;
+            *) echo "Invalid remote journal readback; no publication attempted." >&2; exit 1 ;;
+          esac
+        fi
         kubectl -n "$NS" cp src/containment_demo/copilot.py \
           "$POD:/home/agent/.copilot/publisher.py"
         CODE=0

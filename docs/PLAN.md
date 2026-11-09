@@ -39,6 +39,25 @@ hosted and integration checks are opt-in.
 
 ## Issue #10 -- AGT/ACS runtime governance
 
+### Standalone owner lifecycle
+
+The owner selected reuse of the existing lab foundation. `cloud:up` remains
+unchanged. The normal ACS interface is `acs:up`, `acs:build`, `acs:deploy`, optional
+`acs:copilot`, and `acs:status` (`acs:report` alias). Infrastructure/publisher RBAC,
+image builds and runtime deployment are separate lifecycle phases, not a checklist
+of low-level registration, policy, helper and grant Tasks.
+
+`up` ensures policy infrastructure, shared helper prerequisites, the dedicated
+OAuth registration and publisher access without needing built agent images.
+`deploy` ensures agent-specific grants after those agent identities exist.
+`copilot` operates the existing owned ACS-first publication; it reuses an unchanged
+publication and never blindly resubmits after an uncertain write. Reports show
+resource identifiers, versions and sample prompts, and distinguish live readback
+from recorded state and hosted runtime evidence.
+
+Protected Copilot lookup remains a separate blocked gate, not a capability made
+ready by renaming or consolidating Tasks.
+
 ### G0-G3 -- completed implementation
 
 - Published ACS 0.3.1b1, manifest schema 0.3.1-beta and OPA 1.9.0 are pinned.
@@ -125,13 +144,16 @@ toolbox routing in the existing project or deploy the earlier same-project varia
 Runtime/MCP code, isolated Terraform, deployment/publication Tasks and offline
 regressions are implemented. The owner reported the dedicated images built on
 2026-11-09; deployment and hosted acceptance remain unverified. A guarded owner-run
-`oauth-setup` Task now registers the dedicated Entra client and supplies its ID to
-the read-only plan automatically. The new registration Task has not been run
-against Entra by the assistant. Foundry custom-OAuth connection/callback/credential
+`acs:up` now ensures the dedicated Entra client. The extension's separate project,
+MCP service and connection are not provisioned by the core ACS lifecycle while
+its custom-OAuth provisioning contract remains unverified.
+The owner ran registration; readback verified the dedicated application and its
+requested delegated permission, with no secret or callback configured.
+Foundry custom-OAuth connection/callback/credential
 automation remains blocked pending its verified provisioning contract; GitHub
 source access was denied by organization SAML enforcement. This does not block
 the separately documented Entra registration API.
-Follow [the owner sequence](governance-demo.md#8-operator-reference-isolated-toolbox-project).
+See [the blocked extension](governance-demo.md#8-operator-reference-isolated-toolbox-project).
 
 Read-only Azure discovery found a ready account-level `Agents` capability host,
 with no explicit BYO storage/vector/conversation connections, and **no project-level

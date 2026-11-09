@@ -152,9 +152,7 @@ def discover() -> Configuration:
 
 def load(journal: Path, config: Configuration) -> dict[str, Any]:
     if not journal.exists():
-        raise ValueError(
-            "Run task copilot-toolbox:oauth-setup first; no manual client ID is needed"
-        )
+        raise ValueError("Run task acs:up to register the client; no manual client ID is needed")
     record: dict[str, Any] = json.loads(journal.read_text())
     if (
         record["context"] != config.context
@@ -267,7 +265,7 @@ def setup(config: Configuration, journal: Path = JOURNAL) -> str:
 def client_id(config: Configuration, journal: Path = JOURNAL) -> str:
     record = load(journal, config)
     if record["phase"] != "ready":
-        raise ValueError("OAuth application is not ready; rerun task copilot-toolbox:oauth-setup")
+        raise ValueError("OAuth application is not ready; rerun task acs:up to recover setup")
     client = identifier(record["client_id"])
     override = os.environ.get("COPILOT_TOOLBOX_OAUTH_CLIENT_ID")
     if override and identifier(override) != client:
@@ -323,10 +321,22 @@ def main() -> int:
             elif args.action == "client-id":
                 print(client_id(config))
             else:
-                setup(config)
+                previous = load(JOURNAL, config)["phase"] if JOURNAL.exists() else None
+                client = setup(config)
+                record = load(JOURNAL, config)
+                action = (
+                    "Created"
+                    if previous in {None, "deleted"}
+                    else "Reused"
+                    if previous == "ready"
+                    else "Recovered"
+                )
                 print(
-                    "Dedicated OAuth client registered; plan reads its ID automatically. "
-                    "Foundry connection, callback, credentials and user consent remain pending."
+                    f"{action} Entra app registration: {config.display_name}\n"
+                    f"  Client ID: {client}\n"
+                    f"  Object ID: {record['object_id']}\n"
+                    f"  Tenant ID: {config.tenant_id}\n"
+                    f"  Requested delegated permission: {config.audience}/{config.scope}"
                 )
     except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as exc:
         print(f"OAuth setup blocked: {exc}", file=sys.stderr)

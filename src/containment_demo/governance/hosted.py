@@ -6,6 +6,7 @@ import argparse
 import importlib
 import json
 import logging
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -341,6 +342,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--report", default=str(STATE_DIRECTORY / "deployment.json"))
     args = parser.parse_args(argv)
     configure_logging()
+    if args.action == "status":
+        for handler in logging.getLogger().handlers:
+            if isinstance(handler, logging.StreamHandler) and handler.stream is sys.stdout:
+                handler.setStream(sys.stderr)
+        logging.getLogger("httpx").setLevel(logging.WARNING)
     STATE_DIRECTORY.mkdir(mode=0o700, exist_ok=True)
     cfg = HostedSettings()  # type: ignore[call-arg]
     settings = Settings()  # type: ignore[call-arg]

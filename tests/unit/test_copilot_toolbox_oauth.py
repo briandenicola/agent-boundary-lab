@@ -182,7 +182,7 @@ def test_plan_and_setup_reject_application_drift_without_mutation(directory, fie
 
 def test_missing_or_foreign_journal_and_conflicting_override_fail_closed(directory, monkeypatch):
     config = oauth.discover()
-    with pytest.raises(ValueError, match="oauth-setup first"):
+    with pytest.raises(ValueError, match="Run task acs:up"):
         oauth.client_id(config)
     oauth.setup(config)
     with pytest.raises(ValueError, match="does not belong"):
@@ -190,6 +190,21 @@ def test_missing_or_foreign_journal_and_conflicting_override_fail_closed(directo
     monkeypatch.setenv("COPILOT_TOOLBOX_OAUTH_CLIENT_ID", BASELINE_CLIENT)
     with pytest.raises(ValueError, match="conflicts"):
         oauth.client_id(config)
+    assert directory["posts"] == 1
+
+
+def test_console_reports_created_and_reused_resources_with_identifiers(
+    directory, monkeypatch, capsys
+):
+    monkeypatch.setattr("sys.argv", ["oauth", "up"])
+    for action in ("Created", "Reused"):
+        assert oauth.main() == 0
+        output = capsys.readouterr().out
+        assert f"{action} Entra app registration: lab-copilot-oauth" in output
+        assert f"Client ID: {CLIENT}" in output
+        assert f"Object ID: {OBJECT}" in output
+        assert f"Tenant ID: {TENANT}" in output
+        assert f"Requested delegated permission: api://{API}/Policy.Read" in output
     assert directory["posts"] == 1
 
 

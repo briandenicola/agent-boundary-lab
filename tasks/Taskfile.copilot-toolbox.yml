@@ -34,7 +34,7 @@ tasks:
           echo "BLOCKED: require the existing ready platform-managed account host. Do not change account-wide routing." >&2
           exit 1
         }
-        echo "Account prerequisite ready; the separate project and downstream OAuth path remain unverified."
+        echo "Foundry account {{.ACCOUNT}}: capability host ready."
 
   prepare:
     desc: INSTALLS LOCAL DEPENDENCIES. Restore pinned OPA and locked development/MCP profiles
@@ -83,7 +83,7 @@ tasks:
         image_tag_record "$REPOSITORY" "$TAG"
 
   oauth-setup:
-    desc: CHANGES ENTRA. Register the dedicated client with only the existing API's delegated permission; no secret or guessed callback
+    internal: true
     cmds:
       - task: preflight
       - .venv/bin/python -m containment_demo.copilot_toolbox_oauth up

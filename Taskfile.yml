@@ -74,6 +74,10 @@ includes:
     taskfile: ./tasks/Taskfile.governance.yml
     internal: false
 
+  acs:
+    taskfile: ./tasks/Taskfile.acs.yml
+    internal: false
+
   copilot:
     taskfile: ./tasks/Taskfile.copilot.yml
     internal: false

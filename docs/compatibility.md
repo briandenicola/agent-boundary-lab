@@ -313,7 +313,7 @@ Primary references accessed 2026-11-09:
 Installed Azure CLI 2.92.0 help confirms application lookup by identifier URI and
 the `requiredResourceAccess` delegated-permission contract.
 
-The owner-run registration Task uses Azure CLI's authenticated `az rest` with
+The owner-run `acs:up` registration step uses Azure CLI's authenticated `az rest` with
 Microsoft Graph v1.0 `POST /applications`. It atomically requests
 `signInAudience: AzureADMyOrg`, `isFallbackPublicClient: false`, an ownership tag
 and only the existing API's enabled delegated scope (`type: Scope`). Its private
@@ -326,3 +326,25 @@ This verified Graph contract is independent of the still-unverified Foundry
 custom-OAuth connection/callback provisioning contract. Registration does not
 grant admin consent, create a Foundry connection or establish a successful user
 lookup. The callback must come from Foundry's actual configuration response.
+
+The owner ran registration on 2026-11-09. Read-only Entra inspection confirmed the
+recorded application, single-tenant audience, ownership marker and requested
+delegated permission; password/certificate credential and web-callback counts
+were zero. Console output now identifies created/reused/recovered registrations
+by application name, client ID, object ID and tenant.
+
+### ACS lifecycle and status transport -- 2026-11-09
+
+`acs:up/build/deploy/copilot/status` reuse the existing lab foundation and the
+verified governance/publication implementations; `acs:report` aliases status.
+Policy infrastructure does not depend on built agent images. Model grants are
+ensured after the seven deployed identities exist.
+
+Status executes the current read-only governance CLI through standard input in
+the existing private helper, so correcting the operator report needs no image
+rebuild or helper rollout. Status logging goes to standard error and its
+configuration JSON to standard output; it is not recovered by guessing where JSON
+starts in a mixed log stream. Local journal identifiers are labeled as recorded
+state, distinct from live Foundry readback. Missing readback is inconclusive.
+The owned publication `ensure` action reuses an unchanged publication, upgrades
+only its version pin when required, and preserves uncertain-write refusal.

@@ -1,0 +1,56 @@
+version: '3'
+silent: true
+
+tasks:
+  up:
+    desc: CHANGES AZURE/ENTRA. Ensure ACS policies, helper identity, OAuth app and publisher RBAC using the existing lab foundation
+    cmds:
+      - task: :governance:_infrastructure
+      - task: :copilot-toolbox:oauth-setup
+      - task: :copilot:access
+
+  build:
+    desc: BUILDS IN AZURE. Build the shared image for all seven ACS scenario agents; deploy nothing
+    cmds:
+      - task: :governance:build
+
+  deploy:
+    desc: CHANGES FOUNDRY/AKS. Deploy the seven ACS scenarios and their model grants; never publish automatically
+    cmds:
+      - task: :governance:_deployment
+
+  copilot:
+    desc: CHANGES FOUNDRY/M365. Ensure the ACS-first Just-you publication; protected toolbox lookup remains blocked
+    cmds:
+      - task: :copilot:_run
+        vars:
+          ACTION: ensure
+          METADATA_DEFAULT: '{{.ROOT_DIR}}/.task/copilot/publish-request.json'
+
+  status:
+    aliases: [report]
+    desc: READ-ONLY. Print live ACS versions, resource identifiers and sample prompts; invoke no agents
+    cmds:
+      - task: :governance:_context
+      - |
+        /bin/sh -eu <<'SH'
+        umask 077
+        NS=$(terraform -chdir=infra/cloud output -raw kubernetes_namespace)
+        REPORT=$(mktemp)
+        trap 'rm -f "$REPORT"' EXIT
+        HELPER=$(kubectl -n "$NS" get deployment agent-governance \
+          --ignore-not-found --request-timeout=30s -o json)
+        if [ -z "$HELPER" ]; then
+          printf '{"agents":null}\n' > "$REPORT"
+        else
+          CODE=0
+          kubectl -n "$NS" exec -i deployment/agent-governance -- \
+            /opt/deploy-venv/bin/python - status \
+            < src/containment_demo/governance/hosted.py > "$REPORT" || CODE=$?
+          if [ "$CODE" != 0 ]; then
+            echo "Live ACS readback failed (exit $CODE); reporting inconclusive." >&2
+            printf '{"agents":null}\n' > "$REPORT"
+          fi
+        fi
+        .venv/bin/python -m scripts.acs_report --report "$REPORT"
+        SH

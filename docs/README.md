@@ -15,6 +15,11 @@ not the prompt. ACS denial is application governance, not platform network enfor
 
 ## Start here
 
+For the standalone ACS lifecycle on the existing lab foundation, use
+`acs:up`, `acs:build`, `acs:deploy`, optional `acs:copilot`, and `acs:status`
+(`acs:report`). See the [normal owner workflow](governance-demo.md#normal-owner-workflow).
+`cloud:up` is unchanged. Protected Copilot lookup remains blocked separately.
+
 | Document | Purpose |
 | --- | --- |
 | [Demo runbook](demo-runbook.md) | Present the tested identity and egress baseline |

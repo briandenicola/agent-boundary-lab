@@ -114,6 +114,45 @@ def test_publish_pins_owned_version_and_disable_restores_only_that_endpoint(
     assert all(call.method != "DELETE" for call in service.calls)
 
 
+def test_ensure_reuses_the_publication_and_updates_only_a_new_version(
+    publisher: Any, metadata: PublishRequest
+) -> None:
+    pub, service = publisher
+    first = pub.ensure(metadata, FACTS)
+    count = len(service.calls)
+    assert pub.ensure(metadata, FACTS)["title_id"] == first["title_id"]
+    assert [call.method for call in service.calls[count:]] == ["GET"]
+    updated = pub.ensure(metadata, {**FACTS, "version": "3"})
+    assert updated["facts"]["version"] == "3"
+    assert updated["title_id"] == first["title_id"]
+    assert sum(call.method == "POST" for call in service.calls) == 1
+    assert sum(call.method == "PATCH" for call in service.calls) == 2
+
+
+def test_ensure_never_retries_an_uncertain_publication(
+    publisher: Any, metadata: PublishRequest
+) -> None:
+    pub, service = publisher
+    service.timeout_publish = True
+    with pytest.raises(httpx.ReadTimeout):
+        pub.ensure(metadata, FACTS)
+    with pytest.raises(DeploymentError, match="already started"):
+        pub.ensure(metadata, FACTS)
+    assert sum(call.method == "POST" for call in service.calls) == 1
+
+
+def test_ensure_rejects_drift_even_when_the_version_is_unchanged(
+    publisher: Any, metadata: PublishRequest
+) -> None:
+    pub, service = publisher
+    pub.ensure(metadata, FACTS)
+    service.endpoint["protocol_configuration"]["a2a"] = {"outside_change": True}
+    count = len(service.calls)
+    with pytest.raises(DriftError, match="drifted"):
+        pub.ensure(metadata, FACTS)
+    assert all(call.method == "GET" for call in service.calls[count:])
+
+
 def test_uncertain_publication_is_never_retried(publisher: Any, metadata: PublishRequest) -> None:
     pub, service = publisher
     pub.plan(metadata, FACTS)

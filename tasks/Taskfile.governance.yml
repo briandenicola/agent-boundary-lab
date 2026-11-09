@@ -74,6 +74,12 @@ tasks:
   up:
     desc: CHANGES AZURE + AKS. Create three isolated policies, seven same-digest scenario agents and model-access grants
     cmds:
+      - task: _infrastructure
+      - task: _deployment
+
+  _infrastructure:
+    internal: true
+    cmds:
       - task: _context
       - task: _prerequisites
       - task: :tool-apis:check
@@ -89,6 +95,13 @@ tasks:
           | .venv/bin/python scripts/governance_manifest.py --check-plan
         terraform -chdir=infra/governance apply -input=false -compact-warnings \
           "{{.ROOT_DIR}}/.task/governance/policies.tfplan"
+
+  _deployment:
+    internal: true
+    cmds:
+      - task: _context
+      - task: _prerequisites
+      - task: :tool-apis:check
       - task: _publisher
       - |
         set -eu

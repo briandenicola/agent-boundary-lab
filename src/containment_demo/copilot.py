@@ -265,6 +265,21 @@ class Publisher:
             raise DriftError("Publication changed the planned endpoint; inspect status")
         return record
 
+    def ensure(self, request: PublishRequest, facts: dict[str, Any]) -> dict[str, Any]:
+        if self.journal.exists():
+            record = self.load()
+            if record["phase"] == "published" and record["facts"] == facts:
+                if (
+                    request.payload() != record["request"]
+                    or endpoint_settings(self.request("GET")) != record["after"]
+                ):
+                    raise DriftError("Published metadata or endpoint drifted; refusing changes")
+                return record
+            if record["phase"] == "upgrade_planned":
+                return self.publish(request, facts)
+        self.plan(request, facts)
+        return self.publish(request, facts)
+
     def disable(self) -> dict[str, Any]:
         record = self.load()
         if record["phase"] in {"planned", "disabled"}:
@@ -287,7 +302,7 @@ class Publisher:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["plan", "publish", "status", "disable"])
+    parser.add_argument("action", choices=["plan", "publish", "ensure", "status", "disable"])
     parser.add_argument("--metadata", required=True, help="Public app metadata JSON; never tokens")
     args = parser.parse_args(argv)
     configure_logging()
@@ -302,7 +317,7 @@ def main(argv: list[str] | None = None) -> int:
     name = spec_for(cfg, scenario).agent_name
     with httpx.Client(timeout=60, follow_redirects=False) as http:
         publisher = Publisher(http, token, cfg.endpoint, name, JOURNAL)
-        if args.action in {"plan", "publish"}:
+        if args.action in {"plan", "publish", "ensure"}:
             deployment = json.loads((STATE_DIRECTORY / "deployment.json").read_text())
             candidates = [row for row in deployment["agents"] if row["scenario"] == scenario.name]
             if deployment["endpoint"] != cfg.endpoint or len(candidates) != 1:
@@ -322,11 +337,12 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 client.close()
             facts["network"] = policy_facts(cfg, Settings())  # type: ignore[call-arg]
-            record = (
-                publisher.plan(request, facts)
-                if args.action == "plan"
-                else publisher.publish(request, facts)
-            )
+            operation = {
+                "plan": publisher.plan,
+                "publish": publisher.publish,
+                "ensure": publisher.ensure,
+            }[args.action]
+            record = operation(request, facts)
         elif args.action == "disable":
             record = publisher.disable()
         else:
