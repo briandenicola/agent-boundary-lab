@@ -86,7 +86,11 @@ Both policies share the same content filters, the same allow rule and `defaultAc
 | Non-allowlisted call | Reaches receiver; platform records a would-deny row | Blocked; deny row; **no receipt** at receiver |
 | Purpose | Baseline: the call really works when nothing stops it | The treatment |
 
-Without Audit, a failure under Enforced proves nothing — the call might never have worked. Two similarly named properties exist: `properties.mode` is content safety (held at `Blocking` in both), `egressPolicy.mode` is the network variable ([rai-policies.tf lines 8–17](../../infra/cloud/rai-policies.tf)).
+Without Audit, a failure under Enforced proves nothing — the call might never have worked.
+`properties.mode` controls content safety; `egressPolicy.mode` is the network
+variable. Terraform declares `Blocking` content safety, but the live baseline has
+externally managed `Default` settings. Preserve that drift and compare the actual
+content filters; do not reconcile them to run the demo.
 
 ![Allowed vs denied flow](diagrams/02-allowed-vs-denied-flow.svg)
 
@@ -162,7 +166,8 @@ Deeper references: [architecture-as-built.md](../architecture-as-built.md), [com
 <details><summary>Answers</summary>
 
 1. It governs inbound reach only.
-2. `egressPolicy.mode` differs; `properties.mode` (content safety) is `Blocking` in both.
+2. `egressPolicy.mode` differs; actual content-safety settings are equivalent.
+   Do not assume the live mode matches Terraform's declared `Blocking`.
 3. So the egress policy is the only sufficient explanation of a denial.
 4. Inconclusive: a bare 403 is not proof, and missing evidence is never a pass.
 5. No to both; it stands in for on-premises.

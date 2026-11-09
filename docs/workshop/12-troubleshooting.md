@@ -62,9 +62,9 @@ Codes below are general Entra knowledge, not observed in this repo. Full detail:
 | --- | --- | --- | --- |
 | Diagnostics links missing in the harness UI | `HARNESS_WORKBOOK_URL`, `HARNESS_LOGS_URL`, `HARNESS_APPINSIGHTS_URL` never reached the Secret | Export them, run `task chat-agent:secret` (it restarts the harness) | [`tasks/Taskfile.harness.yml` L60-L91](../../tasks/Taskfile.harness.yml#L60-L91); [`settings.py` L58-L64](../../src/containment_demo/harness/settings.py#L58-L64) |
 | Saved browser login stops working | Secrets were rotated or rebuilt | `task chat-agent:token` (or `test-ui:token`) | [`tasks/Taskfile.harness.yml`](../../tasks/Taskfile.harness.yml) |
-| Tool 404 at policy-api / test-receiver | Double slash from a trailing-slash URL | Rebuild images from a commit that includes the fix | [`../demo-runbook.md`](../demo-runbook.md) section 6 |
+| Tool 404 at policy-api / test-receiver | Check URL construction and deployed image | Use the current image and validated destination settings | [Runbook](../demo-runbook.md) |
 | `403 Public access is disabled` | The Foundry data plane is private | Call only from inside the VNet (harness, facade, UI), never a laptop | `../compatibility.md` |
-| Prompts or responses visible in telemetry | ADK content capture is on | Stop and turn it off; see [`../telemetry-map.md`](../telemetry-map.md) §0.10 | `src/containment_demo/telemetry.py` |
+| Prompts or responses visible in telemetry | ADK content capture is on | Stop and turn it off; see [telemetry privacy](../telemetry-map.md) | `src/containment_demo/telemetry.py` |
 | `scripts/verify_demo.py` exits 2 (INCONCLUSIVE) | Under 180 s since the call, wrong run id, wrong `--called-at`, `--no-terraform`, or no App Insights connection | Wait, check `matched_run_ids`, use the tool-start time, run `task cloud:app-insights-connection`. Not a pass, not a failure | [`../demo-runbook.md`](../demo-runbook.md) |
 | No platform spans from the enforced slot | The Enforced policy also denies the agent's App Insights export (not verified as the cause) | Treat as inconclusive; compare with the audit slot using KQL query 8 | [`../kql-queries.md`](../kql-queries.md) |
 
@@ -80,7 +80,7 @@ Codes below are general Entra knowledge, not observed in this repo. Full detail:
 | `chdir ./infra/cloud: no such file or directory` | Local path resolution in an old preflight | Update to a version that resolves `{{.ROOT_DIR}}/infra/cloud`; not evidence the environment needs bootstrapping | [`../rebuild-runbook.md`](../rebuild-runbook.md) |
 | `cloud:plan` shows the RAI policies updating in place | Unexplained content filter drift (2026-10-10) | Read the plan; do not apply blind; never edit a production policy | [`../rebuild-runbook.md`](../rebuild-runbook.md) "Known rough edges" |
 | Foundry spike account stays `Creating` about 10 minutes | Managed network provisioning | Expected; not a failure signal | [`../demo-runbook.md`](../demo-runbook.md) section 12 |
-| `deploy:*` after model grant still fails | Propagation, restart or new version needed (UNVERIFIED) | Wait and retry; do not assume a grant proves a model call works | [`../rebuild-runbook.md`](../rebuild-runbook.md) section 6 |
+| `deploy:*` after model grant still fails | Inspect the actual agent identity, model role and deployment error | Read back permissions and logs before deliberately retrying | [Rebuild recovery](../rebuild-runbook.md) |
 
 ## Code tour
 

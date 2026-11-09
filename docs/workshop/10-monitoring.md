@@ -23,7 +23,10 @@ One Log Analytics workspace holds everything ([`monitoring.tf`](../../infra/clou
 - Egress decision `Properties` keys (observed 2026-10-09): `decisionResultCode` (`Allow` or `AuditWouldDeny`), `decision` (`Allow` or `Deny`), `enforcement`, `decisionReasonCode` (`MatchedAllowRule`, `AuditWouldDefaultDeny`, and `DefaultDeny` under Enforced), `denyReasonCode`, `matchedRule`, `host`, `path`, `egressDecisionId`, `operationId`.
 - Receipt fields: `service` (`policy-api` or `test-receiver`), `event` (`receipt`), `received_at`, `demo_run_id`, plus `outcome` (policy API) or `content_length_bytes` (receiver).
 
-**How the join works.** The platform row carries no `demo_run_id` property. The `run-...` id is in the URL path of the decision row's `Data` column and in the receipt's `demo_run_id`. The `ui-...` and harness ids do not join to it. `operationId` does not match application trace ids (telemetry-map §0.6.4), so do not join on it.
+**How the join works.** The platform row carries no `demo_run_id` property.
+The agent's run marker is in the decision's `Data` path and the receipt's
+`demo_run_id`. Do not substitute an unrelated UI/harness marker or join on
+`operationId`; see [the actual correlation contract](../telemetry-map.md).
 
 Caveats you must repeat when presenting:
 

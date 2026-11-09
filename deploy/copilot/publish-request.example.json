@@ -1,0 +1,13 @@
+{
+  "agentDisplayName": "ACS Servicing Demo",
+  "performBotRegistration": true,
+  "publishScope": "Shared",
+  "publishAsAutopilot": false,
+  "appVersion": "1.0.0",
+  "shortDescription": "Synthetic servicing actions governed by ACS in Azure Foundry.",
+  "fullDescription": "Ask to send the synthetic servicing record to an external processor. ACS checks the model-selected tool and blocks the prohibited action. No customer data. Policy lookup requires separate delegated API authorization.",
+  "developerName": "REPLACE-owner",
+  "developerWebsiteUrl": "https://REPLACE-owner.example.com",
+  "privacyUrl": "https://REPLACE-owner.example.com/privacy",
+  "termsOfUseUrl": "https://REPLACE-owner.example.com/terms"
+}

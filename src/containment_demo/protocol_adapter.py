@@ -17,6 +17,7 @@ installed packages rather than assumed (see docs/compatibility.md A3 and E3):
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
 from containment_demo.agent import USER_TOKEN_STATE_KEY
@@ -61,8 +62,7 @@ def build_host(settings: Settings) -> Any:
 
     from containment_demo.agent import build_agent
 
-    agent = build_agent(settings)
-    runner = InMemoryRunner(agent=agent, app_name=settings.agent_name)
+    build_agent(settings)
 
     @host.response_handler
     async def handle(request: Any, context: Any, cancellation_signal: Any) -> Any:
@@ -84,14 +84,8 @@ def build_host(settings: Settings) -> Any:
         # (azure-ai-agentserver-responses 2.2.0 hosting/_endpoint_handler.py:628). Whether
         # Foundry delivers this one is UNVERIFIED until a live run.
         user_token = context.client_headers.get(USER_TOKEN_HEADER) or None
-        run_settings = settings
-        run_runner = runner
         run_id = context.client_headers.get("x-client-demo-run-id")
-        if run_id is not None:
-            run_settings = settings.for_run(run_id)
-            run_runner = InMemoryRunner(
-                agent=build_agent(run_settings), app_name=run_settings.agent_name
-            )
+        run_settings = settings.for_run(run_id if run_id is not None else f"chat-{uuid.uuid4()}")
         diagnostic_token = context.client_headers.get("x-client-demo-diagnostics")
         if diagnostic_token is not None:
             import hmac
@@ -114,6 +108,9 @@ def build_host(settings: Settings) -> Any:
                 user_token,
             )
             return TextResponse(context, request, text=json.dumps(body))
+        run_runner = InMemoryRunner(
+            agent=build_agent(run_settings), app_name=run_settings.agent_name
+        )
         reply = await _run_agent_turn(
             runner=run_runner,
             settings=run_settings,
@@ -121,6 +118,8 @@ def build_host(settings: Settings) -> Any:
             cancellation_signal=cancellation_signal,
             user_token=user_token,
         )
+        if run_id is None:
+            reply += f"\n\nDemo run: {run_settings.demo_run_id}"
         return TextResponse(context, request, text=reply)
 
     if settings.diagnostics_enabled:

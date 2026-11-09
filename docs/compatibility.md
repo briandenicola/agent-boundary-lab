@@ -107,6 +107,37 @@ SDK sources, rechecked 2026-11-06:
 Reserved setting reference, accessed 2026-11-09:
 [hosted-agent deployment](https://learn.microsoft.com/azure/foundry/agents/how-to/deploy-hosted-agent).
 
+## Microsoft 365 publication contract
+
+The owner selected **Shared / Just you**, with the blocked external-processing
+action as the first release. `task copilot:*` implements native REST publication
+for the owned governance-denial agent. It preserves Responses and existing
+authorization, adds authenticated Activity access, and pins the reviewed version.
+It does not change account PNA, egress policy or policy API authentication.
+
+Publishing uses the owner's Azure CLI user token for `https://ai.azure.com`,
+not the helper's workload identity. A private journal records the approved
+configuration before any write. Uncertain publish requests are never retried
+automatically; restoring endpoint settings does not delete the catalog entry.
+
+The updated Responses handler generates a fresh `chat-<uuid>` per headerless turn,
+isolates its runner and appends the marker to the reply. Explicit direct-client
+markers and diagnostic responses retain their existing contract.
+
+Native channel delivery and hosted ACS evidence still require owner validation.
+Microsoft 365 sign-in is not a delegated policy API token. The documented managed
+delegation/toolbox flows do not establish token forwarding into this agent's
+existing direct-HTTP tool; lookup and combined-prompt acceptance are deferred.
+No app-only or operator-token fallback is introduced.
+
+Primary references, accessed 2026-11-09:
+
+- [Native private-network publication](https://learn.microsoft.com/azure/foundry/agents/how-to/publish-copilot-virtual-network).
+- [Publication and version selection](https://learn.microsoft.com/azure/foundry/agents/how-to/publish-copilot).
+- [Hosted runtime contract](https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agent-contract).
+- [User delegation configuration](https://learn.microsoft.com/azure/foundry/agents/how-to/configure-user-delegation).
+- [Application-managed forwarding](https://learn.microsoft.com/azure/foundry/agents/how-to/use-on-behalf-of-flow).
+
 ## Network and monitoring
 
 Current deployment defaults: Sweden Central, `Standard_D4as_v7`, single configured

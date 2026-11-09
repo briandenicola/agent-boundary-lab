@@ -1,0 +1,293 @@
+"""Publish the owned ACS-denial agent through Foundry's native Microsoft 365 API."""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any, Literal
+
+import httpx
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, SecretStr, field_validator
+
+from containment_demo.deploy import (
+    DeploymentError,
+    DriftError,
+    _list_versions,
+    build_client,
+    configure_logging,
+)
+from containment_demo.governance.hosted import (
+    SCENARIOS,
+    STATE_DIRECTORY,
+    HostedSettings,
+    _owned,
+    policy_facts,
+    read_scenario,
+    spec_for,
+)
+from containment_demo.settings import Settings
+
+ENDPOINT_FIELDS = ("protocol_configuration", "authorization_schemes", "version_selector")
+JOURNAL = Path.home() / ".copilot" / "publication.json"
+
+
+class PublishRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agentDisplayName: str = Field(min_length=1, max_length=30)
+    performBotRegistration: Literal[True] = True
+    publishScope: Literal["Shared"]
+    publishAsAutopilot: Literal[False] = False
+    appVersion: str = Field(pattern=r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+    shortDescription: str = Field(min_length=1, max_length=80)
+    fullDescription: str = Field(min_length=1, max_length=4000)
+    developerName: str = Field(min_length=1, max_length=32)
+    developerWebsiteUrl: HttpUrl
+    privacyUrl: HttpUrl
+    termsOfUseUrl: HttpUrl
+
+    @field_validator("developerWebsiteUrl", "privacyUrl", "termsOfUseUrl")
+    @classmethod
+    def https_metadata(cls, value: HttpUrl) -> HttpUrl:
+        if value.scheme != "https" or value.username or value.password:
+            raise ValueError("Public metadata URLs must use HTTPS without credentials")
+        return value
+
+    def payload(self) -> dict[str, Any]:
+        result: dict[str, Any] = self.model_dump(mode="json")
+        if "replace-" in json.dumps(result).casefold():
+            raise ValueError("Replace every example metadata placeholder before planning")
+        return result
+
+
+def endpoint_settings(agent: dict[str, Any]) -> dict[str, Any]:
+    endpoint = agent.get("agent_endpoint")
+    if not isinstance(endpoint, dict) or any(key not in endpoint for key in ENDPOINT_FIELDS):
+        raise DriftError("Incomplete endpoint readback; refusing to replace unknown configuration")
+    return {key: copy.deepcopy(endpoint[key]) for key in ENDPOINT_FIELDS}
+
+
+def publication_endpoint(before: dict[str, Any], version: str) -> dict[str, Any]:
+    after = copy.deepcopy(before)
+    protocols = after["protocol_configuration"]
+    schemes = after["authorization_schemes"]
+    if not isinstance(protocols, dict) or "responses" not in protocols:
+        raise DriftError("The existing hosted Responses endpoint is required")
+    if (
+        not isinstance(schemes, list)
+        or not all(isinstance(item, dict) and isinstance(item.get("type"), str) for item in schemes)
+        or not any(item["type"] in {"AzureRbac", "Entra"} for item in schemes)
+    ):
+        raise DriftError("Existing direct-client authorization must be preserved")
+    if any(item["type"] == "BotServiceTenant" for item in schemes):
+        raise DriftError("Refusing to replace an existing tenant-wide publication")
+    activity = protocols.setdefault("activity", {})
+    if not isinstance(activity, dict):
+        raise DriftError("Unrecognized Activity protocol configuration")
+    activity["enable_m365_public_endpoint"] = True
+    if not any(item["type"] == "BotServiceRbac" for item in schemes):
+        schemes.append({"type": "BotServiceRbac"})
+    after["version_selector"] = {
+        "version_selection_rules": [
+            {"type": "FixedRatio", "agent_version": version, "traffic_percentage": 100}
+        ]
+    }
+    return after
+
+
+def save_journal(path: Path, record: dict[str, Any]) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix="publication-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w") as stream:
+            stream.write(json.dumps(record, indent=2) + "\n")
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+class Publisher:
+    def __init__(
+        self, client: httpx.Client, token: SecretStr, endpoint: str, agent_name: str, journal: Path
+    ) -> None:
+        self.client = client
+        self.token = token
+        self.endpoint = endpoint
+        self.agent_name = agent_name
+        self.url = f"{endpoint}/agents/{agent_name}"
+        self.journal = journal
+
+    def request(self, method: str, suffix: str = "", body: Any = None) -> dict[str, Any]:
+        response = self.client.request(
+            method,
+            self.url + suffix,
+            params={"api-version": "v1"},
+            headers={
+                "Authorization": f"Bearer {self.token.get_secret_value()}",
+                "Content-Type": (
+                    "application/merge-patch+json" if method == "PATCH" else "application/json"
+                ),
+            },
+            json=body,
+        )
+        response.raise_for_status()
+        if not response.content:
+            return {}
+        result: Any = response.json()
+        if not isinstance(result, dict):
+            raise DeploymentError(
+                "Unrecognized Foundry response; inspect publication before retrying"
+            )
+        return result
+
+    def load(self) -> dict[str, Any]:
+        record: dict[str, Any] = json.loads(self.journal.read_text())
+        if record["endpoint"] != self.endpoint or record["agent_name"] != self.agent_name:
+            raise DriftError("Publication journal belongs to another project or agent")
+        return record
+
+    def plan(self, request: PublishRequest, facts: dict[str, Any]) -> dict[str, Any]:
+        if self.journal.exists() and self.load()["phase"] not in {"planned", "disabled"}:
+            raise DeploymentError(
+                "Publication already started; inspect status, do not overwrite it"
+            )
+        before = endpoint_settings(self.request("GET"))
+        if "activity" in before["protocol_configuration"] or any(
+            item.get("type", "").startswith("BotService")
+            for item in before["authorization_schemes"]
+        ):
+            raise DriftError("Agent already has a channel configuration not owned by this journal")
+        record = {
+            "endpoint": self.endpoint,
+            "agent_name": self.agent_name,
+            "facts": facts,
+            "request": request.payload(),
+            "before": before,
+            "after": publication_endpoint(before, facts["version"]),
+            "phase": "planned",
+        }
+        save_journal(self.journal, record)
+        return record
+
+    def publish(self, request: PublishRequest, facts: dict[str, Any]) -> dict[str, Any]:
+        record = self.load()
+        if record["phase"] != "planned":
+            raise DeploymentError(
+                "Publication has already been attempted. Inspect status; never blindly retry POST."
+            )
+        if facts != record["facts"] or request.payload() != record["request"]:
+            raise DriftError("Agent or public metadata changed since the approved plan")
+        if endpoint_settings(self.request("GET")) != record["before"]:
+            raise DriftError("Endpoint changed since planning; refusing to overwrite it")
+        record["phase"] = "patch_requested"
+        save_journal(self.journal, record)
+        self.request("PATCH", body={"agent_endpoint": record["after"]})
+        if endpoint_settings(self.request("GET")) != record["after"]:
+            raise DriftError("Endpoint readback differs from the planned publication")
+        record["phase"] = "publish_requested"
+        save_journal(self.journal, record)
+        result = self.request("POST", "/microsoft365/publish", record["request"])
+        if not isinstance(result.get("titleId"), str) or not result["titleId"]:
+            raise DeploymentError(
+                "Publish returned no titleId; inspect before taking further action"
+            )
+        record["title_id"] = result["titleId"]
+        record["phase"] = "published"
+        save_journal(self.journal, record)
+        if endpoint_settings(self.request("GET")) != record["after"]:
+            raise DriftError("Publication changed the planned endpoint; inspect status")
+        return record
+
+    def disable(self) -> dict[str, Any]:
+        record = self.load()
+        if record["phase"] in {"planned", "disabled"}:
+            raise DeploymentError("No active publication change to restore")
+        current = endpoint_settings(self.request("GET"))
+        if current not in (record["after"], record["before"]):
+            raise DriftError(
+                "Endpoint changed outside this publication; refusing to restore over it"
+            )
+        record["phase"] = "disable_requested"
+        save_journal(self.journal, record)
+        if current != record["before"]:
+            self.request("PATCH", body={"agent_endpoint": record["before"]})
+        if endpoint_settings(self.request("GET")) != record["before"]:
+            raise DriftError("Original endpoint settings were not restored")
+        record["phase"] = "disabled"
+        save_journal(self.journal, record)
+        return record
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=["plan", "publish", "status", "disable"])
+    parser.add_argument("--metadata", required=True, help="Public app metadata JSON; never tokens")
+    args = parser.parse_args(argv)
+    configure_logging()
+    request = PublishRequest.model_validate_json(args.metadata)
+    token = SecretStr(sys.stdin.read().strip())
+    if not token.get_secret_value() or any(
+        character.isspace() for character in token.get_secret_value()
+    ):
+        raise ValueError("A publishing user's Foundry token is required on standard input")
+    cfg = HostedSettings()  # type: ignore[call-arg]
+    scenario = next(item for item in SCENARIOS if item.name == "governance-denial")
+    name = spec_for(cfg, scenario).agent_name
+    with httpx.Client(timeout=60, follow_redirects=False) as http:
+        publisher = Publisher(http, token, cfg.endpoint, name, JOURNAL)
+        if args.action in {"plan", "publish"}:
+            deployment = json.loads((STATE_DIRECTORY / "deployment.json").read_text())
+            candidates = [row for row in deployment["agents"] if row["scenario"] == scenario.name]
+            if deployment["endpoint"] != cfg.endpoint or len(candidates) != 1:
+                raise DriftError("Missing or ambiguous owned governance deployment")
+            client, models = build_client(cfg)
+            try:
+                if any(not _owned(version, scenario) for version in _list_versions(client, name)):
+                    raise DriftError("Agent contains a version outside this governance track")
+                facts = read_scenario(
+                    client,
+                    models,
+                    cfg,
+                    Settings(),  # type: ignore[call-arg]
+                    scenario,
+                    candidates[0]["version"],
+                )
+            finally:
+                client.close()
+            facts["network"] = policy_facts(cfg, Settings())  # type: ignore[call-arg]
+            record = (
+                publisher.plan(request, facts)
+                if args.action == "plan"
+                else publisher.publish(request, facts)
+            )
+        elif args.action == "disable":
+            record = publisher.disable()
+        else:
+            record = publisher.load()
+            record["endpoint_matches_plan"] = (
+                endpoint_settings(publisher.request("GET")) == record["after"]
+            )
+        record["planned_endpoint_summary"] = {
+            "protocols": sorted(record["after"]["protocol_configuration"]),
+            "authorization_types": [
+                scheme["type"] for scheme in record["after"]["authorization_schemes"]
+            ],
+            "activity_public": True,
+            "pinned_version": record["facts"]["version"],
+        }
+        print(
+            json.dumps(
+                {key: value for key, value in record.items() if key not in {"before", "after"}},
+                indent=2,
+            )
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

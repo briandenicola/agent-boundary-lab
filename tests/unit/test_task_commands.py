@@ -24,6 +24,20 @@ COMPONENTS = (
 )
 
 
+@pytest.mark.parametrize("action", ["plan", "publish", "status", "disable"])
+def test_copilot_runs_through_the_private_helper_without_deploying_or_invoking(
+    dry_task, action: str
+) -> None:
+    command = dry_task(f"copilot:{action}")
+    assert "cloud:target-check" in command
+    assert "/opt/deploy-venv/bin/python /home/agent/.copilot/publisher.py" in command
+    assert f"{action} --metadata" in command
+    assert "src/containment_demo/copilot.py" in command
+    assert "terraform apply" not in command
+    assert "governance.hosted up" not in command
+    assert "verify_governance run" not in command
+
+
 def task_body(file: str, name: str) -> str:
     content = (ROOT / "tasks" / file).read_text()
     match = re.search(rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^  [\w-]+:|\Z)", content)

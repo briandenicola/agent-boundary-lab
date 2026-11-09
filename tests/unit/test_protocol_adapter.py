@@ -217,7 +217,33 @@ class TestInputTextIsAwaited:
         )
         assert not inspect.iscoroutine(captured["user_text"])
         assert captured["user_text"] == USER_TEXT
-        assert result.text == "done"
+        assert result.text == f"done\n\nDemo run: {captured['settings'].demo_run_id}"
+
+    def test_chat_turns_get_distinct_markers_without_client_headers(
+        self,
+        settings: Settings,
+        offline_sdk: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured = []
+
+        async def turn(**kwargs: Any) -> str:
+            captured.append(kwargs)
+            return "The action was blocked."
+
+        monkeypatch.setattr(protocol_adapter, "_run_agent_turn", turn)
+        host = protocol_adapter.build_host(settings)
+        replies = [
+            asyncio.run(host.handler(object(), FakeResponseContext(), None)).text for _ in range(2)
+        ]
+        markers = [turn["settings"].demo_run_id for turn in captured]
+        assert len(set(markers)) == 2
+        assert all(marker.startswith("chat-") for marker in markers)
+        assert captured[0]["runner"] is not captured[1]["runner"]
+        assert all(turn["user_token"] is None for turn in captured)
+        for marker, reply in zip(markers, replies, strict=True):
+            assert reply == f"The action was blocked.\n\nDemo run: {marker}"
+        assert settings.demo_run_id not in markers
 
     def test_run_markers_are_request_scoped(
         self,
@@ -235,13 +261,14 @@ class TestInputTextIsAwaited:
         monkeypatch.setattr(protocol_adapter, "_run_agent_turn", turn)
         host = protocol_adapter.build_host(settings)
         for run_id in ("gov-first", "gov-second"):
-            asyncio.run(
+            result = asyncio.run(
                 host.handler(
                     object(),
                     FakeResponseContext(client_headers={"x-client-demo-run-id": run_id}),
                     None,
                 )
             )
+            assert result.text == "done"
         assert captured == ["gov-first", "gov-second"]
         assert settings.demo_run_id == original
 

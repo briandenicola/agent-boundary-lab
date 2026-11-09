@@ -1,0 +1,96 @@
+version: '3'
+silent: true
+
+tasks:
+  check:
+    desc: OFFLINE. Check Microsoft 365 publication guards and request-scoped chat correlation
+    cmds:
+      - .venv/bin/python -m pytest tests/unit/test_copilot.py tests/unit/test_protocol_adapter.py tests/unit/test_task_commands.py -q
+      - task: :lint:format
+      - task: :lint:ruff
+      - task: :lint:types
+
+  plan:
+    desc: READ-ONLY AZURE. Plan Shared publication of the owned ACS-denial agent; save a private journal in the existing helper
+    cmds:
+      - task: _run
+        vars: {ACTION: plan}
+
+  publish:
+    desc: CHANGES FOUNDRY + M365. Enable scoped Activity ingress, pin the owned version, register and publish to Just you
+    prompt: Publish the reviewed ACS-denial agent and public metadata to Microsoft 365 (Shared/Just you), enabling only its authenticated Activity route? Microsoft 365 will process agent metadata and replies.
+    cmds:
+      - task: _run
+        vars: {ACTION: publish}
+
+  status:
+    desc: READ-ONLY AZURE. Read publication journal and endpoint settings; not a chat smoke test
+    cmds:
+      - task: _run
+        vars: {ACTION: status}
+
+  disable:
+    desc: CHANGES FOUNDRY. Restore only this publication's endpoint settings; catalog removal is a separate M365 admin action
+    prompt: Restore the recorded pre-publication endpoint settings? The Microsoft 365 catalog entry is not deleted.
+    cmds:
+      - task: _run
+        vars: {ACTION: disable}
+
+  _run:
+    internal: true
+    cmds:
+      - task: :governance:_context
+      - |
+        set -eu
+        : "${COPILOT_METADATA_FILE:?Copy deploy/copilot/publish-request.example.json to .task/copilot/publish-request.json, fill owner metadata, and set COPILOT_METADATA_FILE.}"
+        test -f "$COPILOT_METADATA_FILE"
+        [ "$(az account show --query user.type -o tsv --only-show-errors)" = user ] || {
+          echo "Shared publication requires your Azure CLI user login, not a service principal." >&2
+          exit 1
+        }
+        METADATA=$(cat "$COPILOT_METADATA_FILE")
+        NS=$(terraform -chdir=infra/cloud output -raw kubernetes_namespace)
+        POD=$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=agent-governance \
+          -o jsonpath='{.items[0].metadata.name}')
+        test -n "$POD"
+        mkdir -p .task/copilot
+        RESULT=$(mktemp .task/copilot/readback.XXXXXX)
+        JOURNAL=$(mktemp .task/copilot/journal.XXXXXX)
+        TOKEN=$(mktemp .task/copilot/token.XXXXXX)
+        trap 'rm -f "$RESULT" "$JOURNAL" "$TOKEN"' EXIT
+        az account get-access-token --resource https://ai.azure.com \
+          --query accessToken -o tsv --only-show-errors > "$TOKEN"
+        kubectl -n "$NS" exec "$POD" -- mkdir -p /home/agent/.copilot
+        kubectl -n "$NS" cp src/containment_demo/copilot.py \
+          "$POD:/home/agent/.copilot/publisher.py"
+        CODE=0
+        kubectl -n "$NS" exec -i "$POD" -- \
+          /opt/deploy-venv/bin/python /home/agent/.copilot/publisher.py \
+          {{.ACTION}} --metadata "$METADATA" < "$TOKEN" > "$RESULT" || CODE=$?
+        cat "$RESULT"
+        kubectl -n "$NS" exec "$POD" -- /bin/sh -c \
+          'if [ -f /home/agent/.copilot/publication.json ]; then cat /home/agent/.copilot/publication.json; fi' \
+          > "$JOURNAL"
+        if [ -s "$JOURNAL" ]; then
+          mv "$JOURNAL" .task/copilot/publication.json
+        fi
+        if [ "$CODE" = 0 ]; then
+          mv "$RESULT" .task/copilot/readback.json
+        fi
+        exit "$CODE"
+
+  restore-journal:
+    desc: CHANGES AKS HELPER ONLY. Restore the private publication journal after a helper restart; never overwrite an existing journal
+    prompt: Restore .task/copilot/publication.json to the lab helper? This does not publish or change Foundry.
+    cmds:
+      - task: :governance:_context
+      - |
+        set -eu
+        test -s .task/copilot/publication.json
+        NS=$(terraform -chdir=infra/cloud output -raw kubernetes_namespace)
+        kubectl -n "$NS" exec deployment/agent-governance -- \
+          /bin/sh -c 'test ! -e /home/agent/.copilot/publication.json && mkdir -p /home/agent/.copilot && chmod 700 /home/agent/.copilot'
+        kubectl -n "$NS" cp .task/copilot/publication.json \
+          "$NS/$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=agent-governance -o jsonpath='{.items[0].metadata.name}'):/home/agent/.copilot/publication.json"
+        kubectl -n "$NS" exec deployment/agent-governance -- \
+          chmod 600 /home/agent/.copilot/publication.json
