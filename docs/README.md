@@ -30,11 +30,9 @@ not the prompt. ACS denial is application governance, not platform network enfor
 | --- | --- |
 | [Compatibility](compatibility.md) | Pinned runtime contracts and primary references |
 | [Identity token flow](token-flow-documented.md) | Delegated API authorization and UI interpretation |
-| [Identity probe](identity-probe.md) | Optional directory and delegated-Foundry compatibility checks |
 | [Egress control](egress-control.md) | RAI network policy mechanics, TLS and limits |
 | [Telemetry map](telemetry-map.md) | Observed schemas, joins and dated evidence |
 | [KQL queries](kql-queries.md) | Evidence inspection queries |
-| [Evidence template](evidence-template.md) | One record per run |
 | [Diagrams](diagrams/README.md) | Editable diagram sources |
 
 ## Current baseline

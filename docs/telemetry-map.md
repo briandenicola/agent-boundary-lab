@@ -193,4 +193,4 @@ runtime evidence.
 - Collect decision rows, successful positive control, receiver count and unattributed
   arrivals for the same explicit window.
 - Keep identity, ACS and network verdicts separate.
-- Save [an evidence record](evidence-template.md); missing signals are inconclusive.
+- Save [an evidence record](demo-runbook.md#evidence-record); missing signals are inconclusive.

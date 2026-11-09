@@ -54,6 +54,6 @@ After the workshop you can:
 
 ## Reference docs
 
-[Architecture as built](../architecture-as-built.md) · [Compatibility](../compatibility.md) · [Telemetry map](../telemetry-map.md) · [Egress control](../egress-control.md) · [Identity probe](../identity-probe.md) · [Demo runbook](../demo-runbook.md) · [Rebuild runbook](../rebuild-runbook.md) · [KQL queries](../kql-queries.md)
+[Architecture as built](../architecture-as-built.md) · [Compatibility](../compatibility.md) · [Telemetry map](../telemetry-map.md) · [Egress control](../egress-control.md) · [Demo runbook](../demo-runbook.md) · [Rebuild runbook](../rebuild-runbook.md) · [KQL queries](../kql-queries.md)
 
 **Start here:** [Module 01: Architecture](01-architecture.md)

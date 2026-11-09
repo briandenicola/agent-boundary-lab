@@ -188,7 +188,7 @@ Commands: `task model-server:build`, `task model-server:digest`, `task model-ser
 
 Why a local model? The harness needs *some* LLM to drive tool calls, but it must not add an Azure OpenAI dependency that could muddy the experiment. A 3B CPU model is slow (40–70 s per turn per the settings comment), which is exactly why the websocket and progress events exist. It is also why model quality is a limitation: a small model may skip a tool, so the harness's evidence comes from tool results and platform logs, not from the model's text.
 
-Deeper reading: [architecture-as-built.md](../architecture-as-built.md), [identity-probe.md](../identity-probe.md), [egress-control.md](../egress-control.md), [compatibility.md](../compatibility.md).
+Deeper reading: [architecture-as-built.md](../architecture-as-built.md), [token-flow-documented.md](../token-flow-documented.md), [egress-control.md](../egress-control.md), [compatibility.md](../compatibility.md).
 
 ## Checkpoint questions
 

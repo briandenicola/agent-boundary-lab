@@ -52,7 +52,7 @@ Entra calls. Local runs are functional tests, never containment proof.
 
 ## Record
 
-Complete [one evidence record](../evidence-template.md) per run.
+Use the [runbook's evidence record](../demo-runbook.md#evidence-record) for each run.
 Keep identity, ACS and network verdicts separate; missing required evidence is
 inconclusive. For Microsoft 365 Copilot and ACS, use the
 [governance guide](../governance-demo.md), not the baseline harness.

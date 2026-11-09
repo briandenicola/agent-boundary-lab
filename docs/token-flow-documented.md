@@ -70,7 +70,8 @@ managed policy drift in an existing environment.
 
 `identity:verify` is a separate delegated-Foundry compatibility probe with temporary
 test-user tokens. `app:run-allowed` / `app:run-denied` are offline actor-context
-regressions, not the OBO browser test. Details: [identity probe](identity-probe.md).
+regressions, not the OBO browser test. See
+[the identity Task definitions](../tasks/Taskfile.identity.yml).
 
 ## Microsoft 365 channel
 

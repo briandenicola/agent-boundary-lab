@@ -61,7 +61,8 @@ allowed/denied demonstration.
 Use synthetic aliases in reports, not user IDs or token claims.
 [Token flow](token-flow-documented.md) describes the authorization contract.
 `app:run-allowed` and `app:run-denied` are offline actor-context regressions, not live
-Entra tests. Optional identity compatibility probes are in [identity-probe.md](identity-probe.md).
+Entra tests. Optional compatibility probes are defined in
+[the identity Taskfile](../tasks/Taskfile.identity.yml).
 
 ## Run the baseline
 
@@ -173,5 +174,11 @@ AKS, hosted compute, inference, registry builds and the managed network can incu
 PostgreSQL remains disabled. No operation may target the AKS node resource group.
 Never delete or reconcile a production/mixed-purpose RAI policy.
 
-Complete [one evidence record](evidence-template.md) per run, including what was
-not proven and whether resources remain running.
+## Evidence record
+
+For each run, retain the UTC window, run marker, image digest, served agent version,
+actual policy readback and relevant application/platform/receipt references.
+Record identity, ACS and network outcomes separately as pass, fail or inconclusive,
+including what was not exercised or proven. Note whether resources remain running.
+Use synthetic aliases and keep tokens, user identifiers and model content out of
+the record.

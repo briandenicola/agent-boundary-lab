@@ -34,9 +34,13 @@ task app:reset            # or foundry-agent:down alone
 task cloud:down           # destructive; owner only
 ```
 
-Notes from the code (verify them before relying on them): `cloud:down` in [`tasks/Taskfile.cloud.yml`](../../tasks/Taskfile.cloud.yml#L949-L962) deletes resource groups found by the demo's `Application` tag with `--no-wait` and removes local Terraform state files. It does **not** itself call `identity:destroy`, so run that first. [`../demo-runbook.md`](../demo-runbook.md) §12 describes a stricter `app:down` flow; that task is not defined in the current Taskfiles, so do not invent it. Record in the evidence template whether the environment was left up and why.
+Review the current [cloud cleanup Task](../../tasks/Taskfile.cloud.yml) before
+approving it. Preserve Terraform state and private journals, especially on failure;
+never target the AKS node resource group. Record whether resources remain running
+using [the runbook](../demo-runbook.md#evidence-record).
 
-For a lighter cleanup of the probe only: `task identity:down` and `task identity:setup-down` (see [`../identity-probe.md`](../identity-probe.md)).
+For a lighter cleanup of the probe only: `task identity:down` and
+`task identity:setup-down`; review [their definitions](../../tasks/Taskfile.identity.yml).
 
 ## Walkthrough: rebuild from scratch
 

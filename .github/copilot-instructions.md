@@ -87,13 +87,13 @@ These are the point of the repository; violating them invalidates the demo.
   Keep tested results, proposed behavior, and preview capability clearly
   separated in docs and reports.
 
-## Repository layout to create
+## Repository layout
 
-Follow the structure in `docs/README.md` ("Suggested repository structure"):
+Keep the existing layout:
 `src/containment_demo/` (agent, tools, protocol_adapter, diagnostics, telemetry,
 settings), `services/policy_api/` and `services/test_receiver/`, `infra/`,
 `scripts/`, `tests/`, and the `docs/` deliverables (`compatibility.md`,
-`demo-runbook.md`, `telemetry-map.md`, `evidence-template.md`).
+`demo-runbook.md`, `telemetry-map.md`).
 
 Note that `README.md` and `PLAN.md` currently live under `docs/`, while the plan
 text refers to them at the repo root — resolve paths against the actual files in

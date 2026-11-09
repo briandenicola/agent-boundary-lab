@@ -56,8 +56,8 @@ task identity:test
 task identity:validate
 ```
 
-Optional directory/delegated-Foundry compatibility probes have a separate lifecycle:
-[identity-probe.md](../identity-probe.md). A successful directory setup is not a
+Optional directory/delegated-Foundry compatibility probes have a separate lifecycle
+in [the identity Taskfile](../../tasks/Taskfile.identity.yml). A successful directory setup is not a
 hosted invocation or network-containment result.
 
 Never paste tokens, authorization headers or full claims into chat or evidence.

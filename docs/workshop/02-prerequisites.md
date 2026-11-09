@@ -102,7 +102,7 @@ The root Taskfile loads it (`dotenv: ['.env']` in [Taskfile.yml](../../Taskfile.
 | **External harness** | `LETSENCRYPT_EMAIL`, `TENANT_ID`, `OIDC_APP_NAME`, `ROTATE_OIDC_SECRET` | Read by `external-*` tasks and `app:deploy-external`. `TENANT_ID` defaults to the `az` tenant; `OIDC_APP_NAME` defaults to `agent-boundary-harness-oidc`; `ROTATE_OIDC_SECRET=1` issues a new client secret on the next run. |
 | **External hostname** | `HOSTNAME` (Task variable) | **Pass it on the command line**: `task app:deploy-external HOSTNAME=<fqdn> LETSENCRYPT_EMAIL=<email>`. `.env.example` also lists `EXTERNAL_HOSTNAME`, but no task reads it today. |
 | **Diagnostics links** | `HARNESS_WORKBOOK_URL`, `HARNESS_LOGS_URL`, `HARNESS_APPINSIGHTS_URL` | Optional deep links shown in the harness UI. Applied by `task chat-agent:secret` ([Module 06](06-build-and-deploy.md)). |
-| **Opt-in identity probe (issue #4)** | `IDENTITY_*`, `POLICY_API_*` | Commented out; the I0 probe is not required for the external demo. See [identity-probe.md](../identity-probe.md). |
+| **Opt-in identity probe** | `IDENTITY_*`, `POLICY_API_*` | Not required for the external demo. See [the identity Taskfile](../../tasks/Taskfile.identity.yml). |
 
 Never put real secrets in `.env.example`; runtime credentials use managed identity. Synthetic data only.
 
