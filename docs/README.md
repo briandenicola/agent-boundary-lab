@@ -59,7 +59,19 @@ The latest owner-authorized setup on 2026-11-09 deployed all seven agents as
 active version `4` and updated the existing Copilot publication's pin to `4`.
 Repeated deployment/publication reused those resources. Original policy and API
 configuration were unchanged. No new hosted conversation or comparison was
-invoked; use `task acs:status` for current resource identifiers and sample prompts.
+invoked during that setup; use `task acs:status` for current resource identifiers
+and sample prompts.
+
+On 2026-11-10, a second owner-supplied Copilot reply correlated with an ACS
+`deny` / `blocked` event on version `4`. The isolated OAuth extension's project
+`normal-manatee-55075-copilot`, project capability host, protected MCP service,
+dedicated policy and scoped grants were then provisioned. The repeat Terraform
+plan reported no changes. Foundry returned an actual OAuth callback, but its
+connection readback rejects the MCP URL as **not a supported target**. No real
+client secret, Entra callback, toolbox, new hosted agent or separate publication
+was created. See the [actual blocker](governance-demo.md#8-operator-reference-isolated-toolbox-project).
+The original publication remains pinned to active version `4`; selected baseline
+policy/API/network readback is unchanged.
 
 ## Operating rules
 

@@ -1,6 +1,6 @@
 # Implementation plan
 
-Updated 2026-11-09. This is the current delivery plan, not the original build proposal.
+Updated 2026-11-10. This is the current delivery plan, not the original build proposal.
 Superseded phase checklists and issue-specific squad plans are retained in Git history.
 
 ## Baseline
@@ -13,7 +13,8 @@ Superseded phase checklists and issue-specific squad plans are retained in Git h
 | Issue #10: ACS G0-G3 | Implemented; real ACS/Rego and offline ADK boundary checks passed |
 | Issue #10: ACS G4 deployment | Seven isolated agents active v4, three policies and seven model grants verified 2026-11-09; repeated deployment reused v4 |
 | Issue #10: hosted comparison | Awaiting owner-run tests; deployment health is not a runtime result |
-| Microsoft 365 Copilot | ACS-first chat and correlated deny/blocked event observed on version 3, 2026-11-09; destination evidence and delegated lookup remain separate |
+| Microsoft 365 Copilot | ACS-first chat and correlated deny/blocked events observed on v3 (2026-11-09) and v4 (2026-11-10); destination evidence and delegated lookup remain separate |
+| Isolated OAuth extension | Project, capability host, protected MCP, telemetry link, policy and scoped grants provisioned 2026-11-10; probe connection rejects custom MCP target; no real secret, callback registration, toolbox or new publication |
 | Phases 8-9: Dapr Workflow | Deferred; no dependency of the Copilot demo |
 | Phase 10: messaging and portability | Deferred |
 
@@ -86,7 +87,8 @@ The actual digest and publication identifiers are recorded in
 Initial deployment completed 2026-11-09 with all seven scenario agents active as
 version `1` on the same image digest. The latest owner-authorized ACS setup
 updated all seven to active version `4`; use `acs:status` for current versions.
-The successful Copilot conversation below used version `3`, not version `4`.
+The first successful Copilot conversation below used version `3`; a second
+correlated deny/blocked event was observed on version `4` on 2026-11-10.
 Existing baseline policy properties were preserved.
 
 | Scenario | ACS / host | Foundry network | Required runtime evidence |
@@ -155,17 +157,23 @@ The owner selected a **separate Foundry project** on 2026-11-09. Do not enable
 toolbox routing in the existing project or deploy the earlier same-project variant.
 Runtime/MCP code, isolated Terraform, deployment/publication Tasks and offline
 regressions are implemented. The owner reported the dedicated images built on
-2026-11-09; deployment and hosted acceptance remain unverified. A guarded owner-run
-`acs:up` now ensures the dedicated Entra client. The extension's separate project,
-MCP service and connection are not provisioned by the core ACS lifecycle while
-its custom-OAuth provisioning contract remains unverified.
-The owner ran registration; readback verified the dedicated application and its
-requested delegated permission, with no secret or callback configured.
-Foundry custom-OAuth connection/callback/credential
-automation remains blocked pending its verified provisioning contract; GitHub
-source access was denied by organization SAML enforcement. This does not block
-the separately documented Entra registration API.
-See [the blocked extension](governance-demo.md#8-operator-reference-isolated-toolbox-project).
+2026-11-09; `acs:up` ensures the dedicated Entra client.
+
+Owner-authorized continuation on 2026-11-10 provisioned the separate project
+`normal-manatee-55075-copilot`, its ready `agents` capability host, protected MCP
+service `normal-manatee-55075-copilot-mcp`, dedicated RAI policy, separate link
+to the existing telemetry destination and scoped grants. Terraform validation
+passed and a repeat guarded plan reported **No changes**.
+
+The installed `azd ai connection create` OAuth interface was verified using an
+owned probe with a synthetic invalid credential. ARM readback returned the actual
+callback URL, but also **Connection target ... is not a supported target** and
+`useCustomConnector: false`. The callback interface is no longer unknown; the
+live target rejection is the blocker. CLI "created" output is not readiness.
+No real secret, Entra callback, consent, toolbox, isolated hosted agent or separate
+publication was created. GitHub source access is not the reason work stopped.
+The existing publication still pins v4, and selected baseline policy/API/network
+readback is unchanged. See [the actual blocker and verified contract](governance-demo.md#8-operator-reference-isolated-toolbox-project).
 
 Read-only Azure discovery found a ready account-level `Agents` capability host,
 with no explicit BYO storage/vector/conversation connections, and **no project-level
@@ -176,19 +184,22 @@ approach is not approved.
 
 Plan, in dependency order:
 
-1. Add a separate Terraform state owning a convention-named Copilot project and its
+1. **Infrastructure provisioned, 2026-11-10.** Use a separate Terraform state
+   owning a convention-named Copilot project and its
    project-level capability host. Reuse the current account's existing managed
    networking and platform-managed data resources without changing them. Verify
    this combination's ARM contracts and runtime support before creating resources.
    If it requires account-wide changes, stop for a separate-account decision.
-2. Deploy a separate protected MCP policy service, using the existing delegated
+2. **Service provisioned, 2026-11-10; delegated execution unverified.**
+   Deploy a separate protected MCP policy service, using the existing delegated
    verifier and policy response logic. Give it a dedicated OAuth client; retain
    the original API audience, scope and synthetic-user authorization requirements.
    Do not change the existing policy API, UI client, OBO settings or receiver.
 3. Configure an OAuth connection and immutable toolbox version **in the new project**.
-   The owner requested creation automation. Keep placeholders while the custom
-   OAuth provisioning/callback contract remains unverified; do not guess fields
-   or treat the dedicated client's registration as completed connection setup.
+   The owner requested creation automation. Resolve the observed unsupported-target
+   rejection through a supported platform contract before creating real credentials
+   or registering the returned callback. Do not guess fields or treat the probe,
+   returned callback or client registration as completed connection setup.
    Verify downstream network reachability; a toolbox listing is not a successful MCP call.
 4. Deploy a new owned agent in the new project, with exactly the same two ADK tools
    and ACS-first enforcement. Use dedicated image repositories, version journals,
@@ -206,8 +217,9 @@ Plan, in dependency order:
 The `copilot-toolbox:*` Task workflow covers preflight, offline checks/tampering,
 build, separate provisioning, deploy/publish, status, recovery and owned teardown.
 The new project links the existing Application Insights destination; it does not
-create a new telemetry destination. Connection credentials remain in sensitive
-Terraform state, not plan output or deployment journals.
+create a new telemetry destination. The reused Application Insights connection
+string remains in sensitive Terraform state, not plan output or deployment
+journals. No OAuth client secret was created or written to Terraform state.
 The workflow must not call `governance:up`,
 `deploy:tool-apis` or apply the baseline cloud state to enable this feature.
 The owner runs builds, resource changes and hosted calls.
@@ -215,7 +227,8 @@ The owner runs builds, resource changes and hosted calls.
 A separate project isolates configuration, agents, connections and publication;
 it does **not** create an independent network or model-capacity boundary inside
 the same account. Account-level network changes remain prohibited by this plan.
-No Azure configuration was changed during discovery.
+Initial read-only discovery changed no Azure configuration; the isolated resources
+above were subsequently provisioned with the owner's explicit continuation approval.
 
 ## Deferred work
 

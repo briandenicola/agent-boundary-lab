@@ -140,7 +140,7 @@ resource "azapi_resource" "project_host" {
 
 resource "azapi_resource" "project_insights" {
   type                      = "Microsoft.CognitiveServices/accounts/projects/connections@2026-05-15-preview"
-  name                      = "appinsights-connection"
+  name                      = "copilot-appinsights-connection"
   parent_id                 = azapi_resource.project.id
   schema_validation_enabled = false
   response_export_values    = ["properties.category", "properties.authType", "properties.target"]
@@ -216,7 +216,7 @@ resource "azapi_resource" "mcp" {
           external      = true
           allowInsecure = false
           targetPort    = 8080
-          transport     = "auto"
+          transport     = "Auto"
           traffic       = [{ latestRevision = true, weight = 100 }]
         }
       }

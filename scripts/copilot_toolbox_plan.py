@@ -24,7 +24,7 @@ def check_plan(plan: dict[str, Any], *, deleting: bool = False) -> None:
         for row in root.get("resources", [])
         if row["address"] == "data.terraform_remote_state.cloud"
     ]
-    if not states and deleting:
+    if not states:
         states = [
             row["values"]["outputs"]
             for row in plan.get("prior_state", {})
@@ -53,7 +53,7 @@ def check_plan(plan: dict[str, Any], *, deleting: bool = False) -> None:
         "azapi_resource.project_insights": (
             "Microsoft.CognitiveServices/accounts/projects/connections",
             project,
-            "appinsights-connection",
+            "copilot-appinsights-connection",
         ),
         "azapi_resource.project_pull": (
             "Microsoft.Authorization/roleAssignments",
@@ -108,8 +108,9 @@ def check_plan(plan: dict[str, Any], *, deleting: bool = False) -> None:
                 raise ValueError("Dedicated resource address points outside the isolated scope")
             if value.get("id") is not None:
                 suffix = (
-                    "/providers/Microsoft.Authorization/roleAssignments/"
-                    if kind == "Microsoft.Authorization/roleAssignments"
+                    "/providers/" + kind + "/"
+                    if kind
+                    in {"Microsoft.Authorization/roleAssignments", "Microsoft.App/containerApps"}
                     else "/" + kind.split("/")[-1] + "/"
                 )
                 if value["id"] != parent + suffix + str(actual_name):

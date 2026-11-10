@@ -102,6 +102,54 @@ def test_scenario_definitions_leave_telemetry_environment_to_foundry() -> None:
         assert cfg.application_insights_connection_string.get_secret_value() not in env.values()
 
 
+def test_status_recovers_live_versions_after_helper_report_is_lost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cfg, runtime = config(), settings()
+    operations = Operations()
+    client = SimpleNamespace(agents=operations, close=lambda: None)
+    expected = hosted.deploy_scenarios(client, FakeModels, cfg, runtime)
+    created = list(operations.created)
+    report = tmp_path / "deployment.json"
+    monkeypatch.setattr(hosted, "STATE_DIRECTORY", tmp_path)
+    monkeypatch.setattr(hosted, "HostedSettings", lambda: cfg)
+    monkeypatch.setattr(hosted, "Settings", lambda: runtime)
+    monkeypatch.setattr(hosted, "build_client", lambda _: (client, FakeModels))
+    monkeypatch.setattr(hosted, "policy_facts", lambda *_: {"synthetic": True})
+    assert hosted.main(["status", "--report", str(report)]) == 0
+    actual = json.loads(capsys.readouterr().out)
+    assert actual["agents"] == expected["agents"]
+    assert actual["network"] == {"synthetic": True}
+    assert operations.created == created
+    assert not operations.deleted
+    assert not report.exists()
+
+
+@pytest.mark.parametrize("failure", ["missing", "ambiguous", "drift", "unowned"])
+def test_status_discovery_rejects_unverifiable_versions(failure: str) -> None:
+    cfg, runtime = config(), settings()
+    operations = Operations()
+    client = SimpleNamespace(agents=operations)
+    hosted.deploy_scenarios(client, FakeModels, cfg, runtime)
+    name = hosted.spec_for(cfg, hosted.SCENARIOS[0]).agent_name
+    if failure == "missing":
+        operations.versions[name] = []
+    elif failure == "ambiguous":
+        duplicate = copy.deepcopy(operations.versions[name][0])
+        duplicate.version = "2"
+        operations.versions[name].append(duplicate)
+    elif failure == "drift":
+        operations.versions[name][0].definition.environment_variables["DEMO_GOVERNANCE_MODE"] = (
+            "disabled"
+        )
+    else:
+        operations.versions[name][0].metadata = {}
+    with pytest.raises(DriftError, match="exactly one ready version"):
+        hosted.discover_scenarios(client, FakeModels, cfg, runtime)
+    assert len(operations.created) == 7
+    assert not operations.deleted
+
+
 def test_matrix_records_real_invocation_contract_without_user_identifiers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

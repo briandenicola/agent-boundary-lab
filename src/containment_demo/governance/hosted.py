@@ -293,6 +293,30 @@ def deploy_scenarios(
     return {"run_kind": "hosted_configuration", "endpoint": cfg.endpoint, "agents": results}
 
 
+def discover_scenarios(
+    client: Any, models: Any, cfg: HostedSettings, settings: Settings
+) -> dict[str, Any]:
+    results = []
+    for scenario in SCENARIOS:
+        name = spec_for(cfg, scenario).agent_name
+        expected = definition_for(models, cfg, settings, scenario)
+        matches = []
+        for listed in _list_versions(client, name):
+            actual = client.agents.get_version(name, str(listed.version))
+            if (
+                _owned(actual, scenario)
+                and _status_of(actual) in {"active", "running"}
+                and _same_configuration(actual.definition, expected)
+            ):
+                matches.append(str(actual.version))
+        if len(matches) != 1:
+            raise DriftError(
+                f"{name}: require exactly one ready version matching helper configuration"
+            )
+        results.append(read_scenario(client, models, cfg, settings, scenario, matches[0]))
+    return {"run_kind": "hosted_configuration", "endpoint": cfg.endpoint, "agents": results}
+
+
 def deletion_plan(client: Any, cfg: HostedSettings) -> list[tuple[str, str]]:
     from azure.core.exceptions import ResourceNotFoundError
 
@@ -358,19 +382,25 @@ def main(argv: list[str] | None = None) -> int:
             report["network"] = network
             Path(args.report).write_text(json.dumps(report, indent=2) + "\n")
         elif args.action == "status":
-            report = json.loads(Path(args.report).read_text())
+            if Path(args.report).exists():
+                report = json.loads(Path(args.report).read_text())
+                report["agents"] = [
+                    read_scenario(
+                        client,
+                        models,
+                        cfg,
+                        settings,
+                        scenario,
+                        next(
+                            r["version"] for r in report["agents"] if r["scenario"] == scenario.name
+                        ),
+                    )
+                    for scenario in SCENARIOS
+                ]
+            else:
+                logger.warning("Deployment report absent; discovering and verifying live versions")
+                report = discover_scenarios(client, models, cfg, settings)
             report["network"] = policy_facts(cfg, settings)
-            report["agents"] = [
-                read_scenario(
-                    client,
-                    models,
-                    cfg,
-                    settings,
-                    scenario,
-                    next(r["version"] for r in report["agents"] if r["scenario"] == scenario.name),
-                )
-                for scenario in SCENARIOS
-            ]
         elif args.action == "check-down":
             print(json.dumps({"owned_versions": deletion_plan(client, cfg)}))
             return 0

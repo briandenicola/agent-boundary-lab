@@ -217,6 +217,36 @@ def test_plan_guard_accepts_only_dedicated_policy_scope() -> None:
         check_plan(plan)
 
 
+def test_plan_guard_requires_a_distinct_telemetry_connection_name() -> None:
+    plan = plan_for("azapi_resource.project_insights")
+    connection = plan["resource_changes"][0]["change"]["after"]
+    connection.update(
+        type="Microsoft.CognitiveServices/accounts/projects/connections@2026-05-15-preview",
+        parent_id=ACCOUNT + "/projects/synthetic-copilot",
+        name="copilot-appinsights-connection",
+    )
+    check_plan(plan)
+    connection["name"] = "appinsights-connection"
+    with pytest.raises(ValueError, match="isolated scope"):
+        check_plan(plan)
+
+
+def test_plan_guard_validates_created_mcp_resource_provider_scope() -> None:
+    plan = plan_for("azapi_resource.mcp", ["update"])
+    app = plan["resource_changes"][0]["change"]["after"]
+    group = ACCOUNT.split("/providers/")[0]
+    app.update(
+        type="Microsoft.App/containerApps@2025-01-01",
+        parent_id=group,
+        name="synthetic-copilot-mcp",
+        id=group + "/providers/Microsoft.App/containerApps/synthetic-copilot-mcp",
+    )
+    check_plan(plan)
+    app["id"] = group + "/providers/Microsoft.App/containerApps/baseline"
+    with pytest.raises(ValueError, match="resource ID"):
+        check_plan(plan)
+
+
 @pytest.mark.parametrize(
     ("address", "actions"),
     [
@@ -234,16 +264,34 @@ def test_plan_guard_rejects_shared_or_destructive_changes(
         check_plan(plan_for(address, actions))
 
 
-def test_destroy_guard_uses_prior_state_and_rejects_baseline_addresses() -> None:
-    plan = plan_for(actions=["delete"])
+@pytest.mark.parametrize("deleting", [False, True])
+def test_plan_guard_uses_refreshed_prior_state_and_rejects_baseline_addresses(
+    deleting: bool,
+) -> None:
+    plan = plan_for(actions=["delete"] if deleting else ["create"])
     plan["prior_state"] = {"values": plan["planned_values"]}
     plan["planned_values"] = {"root_module": {"resources": []}}
-    plan["resource_changes"][0]["change"]["before"] = plan["resource_changes"][0]["change"]["after"]
-    plan["resource_changes"][0]["change"]["after"] = None
-    check_plan(plan, deleting=True)
+    if deleting:
+        plan["resource_changes"][0]["change"]["before"] = plan["resource_changes"][0]["change"][
+            "after"
+        ]
+        plan["resource_changes"][0]["change"]["after"] = None
+    check_plan(plan, deleting=deleting)
     plan["resource_changes"][0]["address"] = "azapi_resource.foundry"
     with pytest.raises(ValueError, match="dedicated"):
-        check_plan(plan, deleting=True)
+        check_plan(plan, deleting=deleting)
+
+
+@pytest.mark.parametrize("count", [0, 2])
+def test_plan_guard_refuses_missing_or_ambiguous_refreshed_baseline(count: int) -> None:
+    plan = plan_for()
+    rows = plan["planned_values"]["root_module"]["resources"]
+    plan["prior_state"] = {
+        "values": {"root_module": {"resources": rows * count}},
+    }
+    plan["planned_values"] = {"root_module": {"resources": []}}
+    with pytest.raises(ValueError, match="Missing or ambiguous baseline"):
+        check_plan(plan)
 
 
 def test_grant_cleanup_is_limited_to_the_new_agent_and_scopes() -> None:

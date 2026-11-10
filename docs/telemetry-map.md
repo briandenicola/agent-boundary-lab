@@ -101,6 +101,26 @@ not merely a model refusal. It is application governance, not a platform egress
 denial. Destination receipts and a positive control were not inspected for this
 run; no mature receiver-absence or full seven-scenario comparison claim is made.
 
+The owner supplied a second successful blocked-action reply after the version-4
+deployment. A bounded read-only workspace query on 2026-11-10 found the matching
+real governance event:
+
+| Field | Observed value |
+| --- | --- |
+| Event time, UTC | 2026-11-10 00:01:20.138434 |
+| Run | `chat-64c2da5e-6b0f-4e10-b003-4dec0c628293` |
+| Agent | `containment-demo-audit-gov-governance-denial`, version `4` |
+| Tool | `send_to_external_processor` |
+| Mode / verdict / host action | `enforced` / `deny` / `blocked` |
+| Reason | `external_processor_prohibited` |
+| Policy | `containment-governance-deny/tool_policy` |
+| Operation / emitted trace ID | `e749f301ce8b6d863ffe198fb0af5c13` |
+| Chat result | `governance_denied`, with the same Demo run marker |
+
+This is new version-4 chat/ACS evidence, not a repeat deployment health check.
+The same limits apply: application governance is not platform egress enforcement,
+and destination receipts/positive control were not inspected for this run.
+
 ## Platform fields
 
 Observed 2026-10-09 in workspace-scoped `AppDependencies`:

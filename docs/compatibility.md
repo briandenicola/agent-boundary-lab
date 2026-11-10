@@ -301,8 +301,9 @@ OAuth setup requires a dedicated custom client using the existing API's audience
 and delegated scope, plus `offline_access` for refresh. Native channel sign-in is
 not the downstream authorization grant. Microsoft-managed OAuth and
 `UserEntraToken` are not generic custom-API authentication substitutes.
-No connection creation API or toolbox get-version API is assumed by the Tasks:
-the owner supplies the new project's actual connection/toolbox configuration.
+The original Tasks do not implement connection creation or toolbox version
+creation: they require actual configuration, not invented endpoints. The live
+connection probe below verifies part of that contract but is not usable setup.
 
 ### Dedicated Entra registration automation -- 2026-11-09
 
@@ -322,8 +323,9 @@ captured. Plan resolution is read-only and revalidates application ownership and
 permissions. Cleanup uses the recorded object ID only after separate infrastructure
 destruction. No baseline registration is modified.
 
-This verified Graph contract is independent of the still-unverified Foundry
-custom-OAuth connection/callback provisioning contract. Registration does not
+This verified Graph contract is independent of the Foundry custom-OAuth
+connection/callback contract, which was unverified at registration time.
+Registration does not
 grant admin consent, create a Foundry connection or establish a successful user
 lookup. The callback must come from Foundry's actual configuration response.
 
@@ -366,5 +368,85 @@ Owner-authorized execution completed on 2026-11-09:
 
 `cloud:up` was neither run nor modified. No hosted model calls or comparison
 invocations were made; the earlier version-3 chat evidence is not a version-4
-runtime result. The isolated toolbox project/MCP/connection were not deployed
-while the custom-OAuth provisioning contract remains blocked.
+runtime result. At that time the isolated toolbox project/MCP/connection were
+not deployed. The following record supersedes that extension status.
+
+### Isolated project and OAuth connection probe -- 2026-11-10
+
+Owner-authorized setup created project `normal-manatee-55075-copilot`, its
+`Succeeded` project-level `agents` capability host, protected MCP Container App
+`normal-manatee-55075-copilot-mcp`, dedicated RAI policy
+`normal-manatee-55075-copilot-toolbox` and scoped access grants. The service's
+`/healthz` returned `{"status":"ok","service":"policy-api"}`; delegated MCP
+execution remains unverified. Terraform validation passed and a repeat guarded
+plan reported **No changes**.
+
+Live infrastructure behavior required three corrections:
+
+- Refreshed `data.terraform_remote_state.cloud` outputs can appear only in
+  `prior_state`, not `planned_values`. Plan validation uses that refreshed state
+  when planned outputs are absent, while rejecting missing/ambiguous state and
+  any baseline or destructive change.
+- AppInsights connection names collided across projects in this account. The
+  separate link is `copilot-appinsights-connection`, not the original project's
+  `appinsights-connection`. It reuses the same existing telemetry destination.
+- Container App IDs include `/providers/Microsoft.App/containerApps/`, and Azure
+  normalizes ingress transport to `Auto`. Matching those actual values avoids
+  rejecting owned IDs or producing perpetual ingress updates.
+
+Installed `azd` 1.35.0 / `azure.ai.connections dev` supports OAuth connection
+creation with client ID, secret, authorization/token/refresh URLs and scopes.
+An explicit endpoint plus a private context-only azd environment resolved the
+intended project ARM resource; stale global azd configuration did not. No azd
+infrastructure workflow or repository conversion was used. The CLI's secret
+flag is an argument, not a verified safe real-secret delivery mechanism; probes
+used only a literal synthetic invalid credential.
+
+The owned `copilot-policy-oauth` probe's ARM GET at `2026-05-15-preview`
+returned actual top-level `authorizationUrl`, `tokenUrl`, `refreshUrl`, `scopes`
+(array), `redirectUrl`, `connectorName`, `useCustomConnector` and `error`
+properties. These extra OAuth properties are not fully represented in the ARM
+reference schema. The CLI's ordinary `show` omits callback/error fields, so it
+cannot establish readiness.
+
+| Actual readback | Value |
+| --- | --- |
+| Authentication / category / group | `OAuth2` / `RemoteTool` / `GenericProtocol` |
+| Target | `https://normal-manatee-55075-copilot-mcp.happymoss-27b266fc.swedencentral.azurecontainerapps.io/mcp` |
+| Redirect | `https://global.consent.azure-apim.net/redirect/8046ba5e89d146b0bd2e5448aba178da` |
+| `useCustomConnector` | `false` |
+| `error` | `Connection target https://normal-manatee-55075-copilot-mcp.happymoss-27b266fc.swedencentral.azurecontainerapps.io/mcp is not a supported target` |
+
+The rejection persisted with `metadata.type=generic_mcp` and readback using
+`2026-09-15-preview`. An in-memory probe supplying `useCustomConnector: true`
+did not change the returned value or error; this is **not a verified writable
+control**. Do not guess more fields or infer that generated callback/CLI
+"created" means successful OAuth. The cause of the target rejection remains
+unresolved; it is not evidence that delegated MCP calls or browser consent work.
+
+Live Entra readback still showed zero password credentials and zero web callbacks.
+No real secret, callback registration, user consent, toolbox version, isolated
+hosted agent or separate publication was created. Resolve the specific platform
+rejection through a supported contract before those steps. Preserve the private
+probe intent journal; do not blindly repeat an uncertain connection create.
+
+The existing AKS operator cluster was resumed and reached `Running` /
+`Succeeded`; the unchanged helper became available. Its ephemeral deployment
+report was lost on restart. ACS status now discovers live versions only when that
+report is absent, requiring exactly one owned, ready, fully configuration-matching
+version per scenario and revalidating each version. Missing, ambiguous, unhealthy
+or drifted matches stop the report instead of selecting an arbitrary version,
+redeploying agents or treating old local v1 readback as current. It does not write
+a replacement report. Actual `acs:status` then verified all seven active v4
+agents; publication readback retained title
+`T_38856d94-9c7d-2797-4f82-57e55875274b`, endpoint and v4 pin.
+Before/after selected baseline RAI properties, API images/authorization settings
+and account public-network setting matched. `cloud:up` remained untouched.
+
+Primary references accessed 2026-11-10:
+
+- [MCP authentication](https://learn.microsoft.com/azure/foundry/agents/how-to/mcp-authentication).
+- [Tool authentication](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/tool-authentication).
+- [Toolboxes](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/toolbox).
+- [Connection ARM reference, 2026-05-15-preview](https://learn.microsoft.com/azure/templates/microsoft.cognitiveservices/2026-05-15-preview/accounts/projects/connections).
+- [Connection ARM reference, 2026-09-15-preview](https://learn.microsoft.com/azure/templates/microsoft.cognitiveservices/2026-09-15-preview/accounts/projects/connections).

@@ -195,7 +195,10 @@ def network_facts(
             f"/projects/{baseline.foundry_project_name}{connection_path}",
             "2026-05-15-preview",
         )["properties"]
-        insights = get(config.project_id + connection_path, "2026-05-15-preview")["properties"]
+        insights = get(
+            config.project_id + "/connections/copilot-appinsights-connection",
+            "2026-05-15-preview",
+        )["properties"]
     ready = capability_hosts["value"]
     if (
         capability_hosts.get("nextLink")

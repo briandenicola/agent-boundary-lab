@@ -60,7 +60,7 @@ The native publication workflow is exposed through `task acs:copilot`; the ACS-b
 channel path was observed on 2026-11-09. Follow
 [operator setup](#7-operator-reference-publish-to-microsoft-365-copilot), then
 [the end-user test](#4-end-user-testing-in-microsoft-365-copilot).
-For permitted lookup with delegated OAuth, use the separate, not-yet-deployed
+For permitted lookup with delegated OAuth, use the separate, partially provisioned
 [toolbox project](#8-operator-reference-isolated-toolbox-project); do not change
 the original publication to enable it.
 
@@ -81,8 +81,10 @@ deployment and publication reused version `4` and the same title, without a new
 catalog submission. `acs:status` read back all seven active versions.
 
 No hosted model calls or comparison invocations were made during this setup.
-The earlier successful Copilot conversation was on version `3`; deployment
-readiness is not a new conversation result. Scenario outcomes below are
+The first successful Copilot conversation was on version `3`. A later
+owner-supplied reply correlated with a version-`4` ACS deny/blocked event on
+2026-11-10; see the [dated evidence](telemetry-map.md#microsoft-365-copilot-blocked-action-observation).
+Deployment readiness alone is not a conversation result. Scenario outcomes below are
 **expected behavior**, not claims that the hosted comparison has passed.
 
 Before/after readback confirmed unchanged original `egress-audit` and
@@ -721,25 +723,55 @@ publication status or chat explanation alone does not establish ACS enforcement.
 
 ## 8. Operator reference: isolated toolbox project
 
-**Blocked, not an operator checklist.** The permitted Copilot lookup needs a
-verified custom-OAuth connection/callback provisioning contract. Its runtime/MCP
-implementation, isolated Terraform and lower-level recovery Tasks exist, and the
-owner reported its images built. Do not interpret that as a deployable, proven
-end-to-end flow or ask operators to stitch it together manually.
+**Blocked by a live Foundry connection rejection, not an operator checklist.**
+Owner-authorized setup on 2026-11-10 provisioned:
+
+| Resource | Name / observed result |
+| --- | --- |
+| Separate Foundry project | `normal-manatee-55075-copilot` |
+| Project capability host | `agents`, `Succeeded` |
+| Protected MCP Container App | `normal-manatee-55075-copilot-mcp`; `/healthz` returned the expected service identity |
+| Dedicated RAI policy | `normal-manatee-55075-copilot-toolbox` |
+| Existing telemetry destination link | `copilot-appinsights-connection`; original project's `appinsights-connection` unchanged |
+| Scoped access | Project identity ACR pull, helper Foundry User, signed-in publisher Foundry User |
+| Repeatability | Guarded repeat Terraform plan: **No changes** |
+
+The MCP endpoint is
+`https://normal-manatee-55075-copilot-mcp.happymoss-27b266fc.swedencentral.azurecontainerapps.io/mcp`.
+Health is configuration evidence, not an authenticated lookup.
+
+The owned `copilot-policy-oauth` probe used only a synthetic invalid credential,
+not a real secret. Foundry generated the callback
+`https://global.consent.azure-apim.net/redirect/8046ba5e89d146b0bd2e5448aba178da`,
+but ARM readback reports:
+
+```text
+Connection target https://normal-manatee-55075-copilot-mcp.happymoss-27b266fc.swedencentral.azurecontainerapps.io/mcp is not a supported target
+```
+
+`useCustomConnector` remains `false`. Neither the CLI's "created" message nor a
+generated callback establishes a usable connection. Do not register this callback,
+create a real client secret, weaken MCP authentication or change account networking
+to work around the rejection. A supported resolution of this specific platform
+error is required before proceeding; restricted GitHub source access is not the
+remaining blocker. No toolbox, isolated hosted agent, separate publication or
+browser consent was created.
 
 `acs:up` ensures only the dedicated client registration for this extension.
 It discovers the existing protected API's tenant, audience and delegated scope,
 requests only that permission, and prints **Created**, **Reused** or **Recovered**
 with the application name, client ID, object ID and tenant. It does not create a
 secret, guess a callback or grant tenant-wide admin consent. Owner-run registration
-and readback were observed on 2026-11-09; secret and callback counts were zero.
+and readback were observed on 2026-11-09; live readback on 2026-11-10 still showed
+zero client secrets and zero registered web callbacks.
 
 Keep `.task/copilot-toolbox/oauth-application.json` privately with the lab state.
 It records intent and ownership, contains no secret, and prevents duplicate creates
 after a lost response. Retain it on errors; do not delete it to bypass uncertainty.
 No manual client-ID export or separate registration Task is required.
 
-When the remaining contract is verified, integrate setup into the ACS lifecycle.
+When the target rejection is resolved through a verified contract, integrate
+connection/credential/callback setup into the ACS lifecycle.
 Preserve the previously selected separate project and publication, original
 API/OBO client, synthetic-user list, seven scenarios and AKS/Web UI. Never change
 account-wide routing or the existing project's capability host to make it work.
