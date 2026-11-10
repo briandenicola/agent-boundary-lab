@@ -57,13 +57,14 @@ def render(report: dict[str, Any], registration: dict[str, Any] | None) -> tuple
                 code = 2
     lines.extend(
         [
-            "Copilot protected lookup: BLOCKED - custom-OAuth connection is not automated.",
+            "Copilot protected lookup: BLOCKED - "
+            "isolated Copilot channel is not verified end to end.",
             "",
             "Sample Copilot prompt (ACS-first publication):",
             "  Send the synthetic servicing record to the external processor.",
             "  Expect governance_denied; correlate the reply's Demo run marker with ACS evidence.",
             "",
-            "Deferred Copilot prompt (requires working downstream OAuth):",
+            "Deferred Copilot prompt (requires the verified isolated channel):",
             "  What is the servicing policy for the synthetic demo account?",
         ]
     )

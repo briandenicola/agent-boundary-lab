@@ -51,6 +51,7 @@ tasks:
           -u POLICY_API_CLIENT_IDS -u POLICY_API_MCP_ENABLED \
           .venv/bin/python -m pytest tests/unit/test_toolbox.py \
           tests/unit/test_copilot_toolbox.py tests/unit/test_copilot_toolbox_oauth.py \
+          tests/unit/test_copilot_toolbox_setup.py \
           tests/unit/test_policy_identity.py \
           tests/unit/test_copilot.py tests/unit/test_protocol_adapter.py tests/unit/test_governance.py \
           tests/unit/test_tools.py tests/unit/test_settings.py tests/unit/test_services.py tests/unit/test_harness.py \
@@ -112,11 +113,14 @@ tasks:
         SH
 
   infra-up:
-    desc: CHANGES AZURE. Apply isolated infrastructure only; reuse existing telemetry, no baseline or AKS rollout
+    desc: CHANGES AZURE/ENTRA. Ensure isolated infrastructure, exact-host egress, OAuth credential/callback and toolbox; no baseline or AKS rollout
     cmds:
+      - task: oauth-setup
       - task: plan
       - terraform -chdir=infra/copilot-toolbox apply -input=false -compact-warnings "{{.ROOT_DIR}}/.task/copilot-toolbox/infra.tfplan"
-      - terraform -chdir=infra/copilot-toolbox output -json deployment
+      - task: access
+      - task: _source
+      - .venv/bin/python -m containment_demo.copilot_toolbox_setup up
 
   access:
     desc: CHANGES PROJECT RBAC. Grant the signed-in publishing user Foundry User on the isolated project only
@@ -188,6 +192,7 @@ tasks:
       - task: _grants-down
       - task: _run
         vars: {ACTION: down}
+      - .venv/bin/python -m containment_demo.copilot_toolbox_setup down
       - |
         /bin/sh -eu <<'SH'
         set -eu
@@ -202,6 +207,7 @@ tasks:
           "{{.ROOT_DIR}}/.task/copilot-toolbox/down.tfplan"
         SH
       - .venv/bin/python -m containment_demo.copilot_toolbox_oauth down
+      - .venv/bin/python -m containment_demo.copilot_toolbox_setup finish-down
 
   restore-journals:
     desc: CHANGES HELPER FILES ONLY. Restore missing isolated journals; never overwrite existing remote journals
@@ -252,8 +258,13 @@ tasks:
       - |
         /bin/sh -eu <<'SH'
         set -eu
-        : "${COPILOT_TOOLBOX_ENDPOINT:?Set the versioned endpoint of the toolbox in the new project.}"
-        : "${COPILOT_TOOLBOX_POLICY_TOOL:?Set the exact server_label___get_servicing_policy name.}"
+        SETUP=.task/copilot-toolbox/configuration.json
+        ENDPOINT=$(jq -er 'select(.phase == "ready") | .toolbox_endpoint' "$SETUP") || {
+          echo "Run task copilot-toolbox:infra-up and complete any requested consent first." >&2; exit 1; }
+        TOOL=$(jq -er '.toolbox_policy_tool' "$SETUP")
+        [ "${COPILOT_TOOLBOX_ENDPOINT:-$ENDPOINT}" = "$ENDPOINT" ] &&
+          [ "${COPILOT_TOOLBOX_POLICY_TOOL:-$TOOL}" = "$TOOL" ] || {
+          echo "Toolbox environment overrides conflict with verified setup; unset them." >&2; exit 1; }
         umask 077
         SERVER=$(terraform -chdir=infra/cloud output -raw acr_login_server)
         DEPLOYMENT=$(terraform -chdir=infra/copilot-toolbox output -json deployment)
@@ -261,7 +272,7 @@ tasks:
         trap 'rm -f "$TMP"' EXIT
         printf '%s' "$DEPLOYMENT" \
           | jq -e --arg image "$SERVER/containment-demo-copilot-toolbox-agent@$(cat .task/copilot-toolbox/agent-digest)" \
-            --arg endpoint "$COPILOT_TOOLBOX_ENDPOINT" --arg tool "$COPILOT_TOOLBOX_POLICY_TOOL" \
+            --arg endpoint "$ENDPOINT" --arg tool "$TOOL" \
             '. + {agent_image:$image,toolbox_endpoint:$endpoint,toolbox_policy_tool:$tool}' \
             > "$TMP"
         mv "$TMP" .task/copilot-toolbox/config.json

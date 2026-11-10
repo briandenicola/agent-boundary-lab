@@ -102,6 +102,99 @@ def test_toolbox_plan_only_reads_its_recorded_client(dry_task) -> None:
     assert down.index("down.tfplan") < down.index("copilot_toolbox_oauth down")
 
 
+def test_toolbox_configuration_is_consolidated_and_deployment_reads_verified_outputs(dry_task):
+    configure = dry_task("copilot-toolbox:infra-up")
+    assert configure.index("copilot_toolbox_oauth up") < configure.index("infra.tfplan")
+    assert configure.index("apply -input=false") < configure.index("copilot_toolbox_setup up")
+    assert configure.index("apply -input=false") < configure.index("az role assignment create")
+    assert configure.index("az role assignment create") < configure.index(
+        "copilot_toolbox_setup up"
+    )
+    assert "/home/agent/.copilot-toolbox/source" in configure
+    assert "terraform -chdir=infra/cloud apply" not in configure
+    deploy = dry_task("copilot-toolbox:up")
+    assert "configuration.json" in deploy
+    assert "Set the versioned endpoint" not in deploy
+    assert 'select(.phase == "ready")' in deploy
+    down = dry_task("copilot-toolbox:down")
+    assert down.index("copilot_toolbox_setup down") < down.index("down.tfplan")
+    assert down.index("copilot_toolbox_oauth down") < down.index(
+        "copilot_toolbox_setup finish-down"
+    )
+
+
+@pytest.mark.parametrize(
+    "phase,conflict",
+    [
+        ("ready", False),
+        ("consent_required", False),
+        ("ready", True),
+    ],
+)
+def test_toolbox_config_uses_ready_journal_and_rejects_conflicting_exports(
+    tmp_path: Path,
+    phase: str,
+    conflict: bool,
+) -> None:
+    runner = shutil.which("sh")
+    if runner is None or shutil.which("jq") is None:
+        pytest.skip("sh and jq are required to exercise configuration")
+    directory = tmp_path / ".task/copilot-toolbox"
+    directory.mkdir(parents=True)
+    endpoint = "https://foundry.example.test/api/projects/isolated/toolboxes/policy/versions/2/mcp"
+    (directory / "configuration.json").write_text(
+        json.dumps(
+            {
+                "phase": phase,
+                "toolbox_endpoint": endpoint,
+                "toolbox_policy_tool": "policy___get_servicing_policy",
+            }
+        )
+    )
+    (directory / "agent-digest").write_text("sha256:" + "a" * 64)
+    destination = directory / "config.json"
+    original = {"preserved": "previous-configuration"}
+    destination.write_text(json.dumps(original))
+    deployment = {"project_id": "/owned/project", "agent_name": "isolated-agent"}
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    terraform = bin_dir / "terraform"
+    outputs = {"acr_login_server": "registry.example.test", "deployment": json.dumps(deployment)}
+    terraform.write_text(f"#!{sys.executable}\nimport sys\nprint({outputs!r}[sys.argv[-1]])\n")
+    terraform.chmod(0o755)
+    environment = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    environment.pop("COPILOT_TOOLBOX_ENDPOINT", None)
+    environment.pop("COPILOT_TOOLBOX_POLICY_TOOL", None)
+    if conflict:
+        environment["COPILOT_TOOLBOX_ENDPOINT"] = "https://foreign.example.test/mcp"
+    body = task_body("Taskfile.copilot-toolbox.yml", "_config")
+    script = body.split("/bin/sh -eu <<'SH'\n", 1)[1].split("\n        SH", 1)[0]
+    result = subprocess.run(  # noqa: S603 - execute the repository-owned configuration script
+        [runner, "-eu"],
+        input=textwrap.dedent(script),
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if phase != "ready" or conflict:
+        assert result.returncode != 0
+        assert json.loads(destination.read_text()) == original
+        assert "complete any requested consent" in result.stderr or "conflict" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+        assert json.loads(destination.read_text()) == {
+            **deployment,
+            "toolbox_endpoint": endpoint,
+            "toolbox_policy_tool": "policy___get_servicing_policy",
+            "agent_image": "registry.example.test/containment-demo-copilot-toolbox-agent@sha256:"
+            + "a" * 64,
+        }
+        assert destination.stat().st_mode & 0o777 == 0o600
+
+
 def test_toolbox_registration_task_runs_idempotently_and_resolves_the_recorded_id(
     tmp_path: Path,
 ) -> None:

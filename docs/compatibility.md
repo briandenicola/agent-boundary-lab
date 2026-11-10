@@ -303,7 +303,7 @@ not the downstream authorization grant. Microsoft-managed OAuth and
 `UserEntraToken` are not generic custom-API authentication substitutes.
 The original Tasks do not implement connection creation or toolbox version
 creation: they require actual configuration, not invented endpoints. The live
-connection probe below verifies part of that contract but is not usable setup.
+initial probe and subsequent functional setup below record the verified contracts.
 
 ### Dedicated Entra registration automation -- 2026-11-09
 
@@ -420,15 +420,13 @@ cannot establish readiness.
 The rejection persisted with `metadata.type=generic_mcp` and readback using
 `2026-09-15-preview`. An in-memory probe supplying `useCustomConnector: true`
 did not change the returned value or error; this is **not a verified writable
-control**. Do not guess more fields or infer that generated callback/CLI
-"created" means successful OAuth. The cause of the target rejection remains
-unresolved; it is not evidence that delegated MCP calls or browser consent work.
+control**. Do not guess fields or infer that callback/CLI "created" means readiness.
+The initial interpretation of this metadata as an OAuth rejection is superseded
+by the functional follow-on below.
 
-Live Entra readback still showed zero password credentials and zero web callbacks.
-No real secret, callback registration, user consent, toolbox version, isolated
-hosted agent or separate publication was created. Resolve the specific platform
-rejection through a supported contract before those steps. Preserve the private
-probe intent journal; do not blindly repeat an uncertain connection create.
+At that initial checkpoint, Entra had no credentials/callbacks and no real consent
+or toolbox existed. Those historical counts are not current state. Preserve the
+private probe intent journal; do not blindly repeat an uncertain connection create.
 
 The existing AKS operator cluster was resumed and reached `Running` /
 `Succeeded`; the unchanged helper became available. Its ephemeral deployment
@@ -448,5 +446,106 @@ Primary references accessed 2026-11-10:
 - [MCP authentication](https://learn.microsoft.com/azure/foundry/agents/how-to/mcp-authentication).
 - [Tool authentication](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/tool-authentication).
 - [Toolboxes](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/toolbox).
+
+### Functional custom OAuth and MCP transport -- 2026-11-10
+
+The portal-created `normal-manatee-copilot` connection exposed
+`metadata.type=custom_MCP` and `metadata.oAuthProvider=custom`. Both it and the
+owned probe still returned `useCustomConnector: false` and unsupported-target
+metadata, but `peRequirement` and `peStatus` were `NotApplicable`. The existing
+working AppInsights connection carried a similar unsupported-private-endpoint
+error. These fields alone must not block or certify OAuth.
+
+Verified live contracts:
+
+- Connection OAuth scopes are an array in ARM, but the portal requires a
+  **space-separated** string. The authorization endpoint is `/authorize`;
+  token and refresh endpoints are `/token`. Include the API's delegated
+  `policy.read` scope and `offline_access`.
+- The owner-approved actual callback ends
+  `/179f50c3fcb543a085e011478925dad7`. Graph v1.0 `PATCH /applications/{id}`
+  accepts `web.redirectUris` and returns an empty 204. Preserve the existing
+  redirect list and writable web settings; Graph automatically derives
+  `redirectUriSettings`, which is not an unchanged-write invariant.
+- Graph `POST /applications/{id}/addPassword` returns `secretText` once. The
+  approved 30-day secret was held in memory and passed directly to the owned
+  connection PUT, preserving any existing password. New expiry:
+  **2026-12-10 15:46:16 UTC**. Store only credential ownership/key/expiry metadata.
+  Do not repeat an uncertain credential creation.
+- Connection PUT preserves category/auth type, target, sharing, metadata and
+  OAuth URLs/scopes. A same-name update preserved the actual callback.
+  The installed SDK supports `connections.get(name, include_credentials=True)`;
+  returned credential wire keys are lowercase `clientid`, `clientsecret`, `type`.
+  The connection object has `.id` and `.credentials`, not `.authentication_type`.
+  Private hash comparison verified binding without exporting the credential.
+- `toolboxes.create_version` accepts `MCPToolboxTool` with `server_label`,
+  `server_url`, `require_approval` and `project_connection_id`; `list_versions`
+  and `get_version` verified ownership/configuration. Immutable v1 references
+  the dummy probe; v2 references the real portal connection. Do not use the
+  unversioned default, which still selects the initial probe.
+- A developer token for `https://ai.azure.com/.default` can call the v2 MCP
+  endpoint from the private helper. Initial `tools/list` returned JSON-RPC
+  `-32006` / nested `CONSENT_REQUIRED`. Completed browser consent removed that
+  error. A previously completed link did not support a second sign-in attempt;
+  do not infer a supported per-user reset API or revoke unrelated permissions.
+- After consent, JSON-RPC `-32007` / `HTTP_424` initially contained a TLS
+  connection failure. The approved exact-host `copilot-toolbox-mcp` FQDN rule
+  at `managednetworks/default/outboundrules` (`2025-10-01-preview`) used
+  `{type: "FQDN", category: "UserDefined", destination: "<exact MCP hostname>"}`
+  inside `properties` and reached `Active`. Existing rule properties and
+  `AllowOnlyApprovedOutbound` were unchanged.
+- The error then became `CustomerManagedDownstreamError`, inner HTTP **403**.
+  Actual service logs confirmed `authorization_decision` /
+  `user_not_authorized`: this was a delegated identity decision, not TLS,
+  a secret failure or platform containment. The owner approved adding the
+  consenting admin only to the isolated MCP, preserving the original guest.
+  `mcp_additional_authorized_user_ids` defaults to `[]` and adds only explicit
+  user UUIDs; the plan changed only that service's user list and repeated cleanly.
+- After the new revision became ready, v2 discovery returned exactly
+  `policy___get_servicing_policy`; its actual
+  `_meta.tool_configuration.require_approval` was `never`. One approved
+  `tools/call` with a synthetic `demo_run_id` returned `SVC-DEMO-0001` and the
+  expected delegated identity. No model or hosted-agent call was made.
+
+The owner separately confirmed retaining selected-IP public access, enabled
+before the exact-host test. Original RAI policies and API authorization/images
+were unchanged. Neither connection setup nor this developer lookup proves the
+hosted-agent caller-context contract, Copilot publication or platform containment.
+
+Additional primary references accessed 2026-11-10:
+
+- [Graph addPassword](https://learn.microsoft.com/graph/api/application-addpassword?view=graph-rest-1.0).
+- [Graph update application](https://learn.microsoft.com/graph/api/application-update?view=graph-rest-1.0).
+- [Graph removePassword](https://learn.microsoft.com/graph/api/application-removepassword?view=graph-rest-1.0):
+  `POST /applications/{id}/removePassword` accepts `{"keyId": "<owned key UUID>"}`
+  and returns an empty 204. Renewal removes only the recorded predecessor after
+  verifying its replacement binding; it does not replace the password collection.
+- [Managed-network outbound rules](https://learn.microsoft.com/azure/foundry/how-to/managed-virtual-network#manage-outbound-rules).
+- [MSAL device flow](https://learn.microsoft.com/entra/msal/python/getting-started/acquiring-tokens#device-code-flow):
+  separate memory-only sign-ins did not match the allowed guest and issued no MCP
+  request. The live provider returned `https://login.microsoft.com/device`.
 - [Connection ARM reference, 2026-05-15-preview](https://learn.microsoft.com/azure/templates/microsoft.cognitiveservices/2026-05-15-preview/accounts/projects/connections).
 - [Connection ARM reference, 2026-09-15-preview](https://learn.microsoft.com/azure/templates/microsoft.cognitiveservices/2026-09-15-preview/accounts/projects/connections).
+
+### Consolidated configuration lifecycle -- 2026-11-10
+
+`copilot-toolbox:infra-up` runs the owned registration, guarded Terraform plan/apply
+and configuration engine through the existing private helper. ARM uses connection
+API `2026-05-15-preview` and managed-network API `2025-10-01-preview`; Graph uses
+v1.0. Tokens/digests cross the helper boundary on stdin only. A new password stays
+in process memory and the bounded TLS-verified connection PUT; only a private
+boolean/hash comparison returns from credential verification.
+
+`.task/copilot-toolbox/configuration.json` consolidates non-secret ownership,
+credential key/expiry, callback, connection and immutable version selection.
+The existing verified credential/network journals migrate without new resources.
+Lost password/binding responses stop; a lost toolbox response can recover only one
+exact owned match. Browser consent blocks readiness until the same command succeeds.
+Readiness requires the exact policy tool and actual approval metadata `never`.
+Normal deployment derives endpoint/tool from this ready journal.
+
+The consolidated command reused the real portal connection, existing credential,
+callback, Active rule and toolbox v2 live. Terraform reported no changes; Entra
+credential inventory, callbacks and delegated permissions were unchanged.
+Fresh setup, seven-day renewal, owned teardown and ignoring retired migration
+journals on rebuild are offline-tested behavior, not live rebuild results.

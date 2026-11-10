@@ -31,6 +31,20 @@ variable "oauth_client_id" {
   }
 }
 
+variable "mcp_additional_authorized_user_ids" {
+  description = "Explicitly approved additional user object IDs for the isolated MCP only; baseline API authorization is unchanged."
+  type        = list(string)
+  default     = []
+  nullable    = false
+  validation {
+    condition = alltrue([
+      for id in var.mcp_additional_authorized_user_ids :
+      can(regex("^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$", id))
+    ])
+    error_message = "Use explicitly approved tenant-local user object UUIDs in lowercase."
+  }
+}
+
 locals {
   cloud        = data.terraform_remote_state.cloud.outputs
   group_id     = split("/providers/", local.cloud.foundry_account_id)[0]
@@ -44,13 +58,16 @@ locals {
     item.name => try(item.value, "")
   }
   auth_env = {
-    POLICY_API_AUTH_MODE           = "delegated"
-    POLICY_API_TENANT_ID           = local.policy_env["POLICY_API_TENANT_ID"]
-    POLICY_API_AUDIENCE            = local.policy_env["POLICY_API_AUDIENCE"]
-    POLICY_API_SCOPE               = local.policy_env["POLICY_API_SCOPE"]
-    POLICY_API_AUTHORIZED_USER_IDS = local.policy_env["POLICY_API_AUTHORIZED_USER_IDS"]
-    POLICY_API_CLIENT_IDS          = var.oauth_client_id
-    POLICY_API_MCP_ENABLED         = "true"
+    POLICY_API_AUTH_MODE = "delegated"
+    POLICY_API_TENANT_ID = local.policy_env["POLICY_API_TENANT_ID"]
+    POLICY_API_AUDIENCE  = local.policy_env["POLICY_API_AUDIENCE"]
+    POLICY_API_SCOPE     = local.policy_env["POLICY_API_SCOPE"]
+    POLICY_API_AUTHORIZED_USER_IDS = join(",", distinct(concat(
+      split(",", local.policy_env["POLICY_API_AUTHORIZED_USER_IDS"]),
+      var.mcp_additional_authorized_user_ids,
+    )))
+    POLICY_API_CLIENT_IDS  = var.oauth_client_id
+    POLICY_API_MCP_ENABLED = "true"
   }
   registry_identity = one(keys(data.azapi_resource.baseline_api.output.identity.userAssignedIdentities))
   deployer_principal = one([

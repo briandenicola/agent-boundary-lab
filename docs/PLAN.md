@@ -14,7 +14,7 @@ Superseded phase checklists and issue-specific squad plans are retained in Git h
 | Issue #10: ACS G4 deployment | Seven isolated agents active v4, three policies and seven model grants verified 2026-11-09; repeated deployment reused v4 |
 | Issue #10: hosted comparison | Awaiting owner-run tests; deployment health is not a runtime result |
 | Microsoft 365 Copilot | ACS-first chat and correlated deny/blocked events observed on v3 (2026-11-09) and v4 (2026-11-10); destination evidence and delegated lookup remain separate |
-| Isolated OAuth extension | Project, capability host, protected MCP, telemetry link, policy and scoped grants provisioned 2026-11-10; probe connection rejects custom MCP target; no real secret, callback registration, toolbox or new publication |
+| Isolated OAuth extension | Infrastructure provisioned; real OAuth/callback/consent, toolbox v2 discovery and one synthetic developer lookup verified 2026-11-10; exact-host egress and isolated-only admin authorization approved; no isolated hosted agent or separate publication yet |
 | Phases 8-9: Dapr Workflow | Deferred; no dependency of the Copilot demo |
 | Phase 10: messaging and portability | Deferred |
 
@@ -165,15 +165,24 @@ service `normal-manatee-55075-copilot-mcp`, dedicated RAI policy, separate link
 to the existing telemetry destination and scoped grants. Terraform validation
 passed and a repeat guarded plan reported **No changes**.
 
-The installed `azd ai connection create` OAuth interface was verified using an
-owned probe with a synthetic invalid credential. ARM readback returned the actual
-callback URL, but also **Connection target ... is not a supported target** and
-`useCustomConnector: false`. The callback interface is no longer unknown; the
-live target rejection is the blocker. CLI "created" output is not readiness.
-No real secret, Entra callback, consent, toolbox, isolated hosted agent or separate
-publication was created. GitHub source access is not the reason work stopped.
-The existing publication still pins v4, and selected baseline policy/API/network
-readback is unchanged. See [the actual blocker and verified contract](governance-demo.md#8-operator-reference-isolated-toolbox-project).
+The initial unsupported-target `error` and `useCustomConnector: false` were
+incorrectly interpreted as an OAuth rejection. Live private-endpoint fields were
+`NotApplicable`; a working telemetry connection carried a similar error. Functional
+probing instead returned `CONSENT_REQUIRED`, followed by a real completed consent.
+The owner-created connection `normal-manatee-copilot` now has its actual callback
+registered and a securely bound 30-day credential; an existing credential was
+preserved. Immutable toolbox `copilot-policy` v2 uses that connection.
+
+An approved exact-host managed-network FQDN rule removed the downstream TLS
+failure. The service then correctly rejected the consenting admin as
+`user_not_authorized`. The owner approved adding that identity to the isolated MCP
+only, retaining the original guest. The guarded Terraform plan changed only that
+user list; a repeat plan reported **No changes**. Discovery returned
+`policy___get_servicing_policy` with approval policy `never`, and one separately
+approved synthetic developer lookup returned `SVC-DEMO-0001`. This is not a hosted
+agent or Copilot acceptance result. No new isolated agent/publication exists.
+The existing publication still pins v4. See
+[the verified setup and remaining gates](governance-demo.md#8-operator-reference-isolated-toolbox-project).
 
 Read-only Azure discovery found a ready account-level `Agents` capability host,
 with no explicit BYO storage/vector/conversation connections, and **no project-level
@@ -187,20 +196,29 @@ Plan, in dependency order:
 1. **Infrastructure provisioned, 2026-11-10.** Use a separate Terraform state
    owning a convention-named Copilot project and its
    project-level capability host. Reuse the current account's existing managed
-   networking and platform-managed data resources without changing them. Verify
+   networking and platform-managed data resources. Verify
    this combination's ARM contracts and runtime support before creating resources.
-   If it requires account-wide changes, stop for a separate-account decision.
-2. **Service provisioned, 2026-11-10; delegated execution unverified.**
+   The one exact-host MCP rule below is explicitly approved; any other account-wide
+   change still requires separate approval.
+2. **Service and developer delegated execution verified, 2026-11-10; channel pending.**
    Deploy a separate protected MCP policy service, using the existing delegated
    verifier and policy response logic. Give it a dedicated OAuth client; retain
-   the original API audience, scope and synthetic-user authorization requirements.
+   the original API audience, scope and original authorized guest. Additional
+   isolated users require explicit approval through
+   `TF_VAR_mcp_additional_authorized_user_ids`; the default adds nobody.
    Do not change the existing policy API, UI client, OBO settings or receiver.
-3. Configure an OAuth connection and immutable toolbox version **in the new project**.
-   The owner requested creation automation. Resolve the observed unsupported-target
-   rejection through a supported platform contract before creating real credentials
-   or registering the returned callback. Do not guess fields or treat the probe,
-   returned callback or client registration as completed connection setup.
-   Verify downstream network reachability; a toolbox listing is not a successful MCP call.
+3. **Developer discovery and one synthetic lookup verified, 2026-11-10.**
+   Connection, callback, real credential and immutable toolbox v2 are configured
+   **in the new project**. The existing `copilot-toolbox:infra-up` now consolidates
+   registration, infrastructure, exact-host egress, credential, actual callback,
+   immutable toolbox selection and delegated discovery. Browser consent is still
+   interactive; rerun the same command afterward. Deployment derives endpoint/tool
+   from the owned configuration journal, without manual exports. Existing resources
+   were reused live with a no-change Terraform plan. Fresh creation, renewal and
+   teardown are covered offline, not claimed as a tested live rebuild.
+   Preserve journals and credential expiry/rotation ownership.
+   Do not treat generic connection metadata, consent or discovery alone as lookup
+   success. Do not replay a completed consent link to switch identities.
 4. Deploy a new owned agent in the new project, with exactly the same two ADK tools
    and ACS-first enforcement. Use dedicated image repositories, version journals,
    scoped grants and a dedicated RAI policy. Reuse the existing private operator
@@ -219,14 +237,19 @@ build, separate provisioning, deploy/publish, status, recovery and owned teardow
 The new project links the existing Application Insights destination; it does not
 create a new telemetry destination. The reused Application Insights connection
 string remains in sensitive Terraform state, not plan output or deployment
-journals. No OAuth client secret was created or written to Terraform state.
+journals. The OAuth secret was created and passed directly to the connection in
+memory; it was not written to Terraform state, arguments, journals or logs.
 The workflow must not call `governance:up`,
 `deploy:tool-apis` or apply the baseline cloud state to enable this feature.
 The owner runs builds, resource changes and hosted calls.
 
 A separate project isolates configuration, agents, connections and publication;
 it does **not** create an independent network or model-capacity boundary inside
-the same account. Account-level network changes remain prohibited by this plan.
+the same account. The owner explicitly approved retaining the single
+`copilot-toolbox-mcp` FQDN rule after it restored transport. Existing outbound rules
+and `AllowOnlyApprovedOutbound` remain unchanged. The owner separately confirmed
+that selected-IP public access, enabled before that test, is intentional and must
+be retained. These exceptions do not authorize any other account-network change.
 Initial read-only discovery changed no Azure configuration; the isolated resources
 above were subsequently provisioned with the owner's explicit continuation approval.
 

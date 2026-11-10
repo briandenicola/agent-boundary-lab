@@ -23,8 +23,9 @@ task acs:status   # acs:report is an alias.
 
 `acs:up` works before image builds. Repeated deployment reuses matching versions;
 missing or uncertain publication outcomes still stop rather than trigger another
-POST. The original APIs, Web UI/OBO configuration, baseline policies and shared
-account networking are unchanged. Existing lower-level Tasks remain for
+POST. These ACS commands do not change the original APIs, Web UI/OBO configuration,
+baseline policies or shared account networking. Separately approved extension
+network changes are recorded in section 8. Existing lower-level Tasks remain for
 compatibility and recovery, not as a required operator checklist.
 
 Copilot integration uses the owner-approved public metadata already stored at
@@ -33,8 +34,9 @@ file requires approved publisher/privacy/terms values; the workflow never invent
 them. A saved publication journal is restored only if absent on the helper.
 
 This lifecycle operates the implemented **ACS-first** demo. It does **not** make
-the permitted Copilot lookup work: the custom-OAuth toolbox connection remains
-blocked as described in section 8. `acs:status` labels that limit explicitly and
+the permitted Copilot lookup work: the separate OAuth connection and developer
+lookup now work, but the isolated hosted-agent/channel path remains unverified
+as described in section 8. `acs:status` labels that limit explicitly and
 distinguishes live configuration from runtime evidence.
 Sections below are deeper test and recovery references, not extra setup steps.
 
@@ -723,7 +725,7 @@ publication status or chat explanation alone does not establish ACS enforcement.
 
 ## 8. Operator reference: isolated toolbox project
 
-**Blocked by a live Foundry connection rejection, not an operator checklist.**
+**OAuth, discovery and one developer lookup work; hosted Copilot acceptance is pending.**
 Owner-authorized setup on 2026-11-10 provisioned:
 
 | Resource | Name / observed result |
@@ -740,41 +742,121 @@ The MCP endpoint is
 `https://normal-manatee-55075-copilot-mcp.happymoss-27b266fc.swedencentral.azurecontainerapps.io/mcp`.
 Health is configuration evidence, not an authenticated lookup.
 
-The owned `copilot-policy-oauth` probe used only a synthetic invalid credential,
-not a real secret. Foundry generated the callback
-`https://global.consent.azure-apim.net/redirect/8046ba5e89d146b0bd2e5448aba178da`,
-but ARM readback reports:
+The initial owned `copilot-policy-oauth` probe used a synthetic invalid credential.
+Its unsupported-target `error` and `useCustomConnector: false` were incorrectly
+treated as an OAuth rejection. Actual `peRequirement` and `peStatus` were both
+`NotApplicable`; the existing working telemetry connection had a similar
+private-endpoint error. A functional toolbox request returned `CONSENT_REQUIRED`,
+demonstrating that OAuth was being attempted. Generic connection metadata is
+neither readiness nor proof of rejection.
 
-```text
-Connection target https://normal-manatee-55075-copilot-mcp.happymoss-27b266fc.swedencentral.azurecontainerapps.io/mcp is not a supported target
-```
+The owner recreated the portal connection as `normal-manatee-copilot`, with the
+correct `/authorize` endpoint and space-separated API scope plus `offline_access`.
+With separate approval, its actual callback was registered on the dedicated app:
+`https://global.consent.azure-apim.net/redirect/179f50c3fcb543a085e011478925dad7`.
+One 30-day credential was created, securely bound and privately hash-verified;
+the existing credential was preserved. The new credential expires
+**2026-12-10 15:46:16 UTC**. Its value never entered arguments, files, journals,
+Terraform state or logs. Preserve its private ownership journal for rotation.
 
-`useCustomConnector` remains `false`. Neither the CLI's "created" message nor a
-generated callback establishes a usable connection. Do not register this callback,
-create a real client secret, weaken MCP authentication or change account networking
-to work around the rejection. A supported resolution of this specific platform
-error is required before proceeding; restricted GitHub source access is not the
-remaining blocker. No toolbox, isolated hosted agent, separate publication or
-browser consent was created.
+| Toolbox version | Connection | Result |
+| --- | --- | --- |
+| `copilot-policy` v1 | `copilot-policy-oauth` | Historical dummy-credential probe; not a usable default |
+| `copilot-policy` v2 | `normal-manatee-copilot` | Real consent, discovery and one synthetic lookup verified |
+
+Use the immutable v2 endpoint, not the unversioned default:
+`https://normal-manatee-55075-foundry.services.ai.azure.com/api/projects/normal-manatee-55075-copilot/toolboxes/copilot-policy/versions/2/mcp?api-version=v1`.
+Discovery returned **`policy___get_servicing_policy`**, with
+`_meta.tool_configuration.require_approval == "never"`.
+
+After browser consent, discovery initially returned JSON-RPC `-32007` / `HTTP_424`
+with a downstream TLS failure. The owner approved one exact-host managed-network
+rule, keeping it only if effective. Rule **`copilot-toolbox-mcp`** is now `Active`
+for `normal-manatee-55075-copilot-mcp.happymoss-27b266fc.swedencentral.azurecontainerapps.io`.
+It removed the TLS failure and requests reached the protected MCP application.
+Existing rules and `AllowOnlyApprovedOutbound` were preserved; no wildcard,
+RAI-policy update or `cloud:up` was used.
+
+The next `HTTP_424` wrapped an actual service **403 `user_not_authorized`**.
+The consenting admin was not the existing authorized guest. Replaying a completed
+consent link failed; separate device sign-ins also did not match the configured
+guest and sent no MCP requests. The owner then explicitly approved adding the
+consenting admin **only to the isolated MCP**, retaining the guest. The optional
+private setting `TF_VAR_mcp_additional_authorized_user_ids` is a JSON array of
+approved tenant-local user object IDs; its default is empty. The guarded apply
+changed only this service's user list, and a repeat plan reported **No changes**.
+The original policy API, UI/OBO client, audience and delegated scope are unchanged.
+
+Discovery then succeeded on the same v2, without a new secret or repeated consent.
+One separately approved developer lookup returned synthetic policy `SVC-DEMO-0001`
+with run marker `oauth-440fc30f-50b9-49f5-a24a-adc737b06db7`. This was a direct
+developer-authenticated toolbox call from the private helper, not a model turn,
+hosted-agent call or Copilot conversation. See the
+[dated evidence and limits](telemetry-map.md#isolated-toolbox-discovery-and-lookup).
+
+The owner separately enabled selected-IP public access in the portal before the
+outbound-rule test and explicitly approved retaining it. This was not an effect
+of adding the rule. No further account-network changes are authorized.
 
 `acs:up` ensures only the dedicated client registration for this extension.
 It discovers the existing protected API's tenant, audience and delegated scope,
 requests only that permission, and prints **Created**, **Reused** or **Recovered**
 with the application name, client ID, object ID and tenant. It does not create a
-secret, guess a callback or grant tenant-wide admin consent. Owner-run registration
-and readback were observed on 2026-11-09; live readback on 2026-11-10 still showed
-zero client secrets and zero registered web callbacks.
+secret, guess a callback or grant tenant-wide admin consent. Initial registration
+readback on 2026-11-09 showed no credentials/callbacks; that historical observation
+is superseded by the explicitly approved configuration above.
 
 Keep `.task/copilot-toolbox/oauth-application.json` privately with the lab state.
 It records intent and ownership, contains no secret, and prevents duplicate creates
 after a lost response. Retain it on errors; do not delete it to bypass uncertainty.
 No manual client-ID export or separate registration Task is required.
 
-When the target rejection is resolved through a verified contract, integrate
-connection/credential/callback setup into the ACS lifecycle.
+### Consolidated configuration
+
+After the dedicated image build, run the existing configuration step:
+
+```bash
+task copilot-toolbox:infra-up
+```
+
+It ensures the dedicated registration, guarded isolated infrastructure and
+project-scoped publisher access, then
+configures the exact-host network rule, custom-OAuth connection, 30-day credential,
+actual Foundry callback and immutable toolbox version. It verifies delegated
+`tools/list`, not a business lookup or model turn. Repeated setup reuses unchanged
+resources; uncertain password/binding writes stop rather than create another secret.
+No portal connection creation, secret copying, callback registration, client-ID,
+toolbox-endpoint or tool-name export is needed in the normal workflow.
+
+Browser consent remains interactive. If requested, open
+`.task/copilot-toolbox/consent.html` using an explicitly authorized demo account,
+complete consent, and rerun **the same command**. The private page is removed after
+successful discovery. The command does not authorize the signed-in user on the MCP;
+additional users still require owner approval and the explicit setting above.
+
+The authoritative, secret-free journal is
+`.task/copilot-toolbox/configuration.json`. It records ownership, credential
+key/expiry, the real callback and verified versioned endpoint/tool. Keep it with
+the registration journal and Terraform state; never delete journals to bypass an
+uncertain write. The existing verified prototype journals are safely migrated.
+`copilot-toolbox:up` reads the verified endpoint/tool automatically.
+
+An owned credential within seven days of expiry is renewed during setup, with
+private binding verification before only its recorded predecessor is removed.
+Other credentials are preserved. Normal `copilot-toolbox:down` removes only the
+recorded exact-host rule before destroying the isolated project and dedicated app;
+connection/toolbox resources disappear with their project. A fresh setup does not
+re-adopt retired prototype journals.
+
+On 2026-11-10, the consolidated command reused the working portal connection,
+credential, callback, Active rule and toolbox v2. Terraform reported no changes;
+the application credential inventory, callbacks and permissions were unchanged.
+Fresh creation, renewal and teardown are covered offline, not live rebuild claims.
+
 Preserve the previously selected separate project and publication, original
 API/OBO client, synthetic-user list, seven scenarios and AKS/Web UI. Never change
-account-wide routing or the existing project's capability host to make it work.
+account-wide routing beyond the explicit exceptions above or change the existing
+project's capability host to make it work.
 The extension must reuse the existing telemetry destination and use supported
 private-network access. The actual callback must come from Foundry, not a guess.
 
@@ -785,7 +867,7 @@ Microsoft-managed OAuth, workload identity and `UserEntraToken` are not substitu
 for this custom API's delegated user authorization. User/browser consent remains
 a separate gate; no task can manufacture it.
 
-Acceptance still requires an authorized user's successful lookup, rejection of an
+Hosted/Copilot acceptance still requires an authorized user's successful lookup, rejection of an
 unauthorized synthetic user, ACS-blocked sending, correlated MCP receipts and ACS
 evidence, and an independent regression of the original AKS/UI path. Missing
 evidence is **inconclusive**. Toolbox authorization is not the original direct-HTTP

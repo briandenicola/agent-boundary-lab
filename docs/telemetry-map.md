@@ -121,6 +121,46 @@ This is new version-4 chat/ACS evidence, not a repeat deployment health check.
 The same limits apply: application governance is not platform egress enforcement,
 and destination receipts/positive control were not inspected for this run.
 
+## Isolated toolbox discovery and lookup
+
+Observed 2026-11-10 in isolated project `normal-manatee-55075-copilot`, using
+toolbox `copilot-policy` v2 and the real connection `normal-manatee-copilot`.
+These are developer-authenticated MCP calls from the private helper, not a new
+hosted-agent deployment, model turn or Microsoft 365 Copilot result.
+
+Consent changed discovery from JSON-RPC `-32006` / `CONSENT_REQUIRED` to
+`-32007` / `HTTP_424` with a TLS failure. Adding the approved exact-host FQDN rule
+removed that TLS failure. The next `HTTP_424` wrapped inner service HTTP 403;
+the protected MCP application's real `authorization_decision` rows at
+**15:58:18 UTC** recorded `user_not_authorized` on `/mcp`. The consenting admin
+was not in the service's allowed-user list. Those discovery requests had no demo
+run marker and are not business receipts or a containment result.
+
+The owner then approved adding that admin only to the isolated MCP, preserving
+the existing guest. After the new revision was ready, discovery returned
+`policy___get_servicing_policy`, with approval policy `never`.
+
+One separately approved `tools/call` returned:
+
+| Field | Verified value |
+| --- | --- |
+| Run | `oauth-440fc30f-50b9-49f5-a24a-adc737b06db7` |
+| Policy | `SVC-DEMO-0001` |
+| Product | `synthetic-demo-account` |
+| Delegated identity | Matched the explicitly approved admin; no token captured |
+| Context | Developer functional test; no model/hosted-agent call |
+| Matching service receipt, UTC | `2026-11-10T16:27:34.814604+00:00` |
+| Receipt source / transport / outcome | Protected MCP Container App; `mcp` / `served` on `/mcp` |
+
+Exactly one service `receipt` matched that run and the approved delegated identity.
+No authorization-header, token or payload capture was enabled.
+
+The earlier admin denial preceded an explicitly approved authorization change;
+it is not a post-change unauthorized-user acceptance test. Hosted caller context,
+a separate Copilot publication, another user's rejection and ACS/receipt
+correlation through that channel remain unverified. No new platform egress
+decision is claimed from the TLS failure, HTTP 403 or successful lookup.
+
 ## Platform fields
 
 Observed 2026-10-09 in workspace-scoped `AppDependencies`:
