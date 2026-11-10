@@ -29,8 +29,8 @@ from containment_demo.settings import ErrorCategory, Settings, ca_bundle_path
 from containment_demo.telemetry import emit_tool_evidence
 
 #: Where the run marker travels. Both names are used by **both** tools, always.
-# The routes the two controlled services actually serve (services/policy_api/main.py,
-# services/test_receiver/main.py). The configured URLs are BASE URLs (terraform outputs
+# The routes the two controlled services actually serve (src/services/policy_api/main.py,
+# src/services/test_receiver/main.py). The configured URLs are BASE URLs (terraform outputs
 # policy_api_url / test_receiver_url carry no path), so the path is fixed here, not
 # configurable and not reachable from any tool argument.
 POLICY_PATH = "/policy"

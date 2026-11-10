@@ -873,8 +873,14 @@ def test_build_all_has_all_components_and_no_deployment(dry_task) -> None:
     commands = dry_task("build:all")
     assert commands.count("acr build") == 6  # tool-apis builds two images in a loop
     assert "for SVC in policy_api test_receiver" in commands
+    assert "--file src/services/Dockerfile" in commands
     assert "kubectl" not in commands
     assert " apply " not in commands
+
+
+def test_toolbox_build_uses_the_relocated_service_dockerfile(dry_task) -> None:
+    command = dry_task("copilot-toolbox:build")
+    assert "--file src/services/Dockerfile" in command
 
 
 def test_deploy_all_is_sequential_and_builds_nothing(dry_task) -> None:

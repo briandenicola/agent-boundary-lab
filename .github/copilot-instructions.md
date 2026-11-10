@@ -91,7 +91,7 @@ These are the point of the repository; violating them invalidates the demo.
 
 Keep the existing layout:
 `src/containment_demo/` (agent, tools, protocol_adapter, diagnostics, telemetry,
-settings), `services/policy_api/` and `services/test_receiver/`, `infra/`,
+settings), `src/services/policy_api/` and `src/services/test_receiver/`, `infra/`,
 `scripts/`, `tests/`, and the `docs/` deliverables (`compatibility.md`,
 `demo-runbook.md`, `telemetry-map.md`).
 

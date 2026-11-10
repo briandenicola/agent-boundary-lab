@@ -10,7 +10,7 @@
 <text x="250.0" y="159.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">-&gt; containment-demo-agent:TAG</text>
 <rect x="510" y="90" width="420" height="90" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
 <text x="720.0" y="121.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">task build:tool-apis</text>
-<text x="720.0" y="140.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">az acr build -f services/Dockerfile</text>
+<text x="720.0" y="140.6" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">az acr build -f src/services/Dockerfile</text>
 <text x="720.0" y="159.4" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">SERVICE=policy_api | test_receiver</text>
 <rect x="980" y="90" width="420" height="90" rx="10" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
 <text x="1190.0" y="121.9" font-size="15" fill="#1e1e1e" text-anchor="middle" font-weight="normal">task harness:build, build:all</text>

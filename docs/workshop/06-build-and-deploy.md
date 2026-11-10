@@ -56,7 +56,7 @@ or one at a time:
 | Task | Image / repository | Dockerfile |
 |---|---|---|
 | `task build:foundry-agent` | `containment-demo-agent` | [Dockerfile](../../Dockerfile) |
-| `task build:tool-apis` | `containment-demo-policy-api`, `containment-demo-test-receiver` | [services/Dockerfile](../../services/Dockerfile) (`--build-arg SERVICE=…`) |
+| `task build:tool-apis` | `containment-demo-policy-api`, `containment-demo-test-receiver` | [src/services/Dockerfile](../../src/services/Dockerfile) (`--build-arg SERVICE=…`) |
 | `task build:agent-bridge` | A2A facade | [Dockerfile.a2a-facade](../../Dockerfile.a2a-facade) |
 | `task build:chat-agent` | `containment-demo-harness` | [Dockerfile.harness](../../Dockerfile.harness) |
 | `task build:model-server` | CPU llama.cpp + GGUF | [Dockerfile.local-model](../../Dockerfile.local-model) |

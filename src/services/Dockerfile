@@ -4,8 +4,8 @@
 # API and the test receiver share a base. Only the policy API installs identity
 # dependencies; the receiver remains unauthenticated.
 #
-#   docker build -f services/Dockerfile --build-arg SERVICE=policy_api .
-#   docker build -f services/Dockerfile --build-arg SERVICE=test_receiver .
+#   docker build -f src/services/Dockerfile --build-arg SERVICE=policy_api .
+#   docker build -f src/services/Dockerfile --build-arg SERVICE=test_receiver .
 
 FROM python:3.12-slim
 
@@ -34,7 +34,7 @@ RUN if [ "${POLICY_MCP}" = "true" ]; then \
     python -c 'import subprocess,sys,tomllib; deps=tomllib.load(open("pyproject.toml","rb"))["project"]["optional-dependencies"]["policy-mcp"]; subprocess.check_call([sys.executable,"-m","pip","install","--no-cache-dir",*deps])'; \
     elif [ "${POLICY_MCP}" != "false" ]; then exit 1; fi
 
-COPY services ./services
+COPY src/services ./services
 COPY src/containment_demo/__init__.py src/containment_demo/delegated_auth.py src/containment_demo/actor_context.py ./containment_demo/
 
 RUN useradd --create-home --uid 10001 svc

@@ -101,12 +101,12 @@ that governance was exercised. See [Copilot failure diagnosis and recovery](gove
 | Baseline ADK agents | Foundry hosted containers | `src/containment_demo/`; `build:foundry-agent`, `deploy:foundry-agent` |
 | Seven isolated governance agents | Same governed image digest; separate agent names | `governance/hosted.py`; `acs:build`, `acs:deploy`, `acs:status` |
 | OAuth Copilot agent/publication | Dedicated project/image; active v1, separate Just you title | `copilot_toolbox.py`; `copilot-toolbox:up`, `publish-plan`, `publish`, `status` |
-| Toolbox / OAuth connection / protected MCP | Immutable toolbox v2, delegated consent, separate authorized-user list | `toolbox.py`, `copilot_toolbox_setup.py`, `services/policy_api/`; `copilot-toolbox:infra-up` |
+| Toolbox / OAuth connection / protected MCP | Immutable toolbox v2, delegated consent, separate authorized-user list | `toolbox.py`, `copilot_toolbox_setup.py`, `src/services/policy_api/`; `copilot-toolbox:infra-up` |
 | Isolated infrastructure/policy | Separate Terraform state; existing telemetry destination | `infra/copilot-toolbox/`; `copilot-toolbox:plan`, `infra-up`, `down` |
 | ACS / Rego / OPA | Inside the hosted container; application governance | `governance/`, `policies/acs/` |
 | Baseline RAI policies | Foundry account; existing Terraform declarations | `infra/cloud/rai-policies.tf`; preserve externally managed live settings |
 | Three governance policies | Separate Terraform state; live baseline content filters copied | `infra/governance/`; `acs:up` |
-| Policy API and receiver | Azure Container Apps | `services/`; `build:tool-apis`, `deploy:tool-apis` |
+| Policy API and receiver | Azure Container Apps | `src/services/`; `build:tool-apis`, `deploy:tool-apis` |
 | Governance publisher | Private AKS helper, workload identity | `scripts/governance_manifest.py`; `acs:deploy`, optional `acs:copilot` |
 | Baseline harness / bridges | AKS, standing in for an on-premises caller | `harness/`, `a2a_facade/`; `deploy:chat-agent`, `deploy:agent-bridge` |
 | Optional CPU model / two-button UI | Baseline AKS client components | `deploy:model-server`, `deploy:test-ui` |

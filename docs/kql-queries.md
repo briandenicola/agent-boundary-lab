@@ -202,7 +202,7 @@ union isfuzzy=true AppTraces, AppDependencies
 | project TimeGenerated, Type, Name, Message, Properties
 ```
 
-Limits (SOURCE-VERIFIED in `services/policy_api/main.py`):
+Limits (SOURCE-VERIFIED in `src/services/policy_api/main.py`):
 
 - The policy API writes `event=authorization_decision` for **denied** or **unavailable** calls and `event=receipt`,
   `outcome=served` (with `user_object_id`) for an allowed call. Both lines carry `demo_run_id`, so the first query

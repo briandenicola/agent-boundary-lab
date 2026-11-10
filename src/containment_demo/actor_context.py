@@ -31,7 +31,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
-#: Same shape as the run id accepted elsewhere (settings.py, services/policy_api/main.py).
+#: Same shape as the run id accepted elsewhere (settings.py, src/services/policy_api/main.py).
 _RUN_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 #: An alias is for display only (e.g. "allowed-tester"); still bounded and printable.
 _ALIAS_RE = re.compile(r"[A-Za-z0-9._-]{1,64}")
@@ -137,7 +137,7 @@ def status_from_http(http_status: int | None) -> AuthorizationStatus:
     authorization status (WP-3, issue #4).
 
     This is the only vocabulary a harness/UI may use to describe what the policy
-    authorization boundary (WP-2, ``services/policy_api/main.py``) decided for an
+    authorization boundary (WP-2, ``src/services/policy_api/main.py``) decided for an
     actor. It never echoes the raw status and never claims ``AUTHORIZED`` without an
     explicit ``200`` -- anything ambiguous (a 401, a transport failure, or no call
     having been observed at all) maps to ``PENDING``, never to a pass. This is an

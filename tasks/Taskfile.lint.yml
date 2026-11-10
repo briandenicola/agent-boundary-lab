@@ -27,23 +27,23 @@ tasks:
   format:
     desc: Check formatting
     cmds:
-      - .venv/bin/python -m ruff format --check src services tests scripts
+      - .venv/bin/python -m ruff format --check src tests scripts
 
   fix:
     desc: Apply formatting and safe lint fixes
     cmds:
-      - .venv/bin/python -m ruff format src services tests scripts
-      - .venv/bin/python -m ruff check --fix src services tests scripts
+      - .venv/bin/python -m ruff format src tests scripts
+      - .venv/bin/python -m ruff check --fix src tests scripts
 
   ruff:
     desc: Lint
     cmds:
-      - .venv/bin/python -m ruff check src services tests scripts
+      - .venv/bin/python -m ruff check src tests scripts
 
   types:
     desc: Type-check
     cmds:
-      - .venv/bin/python -m mypy src services
+      - .venv/bin/python -m mypy src
 
   test:
     desc: Run the unit suite. Needs no credentials, no network, no Azure
@@ -150,7 +150,7 @@ tasks:
           --include='*.py' --include='*.tf' --include='*.yml' \
           --include='*.yaml' --include='*.sh' --include='Dockerfile*' \
           -E '(^|[^[:alnum:]_.-])az[[:space:]]+[a-z]' \
-          src services infra tests scripts samples deploy 2>/dev/null \
+          src infra tests scripts samples deploy 2>/dev/null \
           | sed 's/#.*$//' \
           | grep -E '(^|[^[:alnum:]_.-])az[[:space:]]+[a-z]' || true)
         if [ -n "$HITS" ]; then

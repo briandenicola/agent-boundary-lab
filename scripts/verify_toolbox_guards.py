@@ -28,7 +28,7 @@ MUTATIONS = (
     ),
     (
         "MCP requires delegated authorization",
-        Path("services/policy_api/main.py"),
+        Path("src/services/policy_api/main.py"),
         "if guard is None or actor_store is not None:",
         "if False:",
         "tests/unit/test_policy_identity.py::test_mcp_cannot_start_without_delegated_authentication",

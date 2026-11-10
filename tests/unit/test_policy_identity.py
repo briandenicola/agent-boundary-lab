@@ -14,10 +14,10 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
-from services.policy_api import main as policy
-from services.test_receiver import main as receiver
 
 from containment_demo.delegated_auth import AccessGuard, TokenContract, TokenVerifier
+from services.policy_api import main as policy
+from services.test_receiver import main as receiver
 
 TENANT = "00000000-0000-4000-8000-000000000001"
 CLIENT = "00000000-0000-4000-8000-000000000002"

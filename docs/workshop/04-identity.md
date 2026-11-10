@@ -73,7 +73,7 @@ did not receive its downstream token; it is not an ACS or network denial.
 | `a2a_facade/target.py` | Downstream token forwarding |
 | `protocol_adapter.py` | Lowercase `x-client-*` headers into ADK session state |
 | `delegated_auth.py` | Token validation and authorized-user checks |
-| `services/policy_api/main.py` | Protected business routes; only health is unauthenticated |
+| `src/services/policy_api/main.py` | Protected business routes; only health is unauthenticated |
 
 Paths are relative to `src/containment_demo/` unless otherwise shown.
 The facade hop is plain in-cluster HTTP; do not claim end-to-end TLS for it.

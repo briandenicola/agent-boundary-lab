@@ -98,7 +98,7 @@ task chat-agent:secret
 | Workbook resource | [`infra/cloud/monitoring.tf` L118-L139](../../infra/cloud/monitoring.tf#L118-L139) |
 | Diagnostics link settings | [`src/containment_demo/harness/settings.py` L58-L64](../../src/containment_demo/harness/settings.py#L58-L64) |
 | Secret creation with optional links | [`tasks/Taskfile.harness.yml` L60-L91](../../tasks/Taskfile.harness.yml#L60-L91) |
-| Receipt emitters | `services/policy_api/main.py`, `services/test_receiver/main.py` |
+| Receipt emitters | `src/services/policy_api/main.py`, `src/services/test_receiver/main.py` |
 | Telemetry privacy controls | [Telemetry map](../telemetry-map.md#privacy-and-run-checklist) |
 
 ## Checkpoint

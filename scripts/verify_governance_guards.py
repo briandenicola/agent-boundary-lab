@@ -76,7 +76,7 @@ def run_mutations(
 ) -> int:
     with TemporaryDirectory(prefix="containment-governance-guards-") as directory:
         copy = Path(directory)
-        for name in ("src", "tests", "services", "policies", "scripts"):
+        for name in ("src", "tests", "policies", "scripts"):
             shutil.copytree(ROOT / name, copy / name, ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copy2(ROOT / "pyproject.toml", copy / "pyproject.toml")
         for label, path, original, broken, test in mutations:

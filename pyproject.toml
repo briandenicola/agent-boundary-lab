@@ -130,7 +130,7 @@ dev = [
 deploy-agents = "containment_demo.deploy:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/containment_demo", "services"]
+packages = ["src/containment_demo", "src/services"]
 
 # DELIBERATE DEPENDENCY OVERRIDE — see docs/compatibility.md "Blocker 0".
 #
@@ -163,7 +163,7 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "services", "tests"]
+src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S", "RUF"]

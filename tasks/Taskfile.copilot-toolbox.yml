@@ -80,7 +80,7 @@ tasks:
         TAG=$(image_tag_new "$REPOSITORY" "${IMAGE_TAG:-}")
         az acr build --registry "$ACR" --image "$REPOSITORY:$TAG" \
           --build-arg SERVICE=policy_api --build-arg POLICY_MCP=true \
-          --file services/Dockerfile .
+          --file src/services/Dockerfile .
         image_tag_record "$REPOSITORY" "$TAG"
 
   oauth-setup:

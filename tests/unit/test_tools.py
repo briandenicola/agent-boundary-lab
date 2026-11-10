@@ -95,7 +95,7 @@ class TestRoutes:
         assert (f"{tools.POLICY_PATH}/{{run_id}}", "GET") in policy_routes
 
         root = Path(__file__).resolve().parents[2]
-        receiver_src = (root / "services/test_receiver/main.py").read_text()
+        receiver_src = (root / "src/services/test_receiver/main.py").read_text()
         assert f'@app.post("{tools.RECEIVER_PATH}")' in receiver_src
         assert f'@app.post("{tools.RECEIVER_PATH}/{{run_id}}")' in receiver_src
 

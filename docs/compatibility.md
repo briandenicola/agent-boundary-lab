@@ -576,3 +576,11 @@ Both publication Task workflows default to their separate private
 overrides remain supported; no metadata export is required for the normal
 workflow. Offline command checks cover default selection and track isolation.
 See the [canonical owner lifecycle](rebuild-runbook.md#current-acs-and-copilot-lifecycle).
+
+### Service source layout -- 2026-11-10
+
+The controlled API sources and their Dockerfile now live in `src/services/`,
+alongside `src/containment_demo/`. Python imports remain `services.*`; the wheel
+includes both packages from `src`. Image builds still use the repository root as
+context, with `--file src/services/Dockerfile`, and retain the existing ASGI module
+names. This source relocation does not rebuild or change deployed images.

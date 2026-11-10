@@ -83,7 +83,7 @@ tasks:
     aliases: [services]
     desc: BUILDS IN AZURE. Build the policy API and test receiver (two images)
     cmds:
-      # TWO images from ONE Dockerfile. services/Dockerfile resolves the app at build
+      # TWO images from ONE Dockerfile. src/services/Dockerfile resolves the app at build
       # time, so a running container cannot be repointed at the other service; building
       # both from the same file preserves the shared base. Only policy_api adds the
       # identity dependency profile; the receiver remains unauthenticated. Identity
@@ -101,7 +101,7 @@ tasks:
             --registry "$ACR" \
             --image "containment-demo-${IMG}:$TAG" \
             --build-arg "SERVICE=${SVC}" \
-            --file services/Dockerfile \
+            --file src/services/Dockerfile \
             .
         done
         image_tag_record containment-demo-policy-api "$TAG"

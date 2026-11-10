@@ -90,7 +90,7 @@ Both builds happen in ACR (no local Docker needed), and publication is Module 06
 ### 3. Build the two controlled APIs
 
 ```bash
-task build:tool-apis           # builds containment-demo-policy-api and -test-receiver from services/Dockerfile
+task build:tool-apis           # builds containment-demo-policy-api and -test-receiver from src/services/Dockerfile
 task deploy:tool-apis          # updates the two Container Apps; refuses unrelated Terraform changes
 task tool-apis:check           # confirm both endpoints are live (run BEFORE a demo run)
 ```
@@ -148,9 +148,9 @@ Plain HTTP on port **8088**; the platform terminates TLS and serves `GET /readin
 
 ### The controlled APIs
 
-* [services/policy_api/main.py](../../services/policy_api/main.py): `GET /policy` and `/policy/{run_id}` return a fixed synthetic policy and log a receipt ([lines 143–152](../../services/policy_api/main.py#L143-L152)). Optional identity middleware is Module 04.
-* [services/test_receiver/main.py](../../services/test_receiver/main.py): `POST /ingest` reads the body only to measure it and returns `202` with `content_length_bytes`; nothing from the payload is stored or logged ([lines 83–106](../../services/test_receiver/main.py#L83-L106)). A receipt here means traffic got through; no receipt plus platform evidence supports containment.
-* [services/Dockerfile](../../services/Dockerfile): one Dockerfile, `SERVICE` build arg picks the module; fails fast if unset.
+* [src/services/policy_api/main.py](../../src/services/policy_api/main.py): `GET /policy` and `/policy/{run_id}` return a fixed synthetic policy and log a receipt ([lines 143–152](../../src/services/policy_api/main.py#L143-L152)). Optional identity middleware is Module 04.
+* [src/services/test_receiver/main.py](../../src/services/test_receiver/main.py): `POST /ingest` reads the body only to measure it and returns `202` with `content_length_bytes`; nothing from the payload is stored or logged ([lines 83–106](../../src/services/test_receiver/main.py#L83-L106)). A receipt here means traffic got through; no receipt plus platform evidence supports containment.
+* [src/services/Dockerfile](../../src/services/Dockerfile): one Dockerfile, `SERVICE` build arg picks the module; fails fast if unset.
 
 ### How Foundry hosts the container — [src/containment_demo/deploy.py](../../src/containment_demo/deploy.py)
 

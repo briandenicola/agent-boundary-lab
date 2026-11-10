@@ -187,7 +187,7 @@ Companion [project-connections.tf](../../infra/cloud/project-connections.tf) (li
 
 ### Container Apps — [container-apps.tf](../../infra/cloud/container-apps.tf)
 
-Environment (51–69) on the delegated subnet, `Consumption` workload profile, public ingress by default (`test_endpoints_public = true`, a deliberate experimental choice). Two apps: `policy_api` (74) — the **allowlisted** destination — and `test_receiver` (129) — **not allowlisted**, accepts everything. Hostnames come from the live ingress FQDN (lines 26–27), so the allowlist cannot disagree with reality. The image is a placeholder until `var.endpoint_image_tag` is set (lines 29–48). Source of the apps: [services/policy_api/main.py](../../services/policy_api/main.py), [services/test_receiver/main.py](../../services/test_receiver/main.py).
+Environment (51–69) on the delegated subnet, `Consumption` workload profile, public ingress by default (`test_endpoints_public = true`, a deliberate experimental choice). Two apps: `policy_api` (74) — the **allowlisted** destination — and `test_receiver` (129) — **not allowlisted**, accepts everything. Hostnames come from the live ingress FQDN (lines 26–27), so the allowlist cannot disagree with reality. The image is a placeholder until `var.endpoint_image_tag` is set (lines 29–48). Source of the apps: [src/services/policy_api/main.py](../../src/services/policy_api/main.py), [src/services/test_receiver/main.py](../../src/services/test_receiver/main.py).
 
 ### Identity — [identity.tf](../../infra/cloud/identity.tf) and [demo-ui-identity.tf](../../infra/cloud/demo-ui-identity.tf)
 

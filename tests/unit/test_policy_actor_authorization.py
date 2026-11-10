@@ -12,7 +12,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from services.policy_api import main as policy
 
 from containment_demo.actor_context import (
     ActorContextStore,
@@ -20,6 +19,7 @@ from containment_demo.actor_context import (
     AuthorizationStatus,
     issue,
 )
+from services.policy_api import main as policy
 
 RUN_ID = "actor-run-0001"
 ALIAS = "allowed-tester"
