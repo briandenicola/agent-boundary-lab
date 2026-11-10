@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1510" height="1050" viewBox="0 0 1510 1050" role="img" aria-labelledby="title description">
+<title id="title">Copilot Deployment Flow</title>
+<desc id="description">Dated 2026-11-10. Architecture map, not evidence. Open the matching .excalidraw file to edit the authoritative scene.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10" fill="none" stroke="context-stroke" stroke-width="1.5"/></marker></defs>
+<rect width="100%" height="100%" fill="white"/>
+<text x="50" text-anchor="start" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="30">
+<tspan x="50" y="55.0">Copilot: consolidated owner-run deployment lifecycle</tspan>
+</text>
+<text x="50" text-anchor="start" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="18">
+<tspan x="50" y="90.0">Existing lab foundation | Separate OAuth project and publication | No deployment needed for ordinary chat</tspan>
+</text>
+<rect x="60" y="140" width="300" height="160" rx="12" fill="#e7f5ff" stroke="#1864ab" stroke-width="2"/>
+<text x="210.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="18">
+<tspan x="210.0" y="181.75">Owner / operator</tspan>
+<tspan x="210.0" y="204.25">Approve changes / calls</tspan>
+<tspan x="210.0" y="226.75">Azure user + lab</tspan>
+<tspan x="210.0" y="249.25">kubeconfig</tspan>
+<tspan x="210.0" y="271.75">Public catalog metadata</tspan>
+</text>
+<rect x="420" y="140" width="300" height="160" rx="12" fill="#e7f5ff" stroke="#1864ab" stroke-width="2"/>
+<text x="570.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="18">
+<tspan x="570.0" y="181.75">Private AKS helper</tspan>
+<tspan x="570.0" y="204.25">Dedicated source +</tspan>
+<tspan x="570.0" y="226.75">journals</tspan>
+<tspan x="570.0" y="249.25">Private management access</tspan>
+<tspan x="570.0" y="271.75">Not a chat relay</tspan>
+</text>
+<rect x="790" y="140" width="640" height="160" rx="12" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="1110.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="18">
+<tspan x="1110.0" y="193.0">Existing foundation preserved</tspan>
+<tspan x="1110.0" y="215.5">Foundry account, ACR, AKS and existing telemetry</tspan>
+<tspan x="1110.0" y="238.0">Original seven v4 agents + ACS Servicing Demo v4</tspan>
+<tspan x="1110.0" y="260.5">No cloud:up or baseline API / UI / OBO changes</tspan>
+</text>
+<rect x="60" y="390" width="300" height="160" rx="12" fill="#f3f0ff" stroke="#6741d9" stroke-width="2"/>
+<text x="210.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="17">
+<tspan x="210.0" y="433.875">copilot-toolbox:build</tspan>
+<tspan x="210.0" y="455.125">Dedicated agent + MCP images</tspan>
+<tspan x="210.0" y="476.375">Immutable repository digests</tspan>
+<tspan x="210.0" y="497.625">No baseline image</tspan>
+<tspan x="210.0" y="518.875">publication</tspan>
+</text>
+<rect x="420" y="390" width="300" height="160" rx="12" fill="#f3f0ff" stroke="#6741d9" stroke-width="2"/>
+<text x="570.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="16">
+<tspan x="570.0" y="426.0">copilot-toolbox:infra-up</tspan>
+<tspan x="570.0" y="446.0">Registration + isolated infra</tspan>
+<tspan x="570.0" y="466.0">RBAC + exact-host rule</tspan>
+<tspan x="570.0" y="486.0">Credential / callback /</tspan>
+<tspan x="570.0" y="506.0">toolbox</tspan>
+<tspan x="570.0" y="526.0">Delegated discovery</tspan>
+</text>
+<rect x="790" y="390" width="280" height="160" rx="12" fill="#f3f0ff" stroke="#6741d9" stroke-width="2"/>
+<text x="930.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="16">
+<tspan x="930.0" y="416.0">copilot-toolbox:up</tspan>
+<tspan x="930.0" y="436.0">Verified configuration</tspan>
+<tspan x="930.0" y="456.0">journal</tspan>
+<tspan x="930.0" y="476.0">No manual endpoint/tool</tspan>
+<tspan x="930.0" y="496.0">export</tspan>
+<tspan x="930.0" y="516.0">Agent version + scoped</tspan>
+<tspan x="930.0" y="536.0">grants</tspan>
+</text>
+<rect x="1130" y="390" width="300" height="160" rx="12" fill="#f3f0ff" stroke="#6741d9" stroke-width="2"/>
+<text x="1280.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="17">
+<tspan x="1280.0" y="433.875">copilot-toolbox:publish-plan</tspan>
+<tspan x="1280.0" y="455.125">Review separate Just you pin</tspan>
+<tspan x="1280.0" y="476.375">copilot-toolbox:publish</tspan>
+<tspan x="1280.0" y="497.625">Preserve original</tspan>
+<tspan x="1280.0" y="518.875">publication</tspan>
+</text>
+<rect x="60" y="660" width="300" height="155" rx="12" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="210.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="17">
+<tspan x="210.0" y="690.75">Owned private state</tspan>
+<tspan x="210.0" y="712.0">Separate Terraform state</tspan>
+<tspan x="210.0" y="733.25">Configuration + key / expiry</tspan>
+<tspan x="210.0" y="754.5">Deployment / grants /</tspan>
+<tspan x="210.0" y="775.75">publication</tspan>
+<tspan x="210.0" y="797.0">No secret in .env or docs</tspan>
+</text>
+<rect x="420" y="660" width="300" height="170" rx="12" fill="#e7f5ff" stroke="#1864ab" stroke-width="2"/>
+<text x="570.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="16">
+<tspan x="570.0" y="691.0">Browser consent, if requested</tspan>
+<tspan x="570.0" y="711.0">Open private consent.html</tspan>
+<tspan x="570.0" y="731.0">Authorized account + real</tspan>
+<tspan x="570.0" y="751.0">callback</tspan>
+<tspan x="570.0" y="771.0">Rerun the same infra-up</tspan>
+<tspan x="570.0" y="791.0">Consent never grants API</tspan>
+<tspan x="570.0" y="811.0">access</tspan>
+</text>
+<rect x="790" y="660" width="280" height="155" rx="12" fill="#fff9db" stroke="#a65f00" stroke-width="2"/>
+<text x="930.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="16">
+<tspan x="930.0" y="693.5">Recovery / teardown</tspan>
+<tspan x="930.0" y="713.5">Inspect uncertain writes</tspan>
+<tspan x="930.0" y="733.5">Restore missing journals</tspan>
+<tspan x="930.0" y="753.5">only</tspan>
+<tspan x="930.0" y="773.5">Disable before down</tspan>
+<tspan x="930.0" y="793.5">Never remove original entry</tspan>
+</text>
+<rect x="1130" y="660" width="300" height="155" rx="12" fill="#e6fcf5" stroke="#087f5b" stroke-width="2"/>
+<text x="1280.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="17">
+<tspan x="1280.0" y="690.75">copilot-toolbox:status</tspan>
+<tspan x="1280.0" y="712.0">Readback, not a model turn</tspan>
+<tspan x="1280.0" y="733.25">Chat: ACS OAuth Servicing</tspan>
+<tspan x="1280.0" y="754.5">Demo</tspan>
+<tspan x="1280.0" y="775.75">Already pinned? Do not</tspan>
+<tspan x="1280.0" y="797.0">republish</tspan>
+</text>
+<polyline points="365,220 415,220" fill="none" stroke="#1864ab" stroke-width="2" marker-end="url(#arrow)"/>
+<polyline points="570,305 570,385" fill="none" stroke="#1864ab" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="580" text-anchor="start" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="15">
+<tspan x="580" y="340.0">operator commands</tspan>
+</text>
+<polyline points="365,470 415,470" fill="none" stroke="#6741d9" stroke-width="2" marker-end="url(#arrow)"/>
+<polyline points="725,470 785,470" fill="none" stroke="#6741d9" stroke-width="2" marker-end="url(#arrow)"/>
+<polyline points="1075,470 1125,470" fill="none" stroke="#6741d9" stroke-width="2" marker-end="url(#arrow)"/>
+<polyline points="570,555 570,655" fill="none" stroke="#1864ab" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="580" text-anchor="start" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="15">
+<tspan x="580" y="600.0">interactive</tspan>
+<tspan x="580" y="618.75">checkpoint</tspan>
+</text>
+<polyline points="1280,555 1280,655" fill="none" stroke="#087f5b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="60" y="865" width="1370" height="145" rx="12" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="745.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="18">
+<tspan x="745.0" y="910.5">Verified reuse, not a claimed live rebuild</tspan>
+<tspan x="745.0" y="933.0">Working connection / toolbox v2 reused; repeated isolated Terraform plan had no changes.</tspan>
+<tspan x="745.0" y="955.5">Isolated agent v1 + publication work in Copilot. Fresh creation, rotation and teardown: offline-tested, not live-replayed.</tspan>
+<tspan x="745.0" y="978.0">Builds, resources, grants, network changes, publication and model calls require owner approval.</tspan>
+</text>
+</svg>

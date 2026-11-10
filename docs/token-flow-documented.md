@@ -77,8 +77,18 @@ regressions, not the OBO browser test. See
 
 Microsoft 365 channel authorization is not this direct Responses-header contract.
 A signed-in channel user does not automatically supply a policy API bearer.
-The Copilot integration must validate downstream delegation without copying operator
-tokens, trusting display names or weakening the API guard.
+The separate **ACS OAuth Servicing Demo** now uses the immutable Foundry toolbox
+and custom OAuth connection for delegated MCP lookup. Interactive browser consent
+and an explicit service authorization grant are separate requirements. The hosted
+toolbox client uses managed identity plus trusted request-scoped user/call context;
+no operator token, static user ID or baseline UI/OBO-client copy is substituted.
+
+Authorized lookup and combined lookup/ACS-blocked sending were observed on
+2026-11-10; unauthorized-user acceptance remains deferred. The original
+**ACS Servicing Demo** still uses direct HTTP and does not receive this connection's
+delegated token. See [architecture](architecture-as-built.md#microsoft-365-copilot-runtime-path),
+[configuration and consent](rebuild-runbook.md#separate-oauth-copilot-entry) and
+[dated evidence](telemetry-map.md#isolated-copilot-acceptance).
 
 Primary reference, accessed 2026-10-15:
 [Hosted-agent on-behalf-of flow](https://learn.microsoft.com/azure/foundry/agents/how-to/use-on-behalf-of-flow).

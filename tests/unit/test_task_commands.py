@@ -37,6 +37,9 @@ def test_copilot_runs_through_the_private_helper_without_deploying_or_invoking(
     assert "terraform apply" not in command
     assert "governance.hosted up" not in command
     assert "verify_governance run" not in command
+    assert "${COPILOT_METADATA_FILE:-" in command
+    assert "/.task/copilot/publish-request.json}" in command
+    assert "${COPILOT_METADATA_FILE:?" not in command
 
 
 def task_body(file: str, name: str) -> str:
@@ -61,6 +64,10 @@ def test_toolbox_commands_use_isolated_helper_files_and_never_roll_out_baseline(
     assert "governance.hosted up" not in command
     assert "/home/agent/.copilot/publication.json" not in command
     assert "terraform apply" not in command
+    if action in {"publish-plan", "publish"}:
+        assert "${COPILOT_TOOLBOX_METADATA_FILE:-" in command
+        assert "/.task/copilot-toolbox/publish-request.json}" in command
+        assert "${COPILOT_TOOLBOX_METADATA_FILE:?" not in command
 
 
 def test_acs_lifecycle_separates_infrastructure_build_and_agent_deployment(dry_task) -> None:

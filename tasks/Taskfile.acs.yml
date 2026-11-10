@@ -20,7 +20,7 @@ tasks:
       - task: :governance:_deployment
 
   copilot:
-    desc: CHANGES FOUNDRY/M365. Ensure the ACS-first Just-you publication; protected toolbox lookup remains blocked
+    desc: CHANGES FOUNDRY/M365. Ensure the original ACS-first Just-you publication; OAuth lookup uses the separate toolbox entry
     cmds:
       - task: :copilot:_run
         vars:

@@ -80,9 +80,9 @@ tasks:
       - task: :governance:_context
       - |
         set -eu
-        COPILOT_METADATA_FILE=${COPILOT_METADATA_FILE:-{{.METADATA_DEFAULT | default ""}}}
-        : "${COPILOT_METADATA_FILE:?Copy deploy/copilot/publish-request.example.json to .task/copilot/publish-request.json, fill owner metadata, and set COPILOT_METADATA_FILE.}"
-        test -f "$COPILOT_METADATA_FILE"
+        COPILOT_METADATA_FILE="${COPILOT_METADATA_FILE:-{{.METADATA_DEFAULT | default (printf "%s/.task/copilot/publish-request.json" .ROOT_DIR)}}}"
+        test -s "$COPILOT_METADATA_FILE" || {
+          echo "Fill .task/copilot/publish-request.json from deploy/copilot/publish-request.example.json before publication." >&2; exit 1; }
         [ "$(az account show --query user.type -o tsv --only-show-errors)" = user ] || {
           echo "Shared publication requires your Azure CLI user login, not a service principal." >&2
           exit 1

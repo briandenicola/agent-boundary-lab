@@ -154,7 +154,9 @@ were observed for version 3 on 2026-11-09. This does not establish receiver abse
 or a platform egress denial. Microsoft 365 sign-in is not a delegated policy API
 token. The documented managed
 delegation/toolbox flows do not establish token forwarding into this agent's
-existing direct-HTTP tool; lookup and combined-prompt acceptance are deferred.
+existing direct-HTTP tool. Lookup and combined-prompt acceptance subsequently
+passed in the separate OAuth publication on 2026-11-10; see the isolated channel
+contract below. Unauthorized-user acceptance remains deferred.
 No app-only or operator-token fallback is introduced.
 
 Once published, planning a new owned hosted version produces `upgrade_planned`.
@@ -549,3 +551,28 @@ callback, Active rule and toolbox v2 live. Terraform reported no changes; Entra
 credential inventory, callbacks and delegated permissions were unchanged.
 Fresh setup, seven-day renewal, owned teardown and ignoring retired migration
 journals on rebuild are offline-tested behavior, not live rebuild results.
+
+### Isolated Copilot channel -- 2026-11-10
+
+Owner-approved deployment reused the dedicated image
+`sha256:8bd63248465d02b0185196b0a12d0c6791e13c2669370dfa99ce599dec46bc11`,
+creating isolated agent v1 and its required grants. Native publication produced
+the separate Shared / Just you **ACS OAuth Servicing Demo** title
+`T_eccd3260-6696-eb05-5c28-ee705fb2e742`, pinned v1. Endpoint readback retained
+Responses/Entra and added scoped Activity/BotServiceRbac. Original publication
+v4, seven agents, RAI policies, API auth/images and approved selected-IP settings
+were unchanged.
+
+Two owner-run Copilot turns verified actual hosted toolbox lookup, with matching
+MCP `served` receipts. The combined turn also produced ACS `deny` / `blocked`
+for external processing. This exercises the server's real user/call context and
+managed-identity toolbox client; no call ID or user token was fabricated.
+See [dated run evidence](telemetry-map.md#isolated-copilot-acceptance).
+Another user's rejection and the original UI runtime regression remain open.
+
+Both publication Task workflows default to their separate private
+`.task/copilot/publish-request.json` and
+`.task/copilot-toolbox/publish-request.json` metadata files. Explicit environment
+overrides remain supported; no metadata export is required for the normal
+workflow. Offline command checks cover default selection and track isolation.
+See the [canonical owner lifecycle](rebuild-runbook.md#current-acs-and-copilot-lifecycle).

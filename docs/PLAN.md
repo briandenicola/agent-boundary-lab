@@ -14,7 +14,7 @@ Superseded phase checklists and issue-specific squad plans are retained in Git h
 | Issue #10: ACS G4 deployment | Seven isolated agents active v4, three policies and seven model grants verified 2026-11-09; repeated deployment reused v4 |
 | Issue #10: hosted comparison | Awaiting owner-run tests; deployment health is not a runtime result |
 | Microsoft 365 Copilot | ACS-first chat and correlated deny/blocked events observed on v3 (2026-11-09) and v4 (2026-11-10); destination evidence and delegated lookup remain separate |
-| Isolated OAuth extension | Infrastructure provisioned; real OAuth/callback/consent, toolbox v2 discovery and one synthetic developer lookup verified 2026-11-10; exact-host egress and isolated-only admin authorization approved; no isolated hosted agent or separate publication yet |
+| Isolated OAuth extension | Isolated agent active v1 and separate Just you publication; authorized Copilot lookup and combined lookup/ACS-blocked send correlated with MCP/ACS evidence 2026-11-10; negative identity test deferred by owner, AKS/UI runtime regression pending |
 | Phases 8-9: Dapr Workflow | Deferred; no dependency of the Copilot demo |
 | Phase 10: messaging and portability | Deferred |
 
@@ -56,8 +56,9 @@ publication and never blindly resubmits after an uncertain write. Reports show
 resource identifiers, versions and sample prompts, and distinguish live readback
 from recorded state and hosted runtime evidence.
 
-Protected Copilot lookup remains a separate blocked gate, not a capability made
-ready by renaming or consolidating Tasks.
+Protected lookup is not supplied by the original publication. It now works in the
+separate OAuth entry; see the dated acceptance evidence and remaining identity/UI
+gates below. Consolidating Tasks alone is not runtime proof.
 
 On 2026-11-09, the owner authorized execution while away. `acs:up`, `acs:build`,
 `acs:deploy`, `acs:copilot` and `acs:status` completed against the existing
@@ -119,14 +120,16 @@ The user signs in and types a business prompt; they do not install this reposito
 run Tasks, export tokens or configure GitHub Copilot.
 
 The owner selected **Shared / Just you**, with the **ACS-blocked action first**.
-Successful policy lookup and the combined prompt are deferred until downstream
-user delegation is available; API authentication remains unchanged.
+That original entry still does not supply delegated lookup. The separate OAuth
+publication now supports authorized lookup and the combined prompt, without
+changing the baseline API authentication.
 
 - [x] Implement Foundry's native publication API for the owned governance-denial agent.
 - [x] Observe channel delivery into the hosted ADK runtime and a successful reply.
       The initial model-authentication failure was corrected in version 3.
 - [x] Preserve existing endpoint protocols and authorization schemes when enabling
-      scoped Activity access. Do not enable account-wide public network access.
+      scoped Activity access. Publication does not change account PNA; preserve the
+      owner's separately approved selected-IP/default-Deny configuration.
 - [x] Automate metadata, publication and readback through a small Task workflow.
       Choose publication scope explicitly; do not silently publish tenant-wide.
 - [x] Generate request-scoped chat markers without end-user headers, retaining the
@@ -135,15 +138,17 @@ user delegation is available; API authentication remains unchanged.
       to version 2. Authorization and endpoint readback succeeded.
 - [x] Owner deployed the v1 model-authentication correction, pinned version 3 and
       obtained a fresh chat reply with its Demo run marker.
-- [ ] Validate downstream delegated API authorization for the channel. Microsoft 365
-      sign-in alone is not a policy API token; never substitute app credentials.
-- [ ] Correlate a natural-language turn, model-selected tool and ACS outcome with
-      destination evidence. Do not require direct-client headers from an end user.
+- [x] Validate authorized downstream delegation through the separate OAuth channel.
+      Negative identity acceptance remains deferred. Microsoft 365 sign-in alone
+      is not a policy API token; never substitute app credentials.
+- [x] Correlate a natural-language turn, model-selected tool and ACS outcome with
+      destination evidence in the isolated OAuth entry on 2026-11-10.
 - [x] Demonstrate the model-selected blocked send in Copilot. The 2026-11-09
       [chat and matching ACS event](telemetry-map.md#microsoft-365-copilot-blocked-action-observation)
       record `send_to_external_processor`, `deny`, `blocked` and
       `external_processor_prohibited`; this is not just a model refusal.
-- [ ] Later: demonstrate permitted lookup and the combined prompt with delegated auth.
+- [x] Demonstrate permitted lookup and the combined prompt with delegated auth in
+      **ACS OAuth Servicing Demo** v1, with actual MCP receipts.
 - [x] Published entry point: Microsoft 365 Copilot -> Your agents ->
       **ACS Servicing Demo**. No AKS ingress or browser harness is used.
 
@@ -180,8 +185,12 @@ only, retaining the original guest. The guarded Terraform plan changed only that
 user list; a repeat plan reported **No changes**. Discovery returned
 `policy___get_servicing_policy` with approval policy `never`, and one separately
 approved synthetic developer lookup returned `SVC-DEMO-0001`. This is not a hosted
-agent or Copilot acceptance result. No new isolated agent/publication exists.
-The existing publication still pins v4. See
+agent or Copilot acceptance result. Subsequently, the owner approved deploying
+isolated agent v1 and the separate **ACS OAuth Servicing Demo** publication,
+Shared / Just you. Owner-run lookup and combined lookup/blocked sending succeeded
+with correlated MCP receipts and ACS evidence. The owner deferred the negative
+identity test without changing access; AKS/UI runtime regression remains pending.
+The original publication still pins v4. See
 [the verified setup and remaining gates](governance-demo.md#8-operator-reference-isolated-toolbox-project).
 
 Read-only Azure discovery found a ready account-level `Agents` capability host,
@@ -219,17 +228,21 @@ Plan, in dependency order:
    Preserve journals and credential expiry/rotation ownership.
    Do not treat generic connection metadata, consent or discovery alone as lookup
    success. Do not replay a completed consent link to switch identities.
-4. Deploy a new owned agent in the new project, with exactly the same two ADK tools
+4. **Deployed v1, 2026-11-10.** Deploy a new owned agent in the new project, with exactly the same two ADK tools
    and ACS-first enforcement. Use dedicated image repositories, version journals,
    scoped grants and a dedicated RAI policy. Reuse the existing private operator
    helper only through isolated files/process environment, without rolling out
    any AKS/UI workload or overwriting its journals.
-5. Create a **separate Microsoft 365 Copilot publication and journal**. The existing
+5. **Published 2026-11-10.** Create a **separate Microsoft 365 Copilot publication and journal**.
+   **ACS OAuth Servicing Demo**, title `T_eccd3260-6696-eb05-5c28-ee705fb2e742`,
+   pins isolated v1. The existing
    publication cannot be repinned to an agent version in another project; leave
    its endpoint, version pin and catalog entry unchanged.
-6. Owner-run acceptance: consent and authorized lookup; an unauthorized user's
-   lookup denied by the MCP service; external processing ACS-blocked; correlated
-   ACS and dedicated-service receipts. Recheck the existing AKS/UI flow independently.
+6. **Authorized lookup and combined lookup/ACS-blocked send verified 2026-11-10.**
+   Actual toolbox outcomes, dedicated MCP receipts and ACS allow/deny decisions
+   correlate with the owner's Copilot run markers. The negative identity test is
+   deferred by owner choice; access remains unchanged. Recheck the existing AKS/UI
+   flow independently; configuration preservation is not a new UI runtime result.
    Keep toolbox authorization evidence separate from direct-HTTP containment proof.
 
 The `copilot-toolbox:*` Task workflow covers preflight, offline checks/tampering,

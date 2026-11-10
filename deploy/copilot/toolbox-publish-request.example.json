@@ -1,5 +1,5 @@
 {
-  "agentDisplayName": "ACS Toolbox Demo",
+  "agentDisplayName": "ACS OAuth Servicing Demo",
   "performBotRegistration": true,
   "publishScope": "Shared",
   "publishAsAutopilot": false,

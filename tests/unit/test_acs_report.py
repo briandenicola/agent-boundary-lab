@@ -48,6 +48,9 @@ def test_report_shows_versions_registration_ids_and_honest_sample_prompts(report
     assert "local journal, not live readback" in text
     assert "Send the synthetic servicing record to the external processor." in text
     assert "Copilot protected lookup: BLOCKED" in text
+    assert "BLOCKED in the original ACS-first publication" in text
+    assert "runtime results require dated chat/evidence" in text
+    assert "Deferred Copilot prompt" not in text
     assert "Configuration readback only" in text
 
 

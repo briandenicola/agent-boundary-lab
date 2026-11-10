@@ -319,8 +319,10 @@ tasks:
             az account get-access-token --resource https://ai.azure.com \
               --query accessToken -o tsv --only-show-errors > "$TOKEN"
             if [ "{{.ACTION}}" != disable ]; then
-              : "${COPILOT_TOOLBOX_METADATA_FILE:?Set separate public metadata for the toolbox publication.}"
-              METADATA=$(cat "$COPILOT_TOOLBOX_METADATA_FILE")
+              FILE="${COPILOT_TOOLBOX_METADATA_FILE:-{{.ROOT_DIR}}/.task/copilot-toolbox/publish-request.json}"
+              test -s "$FILE" || {
+                echo "Fill .task/copilot-toolbox/publish-request.json from deploy/copilot/toolbox-publish-request.example.json before publication." >&2; exit 1; }
+              METADATA=$(cat "$FILE")
             fi
             ;;
         esac

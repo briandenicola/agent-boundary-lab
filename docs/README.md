@@ -17,8 +17,10 @@ not the prompt. ACS denial is application governance, not platform network enfor
 
 For the standalone ACS lifecycle on the existing lab foundation, use
 `acs:up`, `acs:build`, `acs:deploy`, optional `acs:copilot`, and `acs:status`
-(`acs:report`). See the [normal owner workflow](governance-demo.md#normal-owner-workflow).
-`cloud:up` is unchanged. Protected Copilot lookup remains blocked separately.
+(`acs:report`). Use the [canonical deployment sequence](rebuild-runbook.md#current-acs-and-copilot-lifecycle)
+for both tracks, metadata, consent, recovery and teardown.
+`cloud:up` is unchanged. Protected lookup uses the separate **ACS OAuth Servicing
+Demo** entry, not the original **ACS Servicing Demo** publication.
 
 | Document | Purpose |
 | --- | --- |
@@ -38,7 +40,7 @@ For the standalone ACS lifecycle on the existing lab foundation, use
 | [Egress control](egress-control.md) | RAI network policy mechanics, TLS and limits |
 | [Telemetry map](telemetry-map.md) | Observed schemas, joins and dated evidence |
 | [KQL queries](kql-queries.md) | Evidence inspection queries |
-| [Diagrams](diagrams/README.md) | Editable diagram sources |
+| [Diagrams](diagrams/README.md) | Current Copilot OAuth/ACS flow, deployment lifecycle and historical baseline |
 
 ## Current baseline
 
@@ -79,8 +81,13 @@ synthetic policy lookup succeeded through v2. See the
 exact-host egress, OAuth credential/callback and immutable toolbox configuration.
 It reused the working resources live; browser consent remains interactive.
 Deployment reads endpoint/tool from the verified journal, not manual exports.
-No isolated hosted agent or separate publication exists yet. The original
-publication remains pinned to active version `4`; original RAI policies, API
+Later on 2026-11-10, the isolated hosted agent became active as version `1` and
+**ACS OAuth Servicing Demo** was published separately, Shared / Just you, pinned
+to `1`. Owner-run Copilot lookup and a combined lookup/ACS-blocked send were
+correlated with actual toolbox outcomes, MCP receipts and ACS decisions. The
+negative identity test was explicitly deferred; the original AKS/UI runtime
+regression is pending. See the [dated acceptance evidence](telemetry-map.md#isolated-copilot-acceptance).
+The original publication remains pinned to active version `4`; original RAI policies, API
 authorization and images are unchanged. The owner separately enabled and approved
 retaining selected-IP public access; it was not changed by the outbound-rule test.
 

@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1510" height="1150" viewBox="0 0 1510 1150" role="img" aria-labelledby="title description">
+<title id="title">Copilot Oauth Flow</title>
+<desc id="description">Dated 2026-11-10. Architecture map, not evidence. Open the matching .excalidraw file to edit the authoritative scene.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10" fill="none" stroke="context-stroke" stroke-width="1.5"/></marker></defs>
+<rect width="100%" height="100%" fill="white"/>
+<text x="50" text-anchor="start" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="30">
+<tspan x="50" y="55.0">Copilot: delegated lookup + ACS-governed actions</tspan>
+</text>
+<text x="50" text-anchor="start" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="18">
+<tspan x="50" y="90.0">Verified 2026-11-10 | Synthetic data only | Version pins are a dated snapshot</tspan>
+</text>
+<rect x="350" y="110" width="1130" height="470" rx="12" fill="transparent" stroke="#6741d9" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="370" text-anchor="start" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="17">
+<tspan x="370" y="137.0">Foundry: separate OAuth project, hosted agent and immutable toolbox</tspan>
+</text>
+<rect x="60" y="160" width="240" height="130" rx="12" fill="#e7f5ff" stroke="#1864ab" stroke-width="2"/>
+<text x="180.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="17">
+<tspan x="180.0" y="199.5">Microsoft 365 Copilot</tspan>
+<tspan x="180.0" y="220.75">ACS OAuth Servicing</tspan>
+<tspan x="180.0" y="242.0">Demo</tspan>
+<tspan x="180.0" y="263.25">Shared / Just you</tspan>
+</text>
+<rect x="390" y="160" width="280" height="130" rx="12" fill="#f3f0ff" stroke="#6741d9" stroke-width="2"/>
+<text x="530.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="18">
+<tspan x="530.0" y="198.0">Authenticated Activity</tspan>
+<tspan x="530.0" y="220.5">Stable endpoint, pinned</tspan>
+<tspan x="530.0" y="243.0">v1</tspan>
+<tspan x="530.0" y="265.5">Responses adapter</tspan>
+</text>
+<rect x="750" y="160" width="300" height="130" rx="12" fill="#f3f0ff" stroke="#6741d9" stroke-width="2"/>
+<text x="900.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="18">
+<tspan x="900.0" y="209.25">Hosted Google ADK</tspan>
+<tspan x="900.0" y="231.75">Agent identity -&gt; model</tspan>
+<tspan x="900.0" y="254.25">Exactly two business tools</tspan>
+</text>
+<rect x="1110" y="160" width="320" height="130" rx="12" fill="#f3f0ff" stroke="#6741d9" stroke-width="2"/>
+<text x="1270.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="18">
+<tspan x="1270.0" y="209.25">ACS pre-tool callback</tspan>
+<tspan x="1270.0" y="231.75">Rego evaluated by OPA</tspan>
+<tspan x="1270.0" y="254.25">Host enforces the decision</tspan>
+</text>
+<rect x="750" y="380" width="300" height="150" rx="12" fill="#e6fcf5" stroke="#087f5b" stroke-width="2"/>
+<text x="900.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="17">
+<tspan x="900.0" y="429.5">get_servicing_policy</tspan>
+<tspan x="900.0" y="450.75">Managed-identity caller</tspan>
+<tspan x="900.0" y="472.0">Trusted user/call context</tspan>
+<tspan x="900.0" y="493.25">Immutable toolbox v2</tspan>
+</text>
+<rect x="390" y="380" width="280" height="150" rx="12" fill="#f3f0ff" stroke="#6741d9" stroke-width="2"/>
+<text x="530.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="17">
+<tspan x="530.0" y="418.875">Custom OAuth connection</tspan>
+<tspan x="530.0" y="440.125">Real registered callback</tspan>
+<tspan x="530.0" y="461.375">Delegated scope</tspan>
+<tspan x="530.0" y="482.625">Credential stays in</tspan>
+<tspan x="530.0" y="503.875">Foundry</tspan>
+</text>
+<rect x="60" y="380" width="240" height="150" rx="12" fill="#e7f5ff" stroke="#1864ab" stroke-width="2"/>
+<text x="180.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="17">
+<tspan x="180.0" y="408.25">Browser consent /</tspan>
+<tspan x="180.0" y="429.5">Entra</tspan>
+<tspan x="180.0" y="450.75">Interactive sign-in</tspan>
+<tspan x="180.0" y="472.0">Authorized demo user</tspan>
+<tspan x="180.0" y="493.25">Not a service-access</tspan>
+<tspan x="180.0" y="514.5">grant</tspan>
+</text>
+<rect x="1110" y="380" width="320" height="150" rx="12" fill="#fff5f5" stroke="#c92a2a" stroke-width="2"/>
+<text x="1270.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="17">
+<tspan x="1270.0" y="429.5">send_to_external_processor</tspan>
+<tspan x="1270.0" y="450.75">ACS deny / blocked</tspan>
+<tspan x="1270.0" y="472.0">No business HTTP request</tspan>
+<tspan x="1270.0" y="493.25">NOT a platform egress denial</tspan>
+</text>
+<rect x="390" y="640" width="280" height="140" rx="12" fill="#e6fcf5" stroke="#087f5b" stroke-width="2"/>
+<text x="530.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="17">
+<tspan x="530.0" y="673.875">Protected MCP / ACA</tspan>
+<tspan x="530.0" y="695.125">Validate delegated token</tspan>
+<tspan x="530.0" y="716.375">Explicit user</tspan>
+<tspan x="530.0" y="737.625">authorization</tspan>
+<tspan x="530.0" y="758.875">Return synthetic policy</tspan>
+</text>
+<rect x="750" y="640" width="680" height="140" rx="12" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="1090.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="18">
+<tspan x="1090.0" y="671.75">Existing evidence destination</tspan>
+<tspan x="1090.0" y="694.25">AppTraces: ACS decisions + tool outcomes</tspan>
+<tspan x="1090.0" y="716.75">ContainerAppConsoleLogs_CL: MCP / receiver receipts</tspan>
+<tspan x="1090.0" y="739.25">Chat run joins receipts; trace joins ACS / tool spans</tspan>
+<tspan x="1090.0" y="761.75">No content or token capture</tspan>
+</text>
+<polyline points="305,225 385,225" fill="none" stroke="#1864ab" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="305" text-anchor="start" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="15">
+<tspan x="305" y="210.0">chat /</tspan>
+<tspan x="305" y="228.75">reply</tspan>
+</text>
+<polyline points="675,225 745,225" fill="none" stroke="#6741d9" stroke-width="2" marker-end="url(#arrow)"/>
+<polyline points="1055,225 1105,225" fill="none" stroke="#6741d9" stroke-width="2" marker-end="url(#arrow)"/>
+<polyline points="1200,295 1200,335 900,335 900,375" fill="none" stroke="#087f5b" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="910" text-anchor="start" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="15">
+<tspan x="910" y="323.0">lookup: allow / continue</tspan>
+</text>
+<polyline points="1350,295 1350,375" fill="none" stroke="#c92a2a" stroke-width="2" marker-end="url(#arrow)"/>
+<polyline points="745,455 675,455" fill="none" stroke="#6741d9" stroke-width="2" marker-end="url(#arrow)"/>
+<polyline points="305,455 385,455" fill="none" stroke="#1864ab" stroke-width="2" marker-end="url(#arrow)"/>
+<polyline points="530,535 530,635" fill="none" stroke="#087f5b" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="540" text-anchor="start" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="15">
+<tspan x="540" y="610.0">delegated token</tspan>
+</text>
+<polyline points="675,710 745,710" fill="none" stroke="#495057" stroke-width="2" marker-end="url(#arrow)"/>
+<polyline points="1270,535 1270,635" fill="none" stroke="#495057" stroke-width="2" marker-end="url(#arrow)" stroke-dasharray="8 6"/>
+<text x="1055" text-anchor="start" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="15">
+<tspan x="1055" y="610.0">ACS evidence, not network Deny</tspan>
+</text>
+<rect x="60" y="830" width="680" height="145" rx="12" fill="#e6fcf5" stroke="#087f5b" stroke-width="2"/>
+<text x="400.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="18">
+<tspan x="400.0" y="864.25">Verified Copilot acceptance</tspan>
+<tspan x="400.0" y="886.75">Lookup: ACS allow + toolbox success + MCP receipt</tspan>
+<tspan x="400.0" y="909.25">Combined: same-run lookup + ACS-blocked send</tspan>
+<tspan x="400.0" y="931.75">308s receipt window: 1 MCP / 0 matching + 0 unattributed</tspan>
+<tspan x="400.0" y="954.25">receiver</tspan>
+</text>
+<rect x="790" y="830" width="640" height="145" rx="12" fill="#fff9db" stroke="#a65f00" stroke-width="2"/>
+<text x="1110.0" text-anchor="middle" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="18">
+<tspan x="1110.0" y="875.5">Not claimed / still deferred</tspan>
+<tspan x="1110.0" y="898.0">Negative identity acceptance deferred by owner</tspan>
+<tspan x="1110.0" y="920.5">Original AKS/UI runtime regression pending</tspan>
+<tspan x="1110.0" y="943.0">No new platform egress denial or full matrix result</tspan>
+</text>
+<text x="60" text-anchor="start" fill="#495057" font-family="Arial, Helvetica, sans-serif" font-size="18">
+<tspan x="60" y="1028.0">ACS blocks in the application. RAI egress and managed-network controls remain independent.</tspan>
+<tspan x="60" y="1050.5">Preserved original: seven v4 agents + ACS Servicing Demo v4; baseline API / UI / OBO unchanged.</tspan>
+<tspan x="60" y="1073.0">The private AKS helper is operator-only: it never relays chat. Architecture diagrams are not proof.</tspan>
+</text>
+</svg>

@@ -1,17 +1,133 @@
 # Rebuild runbook: deploy the whole environment end to end
 
-Written 2026-10-09 from the Taskfiles and the tasks' own prerequisite checks.
+Updated 2026-11-10 from the Taskfiles and dated deployment/acceptance readback.
 
 **Current baseline:** identity and egress were tested (owner-confirmed 2026-11-06).
 The Azure lab was recreated in Sweden Central on 2026-11-06; real API images and the
 isolated ACS backend were deployed on 2026-11-09. Historical recoveries below are
 conditional repair procedures, not prerequisites to rerun on a healthy environment.
 The new hosted governance comparison still needs owner-run validation.
+The separate **ACS OAuth Servicing Demo** is active/published as v1; authorized
+Copilot lookup and combined lookup/ACS-blocked sending have correlated evidence.
+The original **ACS Servicing Demo** and seven scenario agents remain v4.
+Negative identity acceptance was deferred; original AKS/UI runtime regression is
+pending. See [current evidence](telemetry-map.md#isolated-copilot-acceptance).
 
 Brian runs every step that changes Azure or the cluster. All commands run from the repo root.
 Add `--yes` to any task that prompts when you are not on a terminal.
 
-## What `cloud:up` covers, and what it does not
+## Current ACS and Copilot lifecycle
+
+This is the canonical command sequence for the **existing lab foundation**.
+The full-foundation rebuild and historical conditional recoveries follow below;
+they are not prerequisites to rerun for Copilot. `cloud:up` is unchanged and must
+not be used to overwrite external RAI or approved account-network settings.
+For ordinary chat, open the published entry: no build or deployment is needed.
+
+Run commands from the repository root with the approved tenant/subscription in
+private `.env`, a matching Azure CLI user login and this lab's kubeconfig.
+The private AKS helper must be running; it is an operator prerequisite, not a
+Copilot message relay. On a new development checkout, restore the locked tooling
+with `task copilot-toolbox:prepare` before running checks or setup.
+
+### One-time public publication metadata
+
+Keep the two metadata files and publications separate. On first setup only,
+create the required private copy and fill every placeholder with approved public
+developer, website, privacy and terms metadata:
+
+```bash
+mkdir -p .task/copilot .task/copilot-toolbox
+cp deploy/copilot/publish-request.example.json .task/copilot/publish-request.json
+cp deploy/copilot/toolbox-publish-request.example.json .task/copilot-toolbox/publish-request.json
+```
+
+**Do not overwrite existing filled files.** The current lab already has both.
+Tasks read these default paths automatically; metadata-file environment variables
+are optional overrides. These are public catalog fields, never credentials.
+Do not change catalog metadata or `appVersion` merely to update an agent version.
+
+### Original ACS scenarios and publication
+
+| Order | Command | Responsibility |
+| --- | --- | --- |
+| 1 | `task acs:up` | Dedicated policies, helper prerequisites, OAuth registration and original-project publisher access |
+| 2 | `task acs:build` | Shared immutable image for the seven scenarios |
+| 3 | `task acs:deploy` | Seven scenario versions and their model-access grants |
+| 4, optional | `task acs:copilot` | Ensure the original **ACS Servicing Demo**, Shared / Just you; not the OAuth publication |
+| 5 | `task acs:status` | Read live versions/configuration; invoke no models |
+
+These are already complete for the current v4 deployment. Low-level
+`governance:*`, registration and access tasks are implementation/recovery tools,
+not an additional normal setup checklist.
+
+### Separate OAuth Copilot entry
+
+| Order | Command | Responsibility |
+| --- | --- | --- |
+| 1 | `task copilot-toolbox:check` | Offline tests, formatting, lint, types and isolated Terraform formatting |
+| 2 | `task copilot-toolbox:build` | Dedicated agent/MCP images; no baseline image publication |
+| 3 | `task copilot-toolbox:infra-up` | Registration, guarded isolated Terraform, publisher access, exact-host egress, real credential/callback, immutable toolbox and delegated discovery |
+| 4 | `task copilot-toolbox:up` | Isolated agent version and its required grants; endpoint/tool derived from verified setup |
+| 5 | `task copilot-toolbox:publish-plan` | Plan the separate Just you publication or a new version pin; inspect before publishing |
+| 6 | `task copilot-toolbox:publish` | Apply that reviewed publication plan without repinning the original entry |
+| 7 | `task copilot-toolbox:status` | Read live agent configuration and publication pin; no chat invocation |
+
+Builds, resource/grant/network changes, publication and model calls require owner
+approval. No new baseline provisioning, manual client-ID export, secret copying,
+callback guessing or toolbox endpoint/tool-name export is part of this flow.
+If browser consent is required, open the private
+`.task/copilot-toolbox/consent.html`, use an explicitly authorized demo account,
+complete sign-in and rerun **the same `infra-up` command**.
+Do not replay an old completed consent URL to switch accounts.
+
+The original authorized guest is retained. Additional isolated MCP users require
+explicit owner approval through `TF_VAR_mcp_additional_authorized_user_ids`,
+default `[]`; signing in never grants access automatically. This does not change
+the baseline API/UI/OBO authorization.
+
+The current setup reuses `normal-manatee-copilot` and toolbox v2. Fresh setups
+create their own owned connection/version; never hardcode today's callback or
+select the historical unversioned/default v1 probe.
+
+### Updates, status, recovery and teardown
+
+- **Already published:** use status and chat. Replanning the same published
+  version deliberately stops; it is not an instruction to create another entry.
+- **Runtime update:** build dedicated images, run `infra-up`, deploy with `up`,
+  review `publish-plan`, then `publish`. The existing isolated title is retained
+  while its version pin changes. No original ACS rollout is part of this path.
+- **Uncertain write:** preserve the intent journal and inspect status. Do not
+  delete journals or blindly retry secret creation, publication POSTs or a lost
+  immutable-version create.
+- **Helper restart:** `copilot-toolbox:restore-journals` restores missing isolated
+  deployment/publication journals only. `copilot:restore-journal` handles the
+  original entry separately. Neither may overwrite a surviving remote journal.
+- **Approved isolated teardown:** first `copilot-toolbox:disable`, then
+  `copilot-toolbox:down`. Disable restores the owned endpoint; removing a catalog
+  entry is a separate M365 action. Down removes recorded grants/versions, the owned
+  exact-host rule, isolated Terraform resources and dedicated OAuth app. It does
+  not tear down the original ACS publication, APIs, AKS or foundation.
+
+Keep `infra/cloud`, `infra/governance` and `infra/copilot-toolbox` Terraform states,
+`.task/image-tags/`, `.task/copilot/` and `.task/copilot-toolbox/` with the lab.
+The latter contains configuration, registration, deployment, grants and publication
+ownership journals. None is a replacement for live readback or runtime evidence.
+The OAuth credential stays in the Foundry connection, never `.env` or Terraform
+variables. Setup renews an expiring owned credential and removes only its verified
+owned predecessor; preserve the key/expiry journal for this.
+Fresh creation/renewal/teardown are offline-tested, not a claimed live rebuild.
+
+For chat prompts, troubleshooting and remaining acceptance gates, use
+[governance-demo.md](governance-demo.md#copilot-acceptance). For the editable runtime
+and deployment diagram, use [the diagram index](diagrams/README.md).
+
+## Foundation rebuild reference
+
+The sections below provision or repair the original foundation. Use only for an
+approved fresh rebuild or the specifically diagnosed historical failure.
+
+### What `cloud:up` covers, and what it does not
 
 | Covered by Terraform (`infra/cloud`) | NOT covered: separate steps below |
 | --- | --- |

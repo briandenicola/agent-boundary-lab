@@ -156,10 +156,46 @@ Exactly one service `receipt` matched that run and the approved delegated identi
 No authorization-header, token or payload capture was enabled.
 
 The earlier admin denial preceded an explicitly approved authorization change;
-it is not a post-change unauthorized-user acceptance test. Hosted caller context,
-a separate Copilot publication, another user's rejection and ACS/receipt
-correlation through that channel remain unverified. No new platform egress
-decision is claimed from the TLS failure, HTTP 403 or successful lookup.
+it is not a post-change unauthorized-user acceptance test. The developer calls
+above did not verify hosted caller context or Copilot; subsequent channel evidence
+is recorded separately below. No new platform egress decision is claimed from the
+TLS failure, HTTP 403 or successful lookup.
+
+## Isolated Copilot acceptance
+
+Owner-approved deployment on 2026-11-10 created isolated agent
+`normal-manatee-55075-copilot-agent` v1, active, using image
+`sha256:8bd63248465d02b0185196b0a12d0c6791e13c2669370dfa99ce599dec46bc11`
+and toolbox `copilot-policy` v2. The separate **ACS OAuth Servicing Demo**
+publication is Shared / Just you, pinned v1, title
+`T_eccd3260-6696-eb05-5c28-ee705fb2e742`.
+Original **ACS Servicing Demo** remains pinned v4, title
+`T_38856d94-9c7d-2797-4f82-57e55875274b`.
+
+The owner ran these turns in Microsoft 365 Copilot. Read-only workspace queries
+projected only safe metadata from actual `AppTraces` and
+`ContainerAppConsoleLogs_CL`; no prompt, response, token or raw identity capture
+was enabled.
+
+| Run | Actual evidence |
+| --- | --- |
+| `chat-f3457ed7-a8db-4514-9b38-692f2984e3fc` | 17:18:49-50 UTC; original governance-denial agent v4 allowed lookup, then direct HTTP returned 401 at the baseline API. Operation `9787307d9b0179621e1cbf2d0eb4e138`. Wrong entry for OAuth acceptance, not an isolated-agent OAuth failure |
+| `chat-f3849c91-9d64-4566-93e7-ae863efdfb8a` | 17:23:28-30 UTC; isolated v1 ACS `allow` / `continue`, `get_servicing_policy` succeeded with `transport=toolbox`, category `none`; operation `7cb4c73a8551aee7a3bd5ba4d5f69d93`; MCP `/mcp` receipt `served` at `2026-11-10T17:23:30.6360510Z`; owner received `SVC-DEMO-0001` |
+| `chat-8a022b8a-02c2-4778-83bd-4c24523eb944` | 17:27:42-44 UTC; isolated v1 lookup `allow` / `continue` and toolbox success; MCP receipt `served` at `2026-11-10T17:27:44.2795960Z`; sending `deny` / `blocked`, reason `external_processor_prohibited`; operation `b5c7563f876819faba7822dc1b9d56b8` |
+
+These observations establish the authorized hosted toolbox path and correlated
+ACS blocking through the Copilot channel, not merely a model refusal. The combined
+turn has a same-run successful MCP receipt as a positive control.
+At **17:32:52 UTC**, the receipt query covered **17:27:40 UTC through read time**:
+`mcp_positive_control=1`, `receiver_matching=0`, `receiver_unattributed=0`.
+The successful receipt was **308 seconds** old. This bounded, mature absence
+supports ACS preventing the send; it is not a new platform egress-denial result.
+The owner deferred the negative identity test and chose not to withdraw existing
+MCP access. No post-change unauthorized-user result is claimed. Original AKS/UI
+runtime regression remains pending; preserved configuration is not a new UI run.
+No new platform egress-denial result or full seven-scenario comparison is claimed.
+The owner selected Copilot chat only and declined a generated evaluation suite;
+no separate direct hosted test was invoked.
 
 ## Platform fields
 
