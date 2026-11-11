@@ -1,94 +1,79 @@
-# Delegated identity and policy API authorization
+# How user authorization works
 
-Current contract, consolidated 2026-11-09. The owner confirmed the existing identity
-demo was tested on 2026-11-06. That report supersedes the earlier "never deployed"
-drafts; it does not establish Microsoft 365 channel token delivery.
+[Deploy in Azure](rebuild-runbook.md) | [Run the demo](demo-runbook.md) | [Telemetry](telemetry-map.md)
 
-## Baseline token path
+Signing in lets a user reach the demo. It does **not** automatically let them
+read the servicing policy. The policy service checks their token and whether
+they are on its allowed-user list.
+
+There are two ways to reach that service.
+
+## From the AKS browser demo
 
 ```text
-browser -> oauth2-proxy (Entra app A)
-  -> harness: MSAL on-behalf-of exchange for policy API app B
-  -> A2A facade: X-Delegated-Policy-Token
-  -> Foundry Responses: x-client-policy-access-token
-  -> hosted adapter: request-scoped ADK session state
-  -> get_servicing_policy: Authorization bearer
-  -> policy API: signature, tenant, audience, scope, client and user checks
+User signs in with Entra
+  -> Browser harness receives the user's sign-in token
+  -> Harness exchanges it for a policy API token on the user's behalf
+  -> Bridge forwards that token to the Foundry-hosted agent
+  -> Policy tool sends it to the API
+  -> API validates the token and checks the user
 ```
 
-`x-auth-request-access-token` carries the incoming app-A assertion to the harness.
-The harness's `current_user_token` ContextVar carries the exchanged app-B token for
-that turn. The hosted agent uses ADK session state, not the harness ContextVar.
-The facade hop is plain in-cluster HTTP; do not claim end-to-end TLS for this path.
-Caller `Authorization` to Foundry is not automatically forwarded to the container.
+The harness uses MSAL's on-behalf-of exchange. The policy token belongs to that
+user and that request; the agent's own model-access credential cannot replace it.
 
-The external-processing tool never receives the policy API token. Its receiver is
-unauthenticated so an API rejection cannot impersonate a network block.
-No app-only token substitutes for the user's delegated authorization.
+For code tracing, the token crosses the bridge as `X-Delegated-Policy-Token`,
+then Foundry as `x-client-policy-access-token`. The hosted adapter puts it in
+request-scoped ADK session state. The policy tool sends it as a bearer token.
+The bridge hop uses in-cluster HTTP, so this path is not end-to-end TLS.
 
-## Enforcement
+## From Microsoft 365 Copilot
 
-`delegated_auth.py` validates RS256 signing keys, issuer, tenant, audience, expiry,
-not-before time, user object ID, delegated scope and trusted OAuth client.
-`AccessGuard` then checks the configured authorized-user set.
-Partial identity configuration raises; it does not silently select legacy mode.
-Only `/healthz` bypasses the policy API guard.
+```text
+User opens ACS OAuth Servicing Demo
+  -> Hosted agent calls the Foundry toolbox with trusted user/request context
+  -> OAuth connection supplies the user's delegated token
+  -> Protected MCP service validates it and checks the user
+  -> Synthetic policy returns to Copilot
+```
 
-| API result | Meaning |
+The toolbox caller authenticates with managed identity. The OAuth connection
+handles downstream user authorization, including browser consent when needed.
+**Consent and service access are separate:** consenting does not add a user to
+the MCP service's allowed list.
+
+The older **ACS Servicing Demo** entry does not use this OAuth connection.
+It can show ACS blocking a send, but it does not support delegated policy lookup.
+
+## What the policy service checks
+
+The service validates the token's signature, issuer, tenant, audience, lifetime,
+delegated scope, OAuth client, and user identity. It then checks the allowed-user
+list. A typed alias is only a display label.
+
+| Result | Meaning |
 | --- | --- |
-| 200 and verified user identifier | Authorized policy retrieval |
-| 401 | Missing or invalid delegated token |
-| 403 `user_not_authorized` | Verified user is not authorized |
-| 403 `insufficient_scope` / `untrusted_oauth_client` | Verified token fails the API's permission/client contract |
-| 503 | Signing keys unavailable or invalid |
+| **200 with verified identity** | The user is allowed to read the policy |
+| **401** | The delegated token is missing or invalid |
+| **403 `user_not_authorized`** | The user is authenticated but not allowed |
+| **403 `insufficient_scope` / `untrusted_oauth_client`** | The token lacks the required permission or comes from an untrusted client |
+| **503** | The service could not obtain valid signing keys |
 
-Actor aliases are display labels, never authorization inputs.
-The UI shows `allowed` only with 200 and the echoed verified identity.
-`user_token_forwarded=false` or a bare 200 without identity evidence is "no evidence".
-Policy-access and egress-containment verdicts stay separate.
+Only the health endpoint bypasses authorization. The external-processing tool
+never receives the policy token, and its test receiver has no authentication gate.
 
-## Evidence and privacy
+## What to show in the demo
 
-The tool record carries `user_token_forwarded`; application telemetry carries
-`demo.user_token_forwarded`, not the user's object ID.
-Policy API receipt JSON identifies served policy retrieval. Rejections produce
-`event=authorization_decision` with `determination=identity_only`.
-Use `demo_run_id` to correlate; protected receipt paths may be redacted.
-Do not print tokens, authorization headers, full claims or payloads.
+Sign in as the allowed user and retrieve the policy. Repeat as the denied user;
+the API should return `user_not_authorized`.
 
-See [KQL query 10](kql-queries.md#10-policy-api-identity-decisions-for-one-tool-run-id-issue-4)
-and [telemetry map](telemetry-map.md).
+The browser UI requires HTTP 200 **and** verified identity before showing
+`allowed`. Missing identity evidence is not success. These identity results say
+nothing about whether the network allowed or blocked a destination.
 
-## Operations
+Authorized Copilot lookup was observed on **2026-11-10**; the Copilot unauthorized-user
+acceptance test remains deferred. See the [dated evidence](telemetry-map.md#isolated-copilot-acceptance).
 
-Use [workshop external access](workshop/07-external-access.md) and the
-[rebuild runbook](rebuild-runbook.md) for the owner-run Task sequence.
-`app:deploy-external` includes external identity setup; do not run it twice.
-It updates `.env` and launches a fresh `cloud:up` process to load the new settings.
-Review the full plan first: do not apply that aggregate path to overwrite externally
-managed policy drift in an existing environment.
-
-`identity:verify` is a separate delegated-Foundry compatibility probe with temporary
-test-user tokens. `app:run-allowed` / `app:run-denied` are offline actor-context
-regressions, not the OBO browser test. See
-[the identity Task definitions](../tasks/Taskfile.identity.yml).
-
-## Microsoft 365 channel
-
-Microsoft 365 channel authorization is not this direct Responses-header contract.
-A signed-in channel user does not automatically supply a policy API bearer.
-The separate **ACS OAuth Servicing Demo** now uses the immutable Foundry toolbox
-and custom OAuth connection for delegated MCP lookup. Interactive browser consent
-and an explicit service authorization grant are separate requirements. The hosted
-toolbox client uses managed identity plus trusted request-scoped user/call context;
-no operator token, static user ID or baseline UI/OBO-client copy is substituted.
-
-Authorized lookup and combined lookup/ACS-blocked sending were observed on
-2026-11-10; unauthorized-user acceptance remains deferred. The original
-**ACS Servicing Demo** still uses direct HTTP and does not receive this connection's
-delegated token. See [architecture](architecture-as-built.md#microsoft-365-copilot-runtime-path),
-[configuration and consent](rebuild-runbook.md#separate-oauth-copilot-entry) and
-[dated evidence](telemetry-map.md#isolated-copilot-acceptance).
-
-Primary reference, accessed 2026-10-15:
-[Hosted-agent on-behalf-of flow](https://learn.microsoft.com/azure/foundry/agents/how-to/use-on-behalf-of-flow).
+Use the run marker to check [authorization events](kql-queries.md#10-policy-api-identity-decisions-for-one-tool-run-id-issue-4).
+Never record tokens, authorization headers, full claims, or user identifiers in
+demo reports.

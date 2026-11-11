@@ -1,73 +1,53 @@
 # Agent Boundary Lab
 
-A reproducible demonstration that **outbound network containment for an AI agent is enforced by the platform, not by the application**.
+Two Azure demos show who can use an agent's tools and what those tools can do.
+All requests use synthetic data.
 
-A Google ADK agent runs as a Microsoft Foundry hosted agent with exactly two business tools. One calls an allowlisted host; the other calls a host deliberately left off the allowlist. The same container image digest is deployed twice, attached to an **Audit** and an **Enforced** account-level network policy. The policy is the only variable.
+| Demo | What you see |
+| --- | --- |
+| **AKS + Foundry** | An authorized user can read a policy; another user cannot. Foundry allows one destination and blocks another. |
+| **Microsoft 365 Copilot + ACS** | The agent retrieves a policy, then ACS blocks a prohibited send before the tool executes. |
 
-## The claim
+## Get started
 
-| Call | Audit agent | Enforced agent |
+[**Deploy both demos in Azure**](docs/rebuild-runbook.md)
+
+Once deployed, use the [AKS/Foundry walkthrough](docs/demo-runbook.md)
+or the [Copilot walkthrough](docs/governance-demo.md).
+
+## How it works
+
+A Google ADK agent runs in a Foundry-hosted container with two tools:
+
+- `get_servicing_policy` reads from a protected API.
+- `send_to_external_processor` sends a synthetic record to a test receiver.
+
+For the network comparison, both agents run the same image. Only the attached
+egress policy changes:
+
+| Call | Audit | Enforced |
 | --- | --- | --- |
-| `get_servicing_policy` (allowlisted host) | allowed | allowed |
-| `send_to_external_processor` (host not on the allowlist) | reaches the receiver; platform records `AuditWouldDeny` | **denied by the platform**; no receipt at the receiver |
+| Policy API | Allowed | Allowed |
+| Test receiver | Request arrives; platform records `AuditWouldDeny` | Platform records `Deny`; request does not arrive |
 
-The proof is not the agent's own 403, a DNS error, a timeout or the model's prose. It is the platform's egress decision row joined with the receipt log (or its absence) on a shared `run-...` id. If that join is missing, the result is **INCONCLUSIVE**, never a pass.
+A failed request alone proves nothing about containment. The result needs a
+matching platform decision and service receipts. Missing evidence is
+**inconclusive**. ACS blocking and user authorization are separate controls.
 
-![Three layers](docs/workshop/diagrams/01-three-layers.svg)
+![Agent, policy, and evidence](docs/workshop/diagrams/01-three-layers.svg)
 
-The three independently observable layers are the agent, the policy, and the evidence (application traces, platform egress decisions and receipt logs). A browser harness with Entra login drives the demo and separates **identity authorization**, **policy API authorization** and **containment evidence** as three outcomes that are never merged.
+## Current results
 
-## Status and honesty
-
-The existing Foundry egress and identity demo is **tested**, owner-confirmed 2026-11-06.
-Seven isolated ACS scenario agents were deployed and configuration-verified on
-2026-11-09; their hosted runtime comparison awaits owner-run testing.
-Microsoft 365 Copilot integration is the active work. See the
-[documentation index](docs/README.md) for current procedures and the
-[telemetry map](docs/telemetry-map.md) for dated baseline evidence.
-Local runs are functional tests, not containment proof. All data is synthetic.
-
-## Quick start
-
-Prerequisites: Azure subscription with owner-approved permissions, `az`, `terraform`, `kubectl`, `kubelogin`, `jq`, `helm`, a public domain you can add a DNS record to, and [Task](https://taskfile.dev). Details in [Module 02](docs/workshop/02-prerequisites.md). Settings go in an untracked `.env`.
-
-```bash
-task --list                 # every available task
-task lint:test              # offline unit suite; no Azure, no credentials
-task cloud:whoami           # confirm subscription and tenant
-task cloud:plan             # read what would be created
-task cloud:bootstrap        # BILLABLE: first environment only
-task cloud:up               # BILLABLE: includes an AKS cluster
-task cloud:kubeconfig
-task build:all              # builds in ACR; no local Docker
-task deploy:all             # tool APIs, both agent versions, harness
-# External HTTPS + Entra login (needs a domain you control; see Module 07):
-task chat-agent:external-prereqs
-# ...create the DNS A record -> ingress-nginx public IP (Module 07), then:
-task chat-agent:external-bootstrap HOSTNAME=<fqdn> LETSENCRYPT_EMAIL=<email>
-# Development fallback: task chat-agent:open (port-forward, http://localhost:8082)
-```
-
-> Note: Tear down with `task identity:destroy`, then `task cloud:down` ([Module 11](docs/workshop/11-teardown-and-rebuild.md)).
-
-## Workshop
-
-A guided, eleven-module lab for engineers new to Azure and Foundry: [docs/workshop/README.md](docs/workshop/README.md). The full contents are in [toc.md](toc.md).
+The identity/network baseline and authorized Copilot lookup with ACS-blocked
+sending have been demonstrated. Copilot unauthorized-user acceptance, the
+post-extension AKS/UI regression, and the full governance comparison are pending.
+[Dated results](docs/telemetry-map.md) distinguish observed runs from untested work.
 
 ## Reference documents
 
-| Document | Purpose |
-| --- | --- |
-| [docs/architecture-as-built.md](docs/architecture-as-built.md) | What is deployed and observed today |
-| [docs/compatibility.md](docs/compatibility.md) | Pinned versions and platform findings |
-| [docs/telemetry-map.md](docs/telemetry-map.md) | Real field names and tables found during validation |
-| [docs/egress-control.md](docs/egress-control.md) | How the network policy works |
-| [docs/token-flow-documented.md](docs/token-flow-documented.md) | Delegated token flow and API authorization |
-| [docs/demo-runbook.md](docs/demo-runbook.md) | Presenter and operator procedure |
-| [docs/rebuild-runbook.md](docs/rebuild-runbook.md) | End-to-end rebuild and recoveries |
-| [docs/kql-queries.md](docs/kql-queries.md) | Evidence queries |
-| [docs/governance-demo.md](docs/governance-demo.md) | Microsoft 365 Copilot prompts and isolated ACS comparison |
-| [docs/README.md](docs/README.md), [docs/PLAN.md](docs/PLAN.md) | Documentation index and current delivery plan |
+[Documentation index](docs/README.md) · [Architecture](docs/architecture-as-built.md) ·
+[Workshop](docs/workshop/README.md) · [Diagrams](docs/diagrams/README.md) ·
+[Remaining work](docs/PLAN.md)
 
 ## License
 

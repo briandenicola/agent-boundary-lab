@@ -1,532 +1,291 @@
-# Rebuild runbook: deploy the whole environment end to end
+# Azure deployment guide
 
-Updated 2026-11-10 from the Taskfiles and dated deployment/acceptance readback.
+[Documentation](README.md) | [Run the demo](demo-runbook.md) | [Architecture](architecture-as-built.md)
 
-**Current baseline:** identity and egress were tested (owner-confirmed 2026-11-06).
-The Azure lab was recreated in Sweden Central on 2026-11-06; real API images and the
-isolated ACS backend were deployed on 2026-11-09. Historical recoveries below are
-conditional repair procedures, not prerequisites to rerun on a healthy environment.
-The new hosted governance comparison still needs owner-run validation.
-The separate **ACS OAuth Servicing Demo** is active/published as v1; authorized
-Copilot lookup and combined lookup/ACS-blocked sending have correlated evidence.
-The original **ACS Servicing Demo** and seven scenario agents remain v4.
-Negative identity acceptance was deferred; original AKS/UI runtime regression is
-pending. See [current evidence](telemetry-map.md#isolated-copilot-acceptance).
+This guide gets both parts of the repo running in Azure:
 
-Brian runs every step that changes Azure or the cluster. All commands run from the repo root.
-Add `--yes` to any task that prompts when you are not on a terminal.
+| Demo | What you deploy | Where you use it |
+| --- | --- | --- |
+| **Identity and network containment** | Two Foundry agents, two Container Apps APIs, and an AKS browser harness | Your own HTTPS website |
+| **ACS governance and Copilot** | Separate governed agents, an OAuth-enabled policy service, and a Copilot publication | Microsoft 365 Copilot |
 
-## Current ACS and Copilot lifecycle
+Both use the same Azure foundation. Deploy the first part before adding the second.
+Terraform creates the infrastructure; Task builds images in Azure Container
+Registry and deploys the applications. You do not need Docker locally.
 
-This is the canonical command sequence for the **existing lab foundation**.
-The full-foundation rebuild and historical conditional recoveries follow below;
-they are not prerequisites to rerun for Copilot. `cloud:up` is unchanged and must
-not be used to overwrite external RAI or approved account-network settings.
-For ordinary chat, open the published entry: no build or deployment is needed.
+Already deployed? Skip to [updating an existing environment](#updating-an-existing-environment).
+For prompts and evidence checks, use the [demo runbook](demo-runbook.md).
 
-Run commands from the repository root with the approved tenant/subscription in
-private `.env`, a matching Azure CLI user login and this lab's kubeconfig.
-The private AKS helper must be running; it is an operator prerequisite, not a
-Copilot message relay. On a new development checkout, restore the locked tooling
-with `task copilot-toolbox:prepare` before running checks or setup.
+## Before you start
 
-### One-time public publication metadata
+Use Linux x86_64, or an equivalent WSL environment, with these tools installed:
 
-Keep the two metadata files and publications separate. On first setup only,
-create the required private copy and fill every placeholder with approved public
-developer, website, privacy and terms metadata:
+`git`, `az`, `terraform`, `task`, Python 3.12, `uv`, `kubectl`, `kubelogin`,
+`kustomize`, `helm`, `jq`, `curl`, and `openssl`.
+
+You also need:
+
+- An Azure subscription with permission to create resources and assign roles.
+- Entra permissions to create app registrations and grant the required consent.
+- Foundry hosted-agent access and model/AKS quota in **Sweden Central**, the default region.
+- A public hostname you control, an email for Let's Encrypt, and two synthetic
+  Entra users: one allowed to read policy and one not allowed.
+- Microsoft 365 Copilot access and permission to publish a **Just you** agent for part 2.
+
+AKS, Foundry, the managed firewall, model calls, and ACR builds incur charges.
+Run all commands from the repository root.
+
+### Configure your environment
 
 ```bash
-mkdir -p .task/copilot .task/copilot-toolbox
-cp deploy/copilot/publish-request.example.json .task/copilot/publish-request.json
-cp deploy/copilot/toolbox-publish-request.example.json .task/copilot-toolbox/publish-request.json
+git clone https://github.com/briandenicola/agent-boundary-lab.git
+cd agent-boundary-lab
+cp .env.example .env
 ```
 
-**Do not overwrite existing filled files.** The current lab already has both.
-Tasks read these default paths automatically; metadata-file environment variables
-are optional overrides. These are public catalog fields, never credentials.
-Do not change catalog metadata or `appVersion` merely to update an agent version.
-
-### Original ACS scenarios and publication
-
-| Order | Command | Responsibility |
-| --- | --- | --- |
-| 1 | `task acs:up` | Dedicated policies, helper prerequisites, OAuth registration and original-project publisher access |
-| 2 | `task acs:build` | Shared immutable image for the seven scenarios |
-| 3 | `task acs:deploy` | Seven scenario versions and their model-access grants |
-| 4, optional | `task acs:copilot` | Ensure the original **ACS Servicing Demo**, Shared / Just you; not the OAuth publication |
-| 5 | `task acs:status` | Read live versions/configuration; invoke no models |
-
-These are already complete for the current v4 deployment. Low-level
-`governance:*`, registration and access tasks are implementation/recovery tools,
-not an additional normal setup checklist.
-
-### Separate OAuth Copilot entry
-
-| Order | Command | Responsibility |
-| --- | --- | --- |
-| 1 | `task copilot-toolbox:check` | Offline tests, formatting, lint, types and isolated Terraform formatting |
-| 2 | `task copilot-toolbox:build` | Dedicated agent/MCP images; no baseline image publication |
-| 3 | `task copilot-toolbox:infra-up` | Registration, guarded isolated Terraform, publisher access, exact-host egress, real credential/callback, immutable toolbox and delegated discovery |
-| 4 | `task copilot-toolbox:up` | Isolated agent version and its required grants; endpoint/tool derived from verified setup |
-| 5 | `task copilot-toolbox:publish-plan` | Plan the separate Just you publication or a new version pin; inspect before publishing |
-| 6 | `task copilot-toolbox:publish` | Apply that reviewed publication plan without repinning the original entry |
-| 7 | `task copilot-toolbox:status` | Read live agent configuration and publication pin; no chat invocation |
-
-Builds, resource/grant/network changes, publication and model calls require owner
-approval. No new baseline provisioning, manual client-ID export, secret copying,
-callback guessing or toolbox endpoint/tool-name export is part of this flow.
-If browser consent is required, open the private
-`.task/copilot-toolbox/consent.html`, use an explicitly authorized demo account,
-complete sign-in and rerun **the same `infra-up` command**.
-Do not replay an old completed consent URL to switch accounts.
-
-The original authorized guest is retained. Additional isolated MCP users require
-explicit owner approval through `TF_VAR_mcp_additional_authorized_user_ids`,
-default `[]`; signing in never grants access automatically. This does not change
-the baseline API/UI/OBO authorization.
-
-The current setup reuses `normal-manatee-copilot` and toolbox v2. Fresh setups
-create their own owned connection/version; never hardcode today's callback or
-select the historical unversioned/default v1 probe.
-
-### Updates, status, recovery and teardown
-
-- **Already published:** use status and chat. Replanning the same published
-  version deliberately stops; it is not an instruction to create another entry.
-- **Runtime update:** build dedicated images, run `infra-up`, deploy with `up`,
-  review `publish-plan`, then `publish`. The existing isolated title is retained
-  while its version pin changes. No original ACS rollout is part of this path.
-- **Uncertain write:** preserve the intent journal and inspect status. Do not
-  delete journals or blindly retry secret creation, publication POSTs or a lost
-  immutable-version create.
-- **Helper restart:** `copilot-toolbox:restore-journals` restores missing isolated
-  deployment/publication journals only. `copilot:restore-journal` handles the
-  original entry separately. Neither may overwrite a surviving remote journal.
-- **Approved isolated teardown:** first `copilot-toolbox:disable`, then
-  `copilot-toolbox:down`. Disable restores the owned endpoint; removing a catalog
-  entry is a separate M365 action. Down removes recorded grants/versions, the owned
-  exact-host rule, isolated Terraform resources and dedicated OAuth app. It does
-  not tear down the original ACS publication, APIs, AKS or foundation.
-
-Keep `infra/cloud`, `infra/governance` and `infra/copilot-toolbox` Terraform states,
-`.task/image-tags/`, `.task/copilot/` and `.task/copilot-toolbox/` with the lab.
-The latter contains configuration, registration, deployment, grants and publication
-ownership journals. None is a replacement for live readback or runtime evidence.
-The OAuth credential stays in the Foundry connection, never `.env` or Terraform
-variables. Setup renews an expiring owned credential and removes only its verified
-owned predecessor; preserve the key/expiry journal for this.
-Fresh creation/renewal/teardown are offline-tested, not a claimed live rebuild.
-
-For chat prompts, troubleshooting and remaining acceptance gates, use
-[governance-demo.md](governance-demo.md#copilot-acceptance). For the editable runtime
-and deployment diagram, use [the diagram index](diagrams/README.md).
-
-## Foundation rebuild reference
-
-The sections below provision or repair the original foundation. Use only for an
-approved fresh rebuild or the specifically diagnosed historical failure.
-
-### What `cloud:up` covers, and what it does not
-
-| Covered by Terraform (`infra/cloud`) | NOT covered: separate steps below |
-| --- | --- |
-| Resource group, VNet, ACR, Log Analytics, Container Apps environment and the two controlled endpoints | |
-| Foundry account, project, both RAI policies, the `foundry-account-pe` and `acr-pe` managed-network rules and their permission grants | Container images (`build:<component>`, `build:all`) |
-| The managed network (`AllowOnlyApprovedOutbound`) and its FQDN rules (only when `managed_network_isolation_mode` is `AllowOnlyApprovedOutbound`, the default) | Agent versions (published by `deploy:foundry-agent`) |
-| AKS cluster, role grants for the apps identity, the evidence workbook | Applications and their Secrets (`deploy:<component>`, `deploy:all`) |
-| | Agent model-access grants (included in `deploy:foundry-agent`) |
-
-State is the local file `infra/cloud/terraform.tfstate`. Losing it orphans the environment.
-
-## Single-tenant rebuild for issue #4 (owner-directed 2026-10-19)
-
-The owner chose one tenant for Agent ID, Foundry, AKS and all supporting resources.
-No cross-tenant integration is planned. The owner handles the old environment's teardown
-and state removal and reported state removal complete. Azure teardown has not yet been
-confirmed; the assistant has not performed or verified either operation. Complete teardown
-before discarding its state. Do not point the old environment's state at the new subscription.
-
-After the owner confirms teardown/state removal, configure the approved target in the
-untracked `.env`:
+In `.env`, set:
 
 ```dotenv
-ARM_TENANT_ID=REPLACE-approved-deployment-tenant-uuid
-ARM_SUBSCRIPTION_ID=REPLACE-approved-deployment-subscription-uuid
+ARM_TENANT_ID=<your-tenant-id>
+ARM_SUBSCRIPTION_ID=<your-subscription-id>
+POLICY_API_AUTHORIZED_USER_IDS=<allowed-test-user-object-id>
 ```
 
-Use the tenant in which the owner verified the Agent ID lifecycle and the subscription
-selected for that tenant. Actual IDs stay in local configuration, not this runbook.
-Sign in and select that subscription yourself:
+Use the user's Entra **object ID**, not a client ID. Leave the denied user out.
+On a fresh deployment, leave image-tag and image-digest overrides unset.
+Task reads `.env` automatically; deployment tasks obtain resource URLs and
+runtime settings from Terraform.
 
 ```bash
-az login --tenant <approved-tenant-id>
-az account set --subscription <approved-subscription-id>
+az login --tenant <your-tenant-id>
+az account set --subscription <your-subscription-id>
 task cloud:target-check
+task copilot-toolbox:prepare
 ```
 
-The check is read-only: active tenant, subscription and Enabled state must match both
-configured values. `cloud:plan`, `cloud:bootstrap` and `cloud:up` run it before provider
-initialization or provisioning; it never changes login or chooses a fallback subscription.
-It does not validate quota, regional feature availability, or prove old state was removed.
+The last command installs the locked Python dependencies and pinned OPA binary
+used by the governance tools.
 
-Review the fresh environment configuration before following Steps 1-5 below. Clear stale
-`ENDPOINT_IMAGE_TAG` and old explicit image-digest overrides for this fresh registry;
-use placeholder endpoints until its images are built. Do not reuse old resource URLs,
-identity IDs or kubeconfig as new-environment inputs. Exported shell values override
-`.env`; unset any stale exported `ENDPOINT_IMAGE_TAG` as well.
+## Part 1: AKS and Foundry demo
 
-### Sweden Central rebuild defaults (approved 2026-10-19)
-
-Both the root Taskfile and `infra/cloud` now default to `swedencentral`; AKS nodes
-default to `Standard_D4as_v7` (AMD EPYC 9005, 4 vCPUs, 16 GiB RAM). Use the tasks
-without a region argument. Remove stale `TF_VAR_aks_node_size` overrides if the new
-default is intended; explicit Terraform variable files can override defaults too.
-The tenant/subscription configuration and all identity gates remain unchanged.
-
-Read-only checks on 2026-10-19 in the approved rebuild subscription found:
-
-| Requirement | Result |
-| --- | --- |
-| `Standard_D4as_v7` | No subscription restriction; 76 regional vCPUs and 100 family vCPUs available |
-| Foundry hosted agents | Sweden Central listed in Microsoft's [regional support](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agents#region-availability), accessed 2026-10-19 |
-| `gpt-5.4-mini` / `2026-03-17` / `GlobalStandard` | Advertised; quota 1,000, usage 30, leaving 970 deployment units for the configured capacity of 30 |
-| Future PostgreSQL state store | Version 16 and `Standard_B1ms` advertised in zone 1; `OfferRestricted` disabled |
-
-These checks establish advertised support and subscription eligibility, not live capacity,
-successful AKS/private PostgreSQL provisioning, or a completed Sweden Central deployment.
-The optional state store remains disabled.
-
-For the owner's redeployment, run `task lint:tasks`, `task lint:cloud`, then
-`task cloud:plan` before following the infrastructure steps below. If Canada Central
-resources remain in this state, the region change can replace them: review those changes
-before applying. This update does not delete resources, remove state, or migrate anything.
-
-This establishes infrastructure, not a fresh identity or containment result.
-Use the [identity flow](token-flow-documented.md) and [demo runbook](demo-runbook.md)
-to validate a rebuilt environment. Public ingress and identity changes require review.
-
-## Steps
-
-### 1. Infrastructure
-
-| # | Command | Notes |
-| --- | --- | --- |
-| 1.1 | `task cloud:whoami` | Confirm subscription and tenant first. Read-only. |
-| 1.2 | `task cloud:validate` | Local only. |
-| 1.3 | `task cloud:plan` | Read the plan. Creates nothing. |
-| 1.3a | `task cloud:bootstrap` | **Billable.** First environment only: creates the Foundry account and dependencies, then imports its platform-created managed network. This targeted apply is only the bootstrap; the full apply still follows. |
-| 1.4 | `task cloud:up` | **Billable** (AKS). Leave `ENDPOINT_IMAGE_TAG` empty: the images do not exist yet, so the Container Apps run a placeholder (see `endpoint_image_tag` in `variables.tf`). |
-
-**The managed network is part of `cloud:up`.** `azapi_resource.managed_network` declares
-`managednetworks/default` with `isolationMode = AllowOnlyApprovedOutbound` (the default of
-`managed_network_isolation_mode`), so there is no separate flip step. The three FQDN rules depend
-on it. Isolation mode is one-way, and the FQDN rules create the billable managed firewall
-(Standard). The resource retries on `TransientError` and "ongoing operation" (both seen on
-2026-10-09).
-
-**Observed failure (2026-10-15, owner-provided apply output):** Azure creates
-`managednetworks/default` with the account. AzAPI refuses to create it again and requires an
-import. Re-running the same apply does not fix missing state ownership. `cloud:bootstrap`
-handles that first-account boundary; `cloud:network-import` repairs an existing partial apply
-without changing Azure. Both derive the account from this local Terraform state, not a
-tag-based search or a hardcoded resource ID.
-
-**Recovery implementation; owner reported `cloud:up` succeeded on 2026-10-15:** account child resources now share an AzAPI account
-lock and retry the observed operation-in-progress messages. The project also waits for the
-AzureRM model deployment, which does not participate in AzAPI locks. Authentication, schema
-errors, and unrelated conflicts are not retried by this custom rule. The existing managed
-network `TransientError` retry remains. A full rebuild with these changes is still untested.
-`task cloud:network-probe` remains a manual fallback PATCH, not a substitute for importing
-the managed network. To opt out of approved-only isolation, set
-`TF_VAR_managed_network_isolation_mode=AllowInternetOutbound` before the first apply.
-
-### Recover the reported partial apply
-
-Keep the existing state and resources. Run from the repo root, one command at a time:
+### 1. Create the Azure foundation
 
 ```bash
-task lint:cloud
-task cloud:network-import
-task build:tool-apis
 task cloud:plan
+# Review the plan before continuing.
+task cloud:bootstrap
 task cloud:up
+task cloud:kubeconfig
 ```
 
-The build publishes both missing endpoint images into the ACR recorded by this state.
-`task build:tool-apis` tags the images with the git-derived tag and upserts
-`ENDPOINT_IMAGE_TAG=<tag>` into `.env`, so the plan and apply use it. Do not clear the tag on an already functioning
-environment: that explicitly selects placeholder images.
+`bootstrap` is for the first deployment only. It creates the Foundry account and
+imports the managed network Azure creates with it. `cloud:up` then creates the
+rest: AKS, ACR, networking, Foundry/model resources, Container Apps, and monitoring.
+The APIs initially run placeholder images; the next step replaces them.
 
-`cloud:up` and `deploy:tool-apis` check both requested image tags before starting
-their apply. An unreadable registry, missing image, or invalid digest response stops the
-task rather than deploying a fallback. An empty endpoint tag is allowed only as the
-explicit placeholder selection. `cloud:up`, `cloud:network-up`, and
-`deploy:tool-apis` also stop if the default managed network has not been imported.
-
-The shared preflights resolve Terraform's directory as `{{.ROOT_DIR}}/infra/cloud`, not
-relative to the included Taskfile's working directory or an inherited `CLOUD_DIR`. A
-`chdir ./infra/cloud: no such file or directory` failure in the old preflight is a local
-path-resolution error, not evidence that the Azure environment needs bootstrapping.
-
-The `parent_id` deprecation warnings on federated credentials are separate from these
-failures; this recovery does not change those credentials.
-
-### Deploy only the tool APIs when policies are externally managed
-
-Use `task build:tool-apis`, then `task deploy:tool-apis`. The deploy task targets only
-the two existing Container Apps when creating its saved Terraform plan. Its guard still
-rejects every managed-resource change except in-place updates to those apps, including
-unexpected changes to their dependencies. It applies that exact saved plan, not a new
-targeted apply.
-
-This leaves unrelated RAI policy drift outside the application deployment. Do not run
-`task cloud:up` merely to overwrite possibly subscription-managed policy settings.
-Terraform resource definitions and the live policies remain unchanged. A targeted plan
-does not establish that the full environment is drift-free or prove containment.
-
-Provider references checked **2026-10-15** (configuration guidance, not deployed evidence):
-
-- [AzAPI resource: locks, retry, import](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource).
-- [AzAPI 2.13.0 source documentation](https://github.com/Azure/terraform-provider-azapi/blob/v2.13.0/docs/resources/resource.md).
-
-### 2. Check the managed network
-
-| # | Command | Notes |
-| --- | --- | --- |
-| 2.1 | `task cloud:plan` | Review drift; do not reconcile externally managed policy properties automatically. |
-| 2.2 | Read back `managednetworks/default` | `isolationMode` must read `AllowOnlyApprovedOutbound`; trust the readback over any timeout message. |
-| 2.3 | Check the `foundry-account-pe` and `acr-pe` outbound rules | Both must be `Active`; ACR must show the managed-network private-endpoint connection `Approved`. The ACR endpoint in our AKS VNet is a different connection. |
-
-### Recover the ACR managed-network gap observed 2026-10-15
-
-**Observed:** Audit versions 1-4 failed with generic `ProvisioningError`; the publisher
-repeatedly timed out while versions were `creating`. AKS pulled the same image and reached
-Foundry through its private endpoint, but Foundry's separate approved-only managed network
-had no registry private endpoint or explicit registry allow rule. The original working
-agents were provisioned before outbound isolation was tightened; that sequence did not
-exercise this cold-start configuration.
-
-With owner approval, the following were created using Azure CLI:
-
-- Account managed identity: **Azure AI Enterprise Network Connection Approver** at ACR scope.
-- Same identity: **Reader** at the registry's resource-group scope. Endpoint creation was
-  still rejected without this ACR-specific prerequisite.
-- `acr-pe`: managed-network `PrivateEndpoint` rule targeting this ACR's `registry`
-  subresource. This is not another endpoint in the AKS VNet.
-
-At **2026-10-15 22:34:50 UTC**, the rule read `Active` and the ACR connection `Approved`.
-After restarting only the existing publisher pod, Audit v5 read `active`; Enforced v1 was
-created at 22:35:54 UTC and became `active` after 36.8 seconds. SDK GETs confirmed both used
-`sha256:1952a5b88a52eb124a81593a3fa451ee5a7dca032ead60d7627b3d5eee359370` and their
-unchanged Audit/Enforced RAI policies. No image rebuild, RAI change, or timeout increase
-was used. This verifies provisioning recovery, **not** tool execution or containment.
-
-The endpoint and grants are now declared in `managed-network.tf`; a fresh environment
-creates them during `cloud:up`. The endpoint depends on both grants and narrowly retries
-the observed RBAC-propagation error. `network-plan`/`network-up` include both managed
-private endpoints and their prerequisite grants.
-
-**For the environment repaired manually above, import before any plan/apply/deployment:**
-
-```bash
-task cloud:acr-network-import
-task cloud:plan
-```
-
-The import changes **local Terraform state only**. It derives the account, registry and
-resource group from that state, discovers the existing grants for that account identity,
-and skips resources already managed. It creates no Azure resources or grants. If the
-endpoint/grants do not exist, do not use this recovery import; review `cloud:plan` for
-their normal creation instead. Do not blindly apply unrelated policy drift. Until the
-import runs, the successful manual changes are still outside Terraform state.
-
-Approval prerequisite reference, accessed **2026-10-15**:
-[the guide linked by Azure's actual creation error](https://aka.ms/azureaipeapproval),
-section "Approval of private endpoints" (including the ACR resource-group Reader note).
-
-### 3. Cluster access
-
-| # | Command | Notes |
-| --- | --- | --- |
-| 3.1 | `task cloud:kubeconfig` | Run it even if `kubectl` already works. Then confirm you are on OUR cluster: see `demo-runbook.md` §3.0 (P0a to P0c). |
-
-#### Separate Terraform and application deployment operators
-
-Terraform grants its caller AKS Cluster User and Azure Kubernetes Service RBAC Cluster
-Admin. Azure Owner does not itself grant Kubernetes data-plane permissions. If kubectl
-uses a different Entra identity, it needs its own approved cluster-scoped grants.
-
-**Observed 2026-10-19:** namespace patch was denied on the Sweden Central cluster.
-Read-only checks confirmed that the current kubectl object ID differed from the
-principal with Terraform-managed AKS admin access. This was not a cluster provisioning
-failure or a reason to enable local admin credentials.
-
-Configure the approved additional operators in untracked `.env`:
-
-```dotenv
-TF_VAR_aks_operator_object_ids='["REPLACE-approved-operator-object-uuid"]'
-```
-
-Use tenant-local object IDs, not application/client IDs. The default empty set adds
-no grants. Duplicate IDs are collapsed; including the Terraform caller does not create
-duplicate role assignments. Existing caller grants remain declared unchanged.
-Run `task lint:tasks`, `task lint:cloud`, `task cloud:plan`, then `task cloud:up` after
-reviewing the plan. Keep `ENDPOINT_IMAGE_TAG` set to the already-deployed tool API tag.
-The additional access is not live until the owner applies it and Azure propagates the
-assignments. Then retry the application deployment with `task deploy:all`.
-
-### 4. Images (built in ACR, no local Docker)
+### 2. Build and deploy the applications
 
 ```bash
 task build:all
-```
-
-This builds **seven images**, deploying nothing. All builds run in ACR and incur build
-cost. The model-server build retains its confirmation prompt for the large image.
-If all images were already built with the old commands, **skip this step**.
-
-Image tags are immutable; `latest` is never used or accepted. Each build tags its image
-`<sha7>` (`git rev-parse --short=7 HEAD`), or `<sha7>-dirty-<UTC YYYYMMDDHHMMSS>` when the
-working tree has changes, and records the tag in `.task/image-tags/<repository>`
-(gitignored). Deploy tasks read that record and fail, naming the `task build:...` to run,
-if none exists. `IMAGE_TAG` (foundry-agent and tool-apis), `A2A_IMAGE_TAG`,
-`HARNESS_IMAGE_TAG`, `LOCAL_MODEL_IMAGE_TAG` and `UI_IMAGE_TAG` remain optional explicit
-overrides of the recorded tag. An explicit
-`*_IMAGE_DIGEST` deployment pin takes precedence over tag lookup. Both Foundry versions
-always receive one identical digest. Command changes do not rename images or resources.
-
-### 5. Deploy applications
-
-Validate the new command wiring locally first, then deploy:
-
-```bash
-task lint:tasks
 task deploy:all
 ```
 
-`deploy:all` requires completed infrastructure and the kubeconfig context named for the
-Terraform AKS cluster. It does **not** call `cloud:up` or any build. Running
-`deploy:all` or a component deployment is authorization to perform that deployment:
-the deployment chain has no confirmation prompts and needs no `--yes`. Infrastructure,
-destructive operations, separate identity/consent tasks and the large model image build
-retain their existing confirmations. Deployment preflights and plan guards still apply.
-The sequence is:
+This builds seven images in ACR and deploys the two APIs, both Foundry agent
+versions, the AKS model server, browser harness, bridges, and two-button test UI.
+Both Foundry agents use the same image digest.
 
-| Order | Build command | Deploy command | Meaning and dependencies |
-| --- | --- | --- | --- |
-| 1 | `build:tool-apis` | `deploy:tool-apis` | Policy API and test receiver on Container Apps. Check image availability, plan Terraform, allow only updates to these two existing apps, apply that saved plan, check health. |
-| 2 | `build:foundry-agent` | `deploy:foundry-agent` | Publish both same-digest Foundry versions through the AKS helper; wait up to 600 s for its rollout, then grant both agent identities model access. |
-| 3 | `build:model-server` | `deploy:model-server` | Deploy the CPU Qwen/llama.cpp server. First start loads a roughly 2 GB model. |
-| 4 | `build:test-ui` | `deploy:test-ui` | Create/preserve the bridge and UI Secrets **before** applying the two-button page and its shared `demo-ui` ServiceAccount. |
-| 5 | `build:agent-bridge` | `deploy:agent-bridge` | Deploy both A2A-to-Responses bridge slots; requires the test UI's ServiceAccount. |
-| 6 | `build:chat-agent` | `deploy:chat-agent` | Create/preserve its Secret and deploy browser chat plus the agent loop; requires the model Service and bridge. |
+### 3. Set up HTTPS and user sign-in
 
-Prefix commands in the table with `task`. Each AKS deploy ensures the namespace exists.
-Individual deploy commands prepare their own Secrets, but do not automatically deploy other
-components. On a fresh cluster, follow the table order or use `deploy:all`.
-Existing Secrets are preserved unless `ROTATE=1` is explicitly set.
-
-The `agent-harness` Deployment is the **Foundry publishing helper**, not the `chat-agent`.
-Its init container publishes versions; its main container sleeps. `harness` remains the
-underlying Kubernetes name of the actual chat service. These resources are not renamed.
-`task foundry-agent:status` shows the publisher logs. A successful init means versions were
-accepted, **not** that containment was proven.
-
-`task build:tool-apis` keeps `ENDPOINT_IMAGE_TAG` in `.env` equal to the built tag, so a
-later `cloud:up` does not roll them back. If `deploy:tool-apis` detects infrastructure drift,
-it stops **without applying**. Review `task cloud:plan` and reconcile that separately.
-
-### 6. Access and compatibility notes
-
-`deploy:foundry-agent` includes the existing `cloud:agent-access-up` operation, after the
-publisher is ready. It grants Cognitive Services OpenAI User to both agent identities at
-the same scope. These are workload model-access grants, **not** the user OBO extension in
-#4. The tested user-delegation path is documented separately in [token flow](token-flow-documented.md).
-
-**UNVERIFIED:** whether newly granted model access needs propagation time, a restart or a
-new version. A successful grant alone does not prove a model call succeeds (B9f).
-
-Old commands remain compatibility aliases: `build:agent`, `build:services`,
-`build:agent-digest`, `build:deploy-endpoints`, and the `a2a`, `harness`, `local-model`
-and `ui` namespaces. Use `build:<component>` / `deploy:<component>` for new instructions.
-Low-level legacy `*:up` commands retain their original prerequisite checks; the new
-`deploy:*` commands add Secret preparation and sequencing.
-
-### 7. Verify
-
-#### Runtime/logging recovery for the 2026-10-19 rebuild
-
-Both bridge calls returned failed tasks with Foundry HTTP 500. Audit hosted exceptions
-identified LiteLLM's missing `mcp` import. The runtime dependency and a build-time import
-check are now declared; this does not add a third business tool. The bridge CLI now
-prints the task's status message and exits nonzero unless the task completed. A
-completed task is still not containment proof.
-
-Terraform also adds Foundry account/project diagnostics to our existing workspace
-without modifying the separate governance settings. Managed-identity AKS monitoring,
-an explicit DCR and its cluster binding collect container stdout/stderr, events and pod
-inventory. Environment inventory and application content capture remain disabled.
-Raw traffic logging for Foundry's managed firewall is not exposed by the service.
-See [the monitoring record](telemetry-map.md#monitoring-configuration)
-for observations, collection limits and primary references.
-
-For the owner's recovery, retain the deployed tool API tag in `ENDPOINT_IMAGE_TAG` and
-the approved operator configuration. Remove stale `AGENT_IMAGE_DIGEST` and
-`A2A_IMAGE_DIGEST` overrides from local configuration/exported environment so deployment
-resolves the newly built tags. Keep build/deploy image tags consistent.
+Install the ingress controller and certificate manager:
 
 ```bash
-task lint:cloud
+task chat-agent:external-prereqs
+kubectl -n ingress-nginx get svc ingress-nginx-controller \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'
+```
+
+At your DNS provider, create an **A record** pointing your chosen hostname to
+that IP. Wait until the name resolves to it, then run:
+
+```bash
+task chat-agent:external-bootstrap \
+  HOSTNAME=<your-demo-hostname> LETSENCRYPT_EMAIL=<your-email>
 task cloud:plan
+# Review the policy API authentication changes, then apply them.
 task cloud:up
-task build:foundry-agent
-task build:agent-bridge
-task deploy:foundry-agent
-task deploy:agent-bridge
+task chat-agent:external-status
 ```
 
-Review the infrastructure plan first. These steps do not rebuild tool APIs, the local
-model, the chat agent or test UI. Both Foundry versions must use the same newly built
-digest. No bootstrap or state removal is needed for this in-place recovery.
+The bootstrap creates the sign-in and policy API registrations, configures
+delegated access, and requests the TLS certificate. It also writes the API's
+authentication settings into `.env`; the final `cloud:up` applies those settings.
+No manual app registration is needed.
 
-Run the bridge verification/calls below, allow ingestion time, then run
-`task cloud:logging-status`. It reports recent table activity as **observed** or
-**inconclusive**, not containment pass/fail. A declared diagnostic setting alone is not
-proof that records arrived. The post-apply read-only inventory subsequently confirmed
-both diagnostic destinations, the AKS collection binding, and new container/diagnostic
-records. The owner reported Audit and Enforced verifier PASS; details and provenance
-are recorded in the [dated baseline results](telemetry-map.md#dated-baseline-results).
+### 4. Open the demo
 
-#### Functional checks and containment evidence
+When the certificate is ready, open **`https://<your-demo-hostname>`**.
+Sign in as the allowed test user, then repeat in a private browser as the denied user.
 
-```
-task test-ui:verify
-task agent-bridge:verify
-task chat-agent:verify
-task agent-bridge:send SLOT=audit          # expect get_servicing_policy 200 and send_to_external_processor 202
-task agent-bridge:send SLOT=enforced       # expect 200, and the second tool 403
+```bash
+task tool-apis:check
+task foundry-agent:status
 ```
 
-Wait at least 3 minutes, then confirm with the platform evidence (the `run-…` id and the UTC time of each call come from the `agent-bridge:send` output):
+For development without HTTPS sign-in, use `task chat-agent:token` followed by
+`task chat-agent:open`. That shared-token interface is not the user-identity demo.
 
+## Part 2: ACS governance and Microsoft 365 Copilot
+
+Start with part 1 running, including its protected policy API. Keep the same
+`.env`, Terraform state, and AKS context.
+
+### 1. Deploy the governance agents
+
+```bash
+task acs:up
+task acs:build
+task acs:deploy
+task acs:status
 ```
-.venv/bin/python scripts/verify_demo.py --section b --audit-run-id <run-…> --audit-called-at <UTC ISO>
-.venv/bin/python scripts/verify_demo.py --section c --enforced-run-id <run-…> --enforced-called-at <UTC ISO>
+
+These commands create three dedicated policies, deploy seven comparison agents,
+and configure their access. They leave the original agents and APIs alone.
+The private AKS helper handles deployment; it does not relay Copilot chat.
+
+### 2. Deploy the OAuth-enabled Copilot agent
+
+```bash
+task copilot-toolbox:build
+task copilot-toolbox:infra-up
 ```
 
-Exit 0 is PASS, 1 FAIL, 2 INCONCLUSIVE. Review any `cloud:plan` drift separately;
-do not apply unrelated policy changes to manufacture a clean plan.
+This creates the separate project, protected MCP service, OAuth connection, real
+callback, and versioned toolbox. It also configures the exact-host outbound rule.
+If asked to consent, open `.task/copilot-toolbox/consent.html`, sign in, and rerun
+**`task copilot-toolbox:infra-up`**.
 
-## Known rough edges
+The consenting user must be authorized on the MCP service. It inherits the
+baseline's allowed users; to add another user to **this service only**, set
+`TF_VAR_mcp_additional_authorized_user_ids='["<user-object-id>"]'` in `.env`
+before running `infra-up`.
 
-- **A rebuild needs fresh validation.** Historical baseline passes do not prove a new
-  deployment or the isolated ACS comparison.
-- **`cloud:plan` showed the two RAI policies updating in place on 2026-10-10** (contentFilters),
-  with no policy change on our side; `task cloud:policies` showed them still identical apart from
-  `egressPolicy.mode`. Unexplained. Read the plan before any `cloud:up`; do not apply it blind.
-- **Secrets** are created by `*:secret` and never stored in the repo; a rebuild makes new ones.
-  Anything holding an old token (a saved browser login) must use the new one.
-- **Teardown** follows [the demo runbook](demo-runbook.md#teardown-and-cost).
-  `cloud:down` guards exact-state destruction and retains local state and journals;
-  never remove them to hide failed cleanup.
+```bash
+task copilot-toolbox:up
+```
+
+If preflight reports a missing or unready account capability host, stop:
+this workflow requires the existing platform-managed host and does not create
+a replacement or change account-wide routing.
+
+### 3. Publish to Copilot
+
+Create the publication metadata file once:
+
+```bash
+mkdir -p .task/copilot-toolbox
+cp deploy/copilot/toolbox-publish-request.example.json \
+  .task/copilot-toolbox/publish-request.json
+```
+
+Edit the copy with your public developer name, website, privacy URL, and terms URL.
+Keep the display name **ACS OAuth Servicing Demo**. Do not overwrite an existing
+filled file.
+
+```bash
+task copilot-toolbox:publish-plan
+# Review the Just you publication and agent version.
+task copilot-toolbox:publish
+task copilot-toolbox:status
+```
+
+Open Microsoft 365 Copilot → **Your agents → ACS OAuth Servicing Demo**.
+Start a new conversation and ask:
+
+> Look up the servicing policy for the synthetic demo account, then send the
+> synthetic servicing record to the external processor.
+
+The lookup should succeed; ACS should block sending. This is application
+governance, not a platform network-denial result.
+
+**Optional:** to publish the original blocked-action-only **ACS Servicing Demo**,
+fill `.task/copilot/publish-request.json` from
+`deploy/copilot/publish-request.example.json`, then run `task acs:copilot`.
+That entry does not provide delegated lookup; it is separate from the OAuth demo.
+
+## Updating an existing environment
+
+Do not rebuild just to use the demo. To inspect it:
+
+```bash
+task tool-apis:check
+task acs:status
+task copilot-toolbox:status
+```
+
+For code changes, rebuild and deploy only the affected part:
+
+| Change | Commands |
+| --- | --- |
+| Baseline component | `task build:<component>`, then `task deploy:<component>` |
+| Original ACS agents | `task acs:build`, `task acs:deploy`; `task acs:copilot` if published |
+| OAuth Copilot demo | `task copilot-toolbox:build`, `infra-up`, `up`, `publish-plan`, then `publish` |
+
+For the first row, replace `<component>` with `tool-apis`, `foundry-agent`,
+`model-server`, `test-ui`, `agent-bridge`, or `chat-agent`.
+In the last row, all commands use the `copilot-toolbox:` prefix.
+Keep existing publication metadata; an image update changes the version pin, not
+the catalog entry. Skip publication if the same version is already published.
+
+Do not run `cloud:up` just to update an application or erase unrelated policy drift.
+Keep `.env`, Terraform state under `infra/`, and private journals/image records
+under `.task/`; they are needed for updates and cleanup.
+
+## Troubleshooting
+
+| Problem | First check |
+| --- | --- |
+| Wrong tenant, subscription, or AKS context | `task cloud:target-check`, then `task cloud:kubeconfig` |
+| Managed network missing from Terraform state | `task cloud:network-import` for a partially created foundation |
+| Hosted image will not start | Foundry's `acr-pe` outbound rule and registry approval; [troubleshooting](workshop/12-troubleshooting.md#infrastructure) |
+| HTTPS certificate not ready | DNS points to the ingress IP; ports 80/443 are reachable |
+| Policy lookup returns 401/403 | Signed-in user's authorization; in Copilot, check you selected the **OAuth** entry |
+| Consent or publication stops partway | Keep the private journals and inspect status; do not delete them and blindly retry |
+
+## Cleanup
+
+Remove in this order. Each step leaves the layers below it running.
+
+**1. Copilot.** Remove the OAuth extension before the shared helper:
+
+```bash
+task copilot-toolbox:disable
+task copilot-toolbox:down
+# If you also published the original ACS entry:
+task copilot:disable
+task governance:down
+```
+
+`copilot-toolbox:down` removes the hosted agent versions, grants, isolated Terraform resources and the dedicated OAuth registration. `governance:down` removes the original agents, the three policies and the helper deployment. Disabling a publication restores its endpoint; delete the catalog entry separately in Microsoft 365.
+
+**2. Identity probe (only if you ran it).** Needs the cluster context:
+
+```bash
+task identity:destroy
+```
+
+**3. External sign-in and ingress:**
+
+```bash
+task chat-agent:external-down       # removes ingress and proxy; harness returns to token auth
+task chat-agent:external-app-down   # removes the policy API registration and OBO settings
+```
+
+`external-down` keeps ingress-nginx, cert-manager, DNS and the app registrations. `external-app-down` keeps the sign-in app registration; delete that and the DNS record yourself.
+
+**4. Everything else:**
+
+```bash
+task cloud:down
+```
+
+This starts deletion of every resource group tagged with the lab's application name and removes local Terraform state immediately, without waiting for Azure to finish. Back up state and the `.task/` journals first if you might need them. Never touch the AKS node resource group directly.

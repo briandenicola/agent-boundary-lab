@@ -1,186 +1,109 @@
 # Architecture
 
-Updated 2026-11-10. The existing identity/egress baseline is tested
-(owner-confirmed 2026-11-06). The original ACS publication remains pinned v4.
-The separate OAuth publication is pinned v1; authorized lookup and ACS-blocked
-sending through Copilot have [dated evidence](telemetry-map.md#isolated-copilot-acceptance).
-Negative identity acceptance is deferred; original AKS/UI runtime regression is pending.
+The business tools run in **Foundry**, not AKS. AKS hosts the browser client and
+deployment helpers. Microsoft 365 Copilot reaches Foundry directly.
 
-![Copilot OAuth and ACS flow](diagrams/copilot-oauth-flow.svg)
+![Copilot lookup and ACS flow](diagrams/copilot-oauth-flow.svg)
 
-[Editable Excalidraw source](diagrams/copilot-oauth-flow.excalidraw) and
-[diagram legend](diagrams/README.md). This is a dated architecture map, not evidence.
+[Editable diagram](diagrams/copilot-oauth-flow.excalidraw)
 
 ## Execution and boundaries
 
 ```text
-Baseline browser harness on AKS
-  -> A2A facade on AKS
-  -> private Foundry Responses endpoint
-  -> hosted Python container: Responses adapter -> Google ADK
-       -> ACS pre-tool evaluation and host enforcement (optional)
-       -> get_servicing_policy       -> protected servicing API
-       -> send_to_external_processor -> unauthenticated test receiver
-            ^
-            Foundry platform egress policy governs these outbound HTTP calls
-
-Microsoft 365 Copilot integration
-  -> Foundry Activity channel -> same hosted ADK runtime
+Browser -> AKS harness -> A2A bridge -> Foundry Responses
+  -> Google ADK agent
+       -> get_servicing_policy       -> protected policy API
+       -> send_to_external_processor -> test receiver
 ```
 
-Microsoft 365 publication and the ACS-first chat path were observed working on
-2026-11-09 with version 3. The reply's run marker matched an ACS `deny` / `blocked`
-event for external processing; see the [dated observation](telemetry-map.md#microsoft-365-copilot-blocked-action-observation).
-This path does not replace ADK or move the business tools outside Foundry.
+The Audit and Enforced agents use one image digest and identical tool
+configuration. Their RAI network policy is the experimental variable.
+Both destinations are allowed by the separate managed-network layer.
 
-The baseline agent versions share an immutable image digest. The attached RAI
-network policy is the experimental variable; `DEMO_POLICY_MODE` is an evidence
-label, never a tool implementation branch.
+Both tools are always registered. They accept no model-supplied URLs and use
+verified TLS, bounded timeouts, and no redirects. The diagnostic route reuses
+the same implementations.
 
-Exactly two business tools are registered in every mode. Both use fixed startup
-destinations, verified TLS, bounded timeouts and disabled redirects. The
-authenticated diagnostic route reuses those implementations.
+The AKS bridge implements A2A over Foundry Responses. Native inbound A2A to a
+hosted agent returned `HOSTED_AGENT_NOT_SUPPORTED`.
 
 ## Microsoft 365 Copilot runtime path
 
 ```text
-End user: Microsoft 365 Copilot -> Your agents
-  -> ACS OAuth Servicing Demo (separate project/publication, pinned v1)
-  -> Microsoft's channel infrastructure
-  -> Foundry's authenticated Activity endpoint
-  -> stable agent endpoint, pinned to the reviewed hosted version
-  -> Responses adapter in the Foundry-hosted Python container
-  -> Google ADK runner
-       -> Azure-hosted model, authenticated as the agent using Entra
-       -> model proposes a registered business tool
-       -> ACS pre-tool callback evaluates the Rego policy through OPA
-            allow lookup -> managed-identity toolbox caller + trusted user context
-              -> immutable toolbox v2 -> custom OAuth connection
-              -> delegated token -> protected MCP on Azure Container Apps
-            deny  -> structured blocked result; no business HTTP call
-       -> model explains the actual tool result
-  -> Responses text -> Foundry channel -> reply in Microsoft 365 Copilot
+Microsoft 365 Copilot -> Foundry Activity endpoint -> hosted adapter -> ADK
+  -> Model proposes a tool
+  -> ACS evaluates it through Rego/OPA
+       allow lookup -> Foundry toolbox -> OAuth connection -> protected MCP
+       block send   -> governance_denied; tool does not execute
+  -> Reply to Copilot, with Demo run: chat-<uuid>
 ```
 
-**No AKS endpoint is in this chat request path.** The AKS web UI, A2A facade and
-optional local model are separate baseline clients. The private AKS helper runs
-operator deployment/publication commands because it can reach Foundry's private
-management endpoint; it does not relay Copilot messages. No AKS ingress or
-port-forward is needed to chat with the published agent.
+**No AKS ingress, bridge, or UI relays this conversation.** The private AKS
+helper manages deployments and publications only.
 
-The Activity exception permits authenticated Microsoft channel traffic through
-Foundry's service-source-IP filter. Operator Responses/management operations use
-the private helper path. The current account retains the owner's separately
-approved **public access Enabled, selected-IP ACL/default Deny** configuration;
-do not describe it as account-wide public access Disabled. Inbound reachability,
-outbound managed networking and RAI egress are independent controls.
-
-Copilot sign-in authorizes channel access, not the agent's model call or a protected
-downstream API call. The hosted agent uses its own Entra credential for the model.
-Successful lookup in **ACS OAuth Servicing Demo** uses the real connection's
-interactive browser consent and delegated scope. The MCP validates the token and
-explicitly authorized user; consent alone does not grant service access.
-The toolbox caller uses managed identity and platform-authenticated per-request
-user/call context, not a fabricated user ID, static user token or operator fallback.
-Exactly two business tools remain registered; only the lookup transport is different
-in the dedicated image/configuration.
-
-The original **ACS Servicing Demo** remains separate and uses the direct-HTTP
-lookup transport without this channel's delegated connection. Its observed 401
-must not be treated as an OAuth failure in the isolated publication.
-
-The Responses handler creates a fresh `chat-<uuid>` marker and appends **Demo run:**
-to its reply. A missing reply or marker is not an ACS result. Correlate application
-exceptions first; only a model-selected tool and recorded ACS decision establish
-that governance was exercised. See [Copilot failure diagnosis and recovery](governance-demo.md#copilot-runtime-failure-and-image-updates).
-
-## Components
-
-| Component | Runtime / ownership | Source and operator tasks |
+| Copilot entry | Lookup transport | Purpose |
 | --- | --- | --- |
-| Baseline ADK agents | Foundry hosted containers | `src/containment_demo/`; `build:foundry-agent`, `deploy:foundry-agent` |
-| Seven isolated governance agents | Same governed image digest; separate agent names | `governance/hosted.py`; `acs:build`, `acs:deploy`, `acs:status` |
-| OAuth Copilot agent/publication | Dedicated project/image; active v1, separate Just you title | `copilot_toolbox.py`; `copilot-toolbox:up`, `publish-plan`, `publish`, `status` |
-| Toolbox / OAuth connection / protected MCP | Immutable toolbox v2, delegated consent, separate authorized-user list | `toolbox.py`, `copilot_toolbox_setup.py`, `src/services/policy_api/`; `copilot-toolbox:infra-up` |
-| Isolated infrastructure/policy | Separate Terraform state; existing telemetry destination | `infra/copilot-toolbox/`; `copilot-toolbox:plan`, `infra-up`, `down` |
-| ACS / Rego / OPA | Inside the hosted container; application governance | `governance/`, `policies/acs/` |
-| Baseline RAI policies | Foundry account; existing Terraform declarations | `infra/cloud/rai-policies.tf`; preserve externally managed live settings |
-| Three governance policies | Separate Terraform state; live baseline content filters copied | `infra/governance/`; `acs:up` |
-| Policy API and receiver | Azure Container Apps | `src/services/`; `build:tool-apis`, `deploy:tool-apis` |
-| Governance publisher | Private AKS helper, workload identity | `scripts/governance_manifest.py`; `acs:deploy`, optional `acs:copilot` |
-| Baseline harness / bridges | AKS, standing in for an on-premises caller | `harness/`, `a2a_facade/`; `deploy:chat-agent`, `deploy:agent-bridge` |
-| Optional CPU model / two-button UI | Baseline AKS client components | `deploy:model-server`, `deploy:test-ui` |
-| Evidence | Application Insights and Log Analytics | `verify_demo.py`, `verify_governance.py`, [telemetry map](telemetry-map.md) |
+| **ACS OAuth Servicing Demo** | Toolbox with delegated OAuth | Policy lookup and blocked sending |
+| **ACS Servicing Demo** | Direct HTTP, without the channel's delegated connection | Earlier blocked-send demo |
 
-Read current resource names, versions and digests from state and deployment readback,
-not from old resource URLs. The default region is Sweden Central.
+The OAuth entry has its own project, agent image, protected MCP service, policy,
+connection, toolbox version, and publication. It shares the account's managed
+network, model capacity, and existing telemetry destination.
 
 ## Identity
 
-The baseline HTTPS harness uses Entra sign-in through oauth2-proxy.
-MSAL exchanges the incoming user assertion for the protected policy API scope.
-The downstream token travels through the facade and Foundry's `x-client-*` header
-forwarding into request-scoped ADK state. The policy API checks the token and the
-authorized synthetic-user list. See [token flow](token-flow-documented.md).
+The browser harness exchanges the signed-in user's token for a policy API token
+on their behalf. The bridge forwards it into request-scoped hosted-agent state.
+The policy API validates it and checks the user's authorization.
 
-Actor aliases are display labels, never authorization inputs. The receiver deliberately
-has no authorization gate: its rejection must not masquerade as platform containment.
+In Copilot, the managed-identity toolbox caller supplies trusted user/request
+context; the OAuth connection handles the downstream delegated token.
+Consent does not add a user to the service's allowed list.
 
-Microsoft 365 channel authorization and downstream policy API authorization are
-separate contracts. The direct-client forwarding headers do not establish channel
-token delivery.
-The separate Copilot toolbox path supplies downstream delegation without copying
-the baseline UI/OBO registration or sending its bearer tokens to the agent.
+The hosted agent uses its own Entra credential for model access.
+The external-processing tool never receives the user's policy token.
+[Identity flow](token-flow-documented.md)
+
+## Components
+
+| Component | Runs in | Source |
+| --- | --- | --- |
+| ADK agent, tools, Responses adapter | Foundry container | [src/containment_demo](../src/containment_demo/) |
+| ACS evaluator and Rego policies | Same container | [governance](../src/containment_demo/governance/), [policies/acs](../policies/acs/) |
+| Browser harness, A2A bridges, optional CPU model, test UI | AKS | [deploy/kustomize](../deploy/kustomize/) |
+| Policy API and test receiver | Container Apps | [src/services](../src/services/) |
+| Baseline resources | Azure | [infra/cloud](../infra/cloud/) |
+| Governance policies | Azure, separate Terraform state | [infra/governance](../infra/governance/) |
+| OAuth project and MCP service | Azure, separate Terraform state | [infra/copilot-toolbox](../infra/copilot-toolbox/) |
+| Decisions, traces, receipts | Application Insights / Log Analytics | [Telemetry map](telemetry-map.md) |
 
 ## Independent controls
 
-| Control | Enforcement point | What it does not prove |
+| Control | Enforces | Does not establish |
 | --- | --- | --- |
-| Entra / API authorization | Ingress and protected policy API | Outbound containment |
-| ACS | ADK pre-tool callback and shared diagnostic mediator | A platform network denial |
-| RAI egress policy | Foundry hosted sandbox outbound HTTP/HTTPS | Protection of AKS callers or arbitrary protocols |
-| Private endpoint / PNA | Foundry inbound reachability | Outbound containment |
-| Managed network | Foundry runtime network | That a particular RAI rule caused an observed failure |
+| Entra and API authorization | User/service access | Network containment |
+| ACS | Whether a proposed tool executes | Platform egress denial |
+| RAI egress policy | Hosted sandbox outbound HTTP/HTTPS destinations | Protection of AKS callers |
+| Private endpoint and inbound ACLs | Who can reach Foundry | Outbound containment |
+| Managed network | Runtime connectivity | Which RAI rule caused a failure |
 
-Both API hosts are permitted by the managed network. The RAI policy omits the receiver
-only in network-denial scenarios. ACS governance-denial uses a policy permitting both
-APIs, so its blocked send is attributable to ACS rather than the network.
+Terraform defaults Foundry public access to Disabled. The recorded Copilot
+deployment uses Enabled with selected-IP/default-Deny ACLs and authenticated
+Activity access. These inbound settings are separate from outbound policy.
 
-Native inbound A2A to a hosted target returned `HOSTED_AGENT_NOT_SUPPORTED` in the
-2026-10-09 spike. The baseline uses an application-owned A2A facade over Responses;
-it must not be described as native hosted-agent A2A.
+ACS-denial scenarios allow both API hosts at the network layer. Network-denial
+scenarios allow tool execution and deny the receiver at the RAI layer.
+That separation makes the source of each block identifiable.
 
 ## Evidence
 
-The observed platform source is `AppDependencies` with
-`DependencyType == "NetworkEgressDecision"`. `Data` / `Properties.path` retain the
-run marker in `/policy/{run_id}` and `/ingest/{run_id}`. `OperationId` did not join
-platform decisions to application spans in the recorded baseline.
+Each result needs the run's actual decision and receipt records.
+Application `OperationId` did not join to platform egress records; the lab uses
+the run marker embedded in the request path.
 
-Receipts are JSON in `ContainerAppConsoleLogs_CL.Log_s`. A missing receiver receipt
-counts only after a mature ingestion window, with a successful servicing receipt and
-no unattributed arrivals. `/healthz` is not a receipt positive control.
+ACS-blocked tools make no outbound request, so no platform Deny is expected for
+them. Receiver absence needs a successful servicing receipt and a mature ingestion
+window. A model reply or HTTP error alone is insufficient.
 
-ACS has its own decision events; it does not emit synthetic platform decisions.
-No platform row is expected for a tool ACS prevented from executing. A model's
-explanation, HTTP 403, DNS error or timeout alone is not proof of either control.
-
-The platform injects its reserved Application Insights connection setting.
-Prompt/response/payload/token capture stays disabled. The version 3 governance
-logger mapping was observed in `AppTraces`; other event mappings and the full
-hosted comparison remain separate validation gates. The isolated v1 lookup and
-blocked-send observations include actual ACS/tool events, MCP receipts and a
-mature receiver-absence window; see the telemetry map. ACS denial is not a
-platform egress-denial result.
-
-## Operations and deferred components
-
-Use [rebuild-runbook.md](rebuild-runbook.md) for Task ordering and guarded cleanup.
-The AKS harness and local model are optional clients, not prerequisites for the
-Microsoft 365 experience. They are outside Foundry's egress boundary.
-
-Dapr Workflow, its persistent state store, human approval resolution, APIM,
-messaging bridges and true on-premises/OpenShift portability are deferred.
-The current [Copilot diagram](diagrams/README.md) covers delegated lookup, ACS,
-evidence and operator deployment. Older environment pictures describe the October
-baseline only, not current Copilot rollout status.
+[Recorded results](telemetry-map.md) · [Queries](kql-queries.md) ·
+[Deploy](rebuild-runbook.md) · [Deferred work](PLAN.md#deferred-features)
